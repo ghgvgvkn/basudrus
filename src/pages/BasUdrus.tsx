@@ -208,6 +208,7 @@ const makeCSS = (T: Theme) => `
   @keyframes popIn    { from { opacity:0; transform:scale(0.93); } to { opacity:1; transform:scale(1); } }
   @keyframes shimmer  { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
   @keyframes pulse    { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+  @keyframes orbFloat { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-8px) scale(1.03)} }
   @keyframes bounceIn { 0%{transform:scale(0.3);opacity:0} 60%{transform:scale(1.05)} 100%{transform:scale(1);opacity:1} }
   .fly-up   { animation:flyUp   0.35s cubic-bezier(0.4,0,0.2,1) forwards; will-change:transform,opacity; }
   .fly-down { animation:flyDown 0.3s cubic-bezier(0.4,0,0.2,1) forwards; will-change:transform,opacity; }
@@ -2760,12 +2761,12 @@ export default function BasUdrus() {
             <h2 style={{fontSize:22,fontWeight:800,color:T.navy,marginBottom:4,letterSpacing:"-0.02em"}}>Study Feed</h2>
             <p style={{fontSize:14,color:T.muted,marginBottom:16}}>Students looking for study partners — connect or post your own</p>
             <div className="dis-filter-row" style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-              <select className="dis-filter-sel" value={uniFilter} style={{flex:1,minWidth:120,padding:"9px 12px",border:`1.5px solid ${uniFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,fontWeight:600,color:T.text,background:T.surface,cursor:"pointer",outline:"none"}}
+              <select className="dis-filter-sel" value={uniFilter} style={{flex:"1 1 160px",minWidth:160,padding:"9px 12px",border:`1.5px solid ${uniFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,fontWeight:600,color:T.text,background:T.surface,cursor:"pointer",outline:"none"}}
                 onChange={e=>{setUniFilter(e.target.value);setMajorFilter("");setSubjectFilter("");setCourseSearch("");setCourseDropOpen(false);}}>
                 <option value="">🏫 All unis</option>
                 {getUniversities().map(u=><option key={u} value={u}>{u}</option>)}
               </select>
-              <div ref={majorFilterRef} style={{position:"relative",flex:1,minWidth:130}}>
+              <div ref={majorFilterRef} style={{position:"relative",flex:"1 1 160px",minWidth:160}}>
                 <div
                   style={{display:"flex",alignItems:"center",gap:5,padding:"9px 12px",border:`1.5px solid ${majorFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,background:T.surface,cursor:"text"}}
                   onClick={()=>setMajorFilterOpen(true)}
@@ -2813,7 +2814,7 @@ export default function BasUdrus() {
                   );
                 })()}
               </div>
-              <div ref={courseDropRef} className="dis-course-box" style={{position:"relative",flex:1,minWidth:140}}>
+              <div ref={courseDropRef} className="dis-course-box" style={{position:"relative",flex:"2 1 220px",minWidth:220}}>
                 <div
                   style={{display:"flex",alignItems:"center",gap:5,padding:"9px 12px",border:`1.5px solid ${subjectFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,background:T.surface,cursor:"text"}}
                   onClick={()=>setCourseDropOpen(true)}
@@ -2860,7 +2861,7 @@ export default function BasUdrus() {
                   </div>
                 )}
               </div>
-              <select className="dis-filter-sel dis-filter-meet" value={typeFilter} style={{flex:1,minWidth:100,padding:"9px 12px",border:`1.5px solid ${typeFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,fontWeight:600,color:T.text,background:T.surface,cursor:"pointer",outline:"none"}} onChange={e=>setTypeFilter(e.target.value)}>
+              <select className="dis-filter-sel dis-filter-meet" value={typeFilter} style={{flex:"1 1 140px",minWidth:140,padding:"9px 12px",border:`1.5px solid ${typeFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,fontWeight:600,color:T.text,background:T.surface,cursor:"pointer",outline:"none"}} onChange={e=>setTypeFilter(e.target.value)}>
                 <option value="">💬 Any type</option>
                 <option value="online">🎥 Online</option>
                 <option value="face">📍 On Campus</option>
@@ -3155,31 +3156,50 @@ export default function BasUdrus() {
         <div className="page-scroll">
           <div style={{maxWidth:700,margin:"0 auto",padding:"0 16px 20px"}}>
             {/* ── AI Hero Header ── */}
-            <div style={{
-              background:"linear-gradient(160deg,#fdf2f8 0%,#ede9fe 30%,#e0e7ff 60%,#f0fdf4 100%)",
-              borderRadius:28,padding:"44px 24px 36px",marginBottom:18,position:"relative",overflow:"hidden",
-            }}>
-              {/* Soft glow blurs */}
-              <div style={{position:"absolute",top:-40,right:-20,width:160,height:160,borderRadius:"50%",background:"radial-gradient(circle,rgba(251,146,60,0.15),rgba(244,63,94,0.08),transparent 70%)",filter:"blur(30px)"}}/>
-              <div style={{position:"absolute",bottom:-30,left:-30,width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(139,92,246,0.12),rgba(99,102,241,0.06),transparent 70%)",filter:"blur(25px)"}}/>
-              <div style={{position:"absolute",top:30,left:"50%",transform:"translateX(-50%)",width:200,height:200,borderRadius:"50%",background:"radial-gradient(circle,rgba(168,85,247,0.06),transparent 70%)",filter:"blur(30px)"}}/>
+            {(()=>{
+              const hasMessages = wellbeingMsgs.length>0 || tutorMsgs.length>0;
+              const collapsed = hasMessages;
+              return (
+              <div style={{
+                background:"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)",
+                borderRadius:collapsed?20:28,padding:collapsed?"16px 24px":"56px 24px 44px",marginBottom:collapsed?12:18,position:"relative",overflow:"hidden",
+                transition:"all 0.5s cubic-bezier(0.4,0,0.2,1)",
+              }}>
+                {/* Large ambient glow behind orb */}
+                <div style={{position:"absolute",top:collapsed?"-60%":"10%",left:"50%",transform:"translateX(-50%)",width:collapsed?200:340,height:collapsed?200:340,borderRadius:"50%",background:"radial-gradient(circle,rgba(168,85,247,0.12),rgba(139,92,246,0.06),transparent 70%)",filter:"blur(60px)",transition:"all 0.5s ease"}}/>
+                {/* Warm glow top-right */}
+                <div style={{position:"absolute",top:-60,right:-40,width:220,height:220,borderRadius:"50%",background:"radial-gradient(circle,rgba(251,146,60,0.1),rgba(244,63,94,0.05),transparent 70%)",filter:"blur(40px)"}}/>
+                {/* Cool glow bottom-left */}
+                <div style={{position:"absolute",bottom:-50,left:-40,width:200,height:200,borderRadius:"50%",background:"radial-gradient(circle,rgba(99,102,241,0.08),rgba(59,130,246,0.04),transparent 70%)",filter:"blur(35px)"}}/>
 
-              <div style={{position:"relative",zIndex:1,textAlign:"center"}}>
-                {/* Glowing orb */}
-                <div style={{
-                  width:88,height:88,borderRadius:"50%",margin:"0 auto 24px",
-                  background:"radial-gradient(circle at 30% 30%,#fb923c 0%,#f43f5e 25%,#c026d3 50%,#8b5cf6 75%,#6366f1 100%)",
-                  boxShadow:"0 8px 40px rgba(251,146,60,0.25),0 4px 80px rgba(168,85,247,0.15),inset 0 -4px 12px rgba(0,0,0,0.1)",
-                  animation:"pulse 4s ease-in-out infinite",
-                }}/>
-                <h2 style={{fontSize:22,fontWeight:800,color:"#1e1b4b",margin:"0 0 8px",letterSpacing:"-0.03em",lineHeight:1.3}}>
-                  Hey {profile.name?.split(" ")[0]||"there"},<br/>What do you need today?
-                </h2>
-                <p style={{fontSize:13,color:"#6b7280",margin:0}}>
-                  Your AI study companion — always here for you
-                </p>
+                <div style={{position:"relative",zIndex:1,textAlign:"center",display:"flex",flexDirection:collapsed?"row":"column",alignItems:"center",justifyContent:collapsed?"center":"flex-start",gap:collapsed?14:0}}>
+                  {/* Glowing orb */}
+                  <div style={{
+                    width:collapsed?44:120,height:collapsed?44:120,borderRadius:"50%",margin:collapsed?0:"0 auto 28px",flexShrink:0,
+                    background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
+                    boxShadow:collapsed
+                      ?"0 4px 20px rgba(168,85,247,0.2)"
+                      :"0 0 60px rgba(251,146,60,0.2),0 0 120px rgba(168,85,247,0.12),0 8px 40px rgba(139,92,246,0.18),inset 0 -6px 16px rgba(0,0,0,0.08),inset 0 4px 12px rgba(255,255,255,0.1)",
+                    animation:"orbFloat 6s ease-in-out infinite",
+                    transition:"all 0.5s cubic-bezier(0.4,0,0.2,1)",
+                  }}/>
+                  {!collapsed&&(
+                    <div>
+                      <h2 style={{fontSize:26,fontWeight:800,color:"#1e1b4b",margin:"0 0 10px",letterSpacing:"-0.03em",lineHeight:1.3}}>
+                        Hey {profile.name?.split(" ")[0]||"there"},<br/>What do you need today?
+                      </h2>
+                      <p style={{fontSize:14,color:"#6b7280",margin:0,fontWeight:400}}>
+                        Your AI study companion — always here for you
+                      </p>
+                    </div>
+                  )}
+                  {collapsed&&(
+                    <span style={{fontSize:15,fontWeight:700,color:"#1e1b4b",letterSpacing:"-0.02em"}}>AI Study Hub</span>
+                  )}
+                </div>
               </div>
-            </div>
+              );
+            })()}
 
             {/* ── Tab Selector ── */}
             <div className="ai-tab-row" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:18}}>
@@ -3222,7 +3242,7 @@ export default function BasUdrus() {
                       <span style={{fontSize:12,color:"#047857",fontWeight:500}}>{wellbeingMood||wellbeingMode?"Ready when you are — type below 💚":"اكتب / Type — Arabic, English, or both. Start whenever you are ready."}</span>
                     </div>
                   )}
-                  <div style={{height:340,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:12,background:T.bg}}>
+                  <div style={{height:340,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:12,background:wellbeingMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
                     {wellbeingMsgs.length===0&&(()=>{
                       const quotes=[
                         {q:"\"الصبر مفتاح الفرج\"",t:"Patience is the key to relief — Arabic proverb"},
@@ -3234,11 +3254,20 @@ export default function BasUdrus() {
                       ];
                       const q=quotes[Math.floor(Date.now()/86400000)%quotes.length];
                       return (
-                        <div style={{textAlign:"center",padding:"40px 16px",color:T.muted}}>
-                          <div style={{fontSize:36,marginBottom:12}}>🌿</div>
-                          <div style={{fontSize:14,fontWeight:700,color:"#064e3b",lineHeight:1.5,fontStyle:"italic",marginBottom:6}}>{q.q}</div>
-                          <div style={{fontSize:11,color:"#6b7280"}}>— {q.t}</div>
-                          <div style={{fontSize:12,color:T.muted,marginTop:16}}>Start typing below, or pick a mood and prompt to begin.</div>
+                        <div style={{textAlign:"center",padding:"40px 16px",color:T.muted,position:"relative",zIndex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
+                          {/* Ambient glows */}
+                          <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",background:"radial-gradient(circle,rgba(168,85,247,0.1),rgba(139,92,246,0.04),transparent 70%)",filter:"blur(50px)",zIndex:0}}/>
+                          <div style={{position:"absolute",top:"-10%",right:"-5%",width:160,height:160,borderRadius:"50%",background:"radial-gradient(circle,rgba(251,146,60,0.08),transparent 70%)",filter:"blur(30px)",zIndex:0}}/>
+                          {/* Orb */}
+                          <div style={{
+                            width:90,height:90,borderRadius:"50%",marginBottom:24,position:"relative",zIndex:1,
+                            background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
+                            boxShadow:"0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
+                            animation:"orbFloat 6s ease-in-out infinite",
+                          }}/>
+                          <div style={{fontSize:15,fontWeight:700,color:"#1e1b4b",lineHeight:1.5,fontStyle:"italic",marginBottom:6,position:"relative",zIndex:1}}>{q.q}</div>
+                          <div style={{fontSize:12,color:"#6b7280",position:"relative",zIndex:1}}>— {q.t}</div>
+                          <div style={{fontSize:12,color:"#9ca3af",marginTop:18,position:"relative",zIndex:1}}>Start typing below, or pick a mood and prompt to begin.</div>
                         </div>
                       );
                     })()}
