@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const BasUdrus = lazy(() => import("@/pages/BasUdrus"));
 
@@ -15,8 +16,11 @@ function LoadingShell() {
 
 export default function App() {
   return (
-    <Suspense fallback={<LoadingShell />}>
-      <BasUdrus />
-    </Suspense>
+    <>
+      <Suspense fallback={<LoadingShell />}>
+        <BasUdrus />
+      </Suspense>
+      <SpeedInsights />
+    </>
   );
 }
