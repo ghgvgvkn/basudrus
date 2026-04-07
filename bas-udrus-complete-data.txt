@@ -1,0 +1,2706 @@
+═══════════════════════════════════════════════════════════════
+  BAS UDRUS — COMPLETE UNIVERSITIES, MAJORS & COURSES DATA
+═══════════════════════════════════════════════════════════════
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  UNIVERSITIES (3)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. PSUT
+2. Jordan University
+3. GJU
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ALL MAJORS (40 unique + Other)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Accounting
+2. Architecture
+3. Biomedical Engineering
+4. Business Administration
+5. Business Information Systems (BIS)
+6. Business Information Technology
+7. Business Intelligence & Data Analytics
+8. Chemical Engineering
+9. Civil & Environmental Engineering
+10. Civil Engineering
+11. Communications Engineering / IoT
+12. Computer Engineering
+13. Computer Graphics & Animation
+14. Computer Information Systems (CIS)
+15. Computer Science
+16. Cybersecurity
+17. Data Science & Artificial Intelligence
+18. Design & Visual Communication
+19. Digital Marketing
+20. E-Marketing & Social Media
+21. Economics
+22. Electrical Engineering
+23. Electrical Power & Energy Engineering
+24. Electronics Engineering
+25. Energy Engineering
+26. Finance
+27. Game Design & Media Informatics
+28. Industrial Engineering
+29. International Accounting
+30. Logistic Sciences
+31. Management Information Systems
+32. Management Science
+33. Marketing
+34. Mechanical & Maintenance Engineering
+35. Mechanical Engineering
+36. Mechatronics Engineering
+37. Networks & Information Security Engineering
+38. Pharmaceutical & Chemical Engineering
+39. Software Engineering
+40. Translation (German, English, Arabic)
+41. Other
+
+
+═══════════════════════════════════════════════════════════════
+  PSUT (PSUT)
+═══════════════════════════════════════════════════════════════
+
+── Computer Science (67 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Introduction to Psychology
+  12. Foreign Languages
+  13. Human Rights
+  14. Arabic Islamic Civilization
+  15. Introduction to Computer Science
+  16. Structured Programming
+  17. Structured Programming Lab
+  18. Calculus (1)
+  19. Calculus (2)
+  20. Discrete Mathematics (1)
+  21. Technical Writing and Communication Skills
+  22. Statistical Methods
+  23. Linear Algebra
+  24. Object Oriented Programming
+  25. Object Oriented Programming Lab
+  26. Data Structures and Introduction to Algorithms
+  27. Algorithms Design and Analysis
+  28. Database Systems
+  29. Database Systems Lab
+  30. Operating Systems
+  31. Operating Systems Lab
+  32. Data Communications & Computer Networks
+  33. Practical Training
+  34. Theory of Computation
+  35. Physics (1)
+  36. Physics (2)
+  37. Physics Lab
+  38. Discrete Mathematics (2)
+  39. Numerical Analysis
+  40. Principles of Probability
+  41. Digital Logic Design
+  42. Computer Organization and Assembly Language
+  43. Computer Architecture
+  44. Webpage Design and Internet Programming
+  45. Webpage Design and Internet Programming LAB
+  46. Visual Programming
+  47. Software Engineering
+  48. Artificial Intelligence
+  49. Information Systems Security
+  50. Computer and Society
+  51. System Analysis and Design
+  52. Mobile Application Development
+  53. Human Computer Interaction
+  54. Graduation Project 1
+  55. Graduation Project 2
+  56. Compiler Design and Programming Languages
+  57. Distributed Systems
+  58. Computer Graphics
+  59. Multimedia Systems
+  60. Digital Image Processing
+  61. Software Project Management
+  62. Electronic Business
+  63. Wireless Networks and Applications
+  64. Advanced Topics in Internet Programming
+  65. Operations Research
+  66. Special Topic in Computer Science (1)
+  67. Special Topic in Computer Science (2)
+
+── Software Engineering (61 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Introduction to Psychology
+  12. Introduction to Computer Science
+  13. Structured Programming
+  14. Structured Programming Lab
+  15. Calculus (1)
+  16. Calculus (2)
+  17. Discrete Mathematics (1)
+  18. Technical Writing and Communication Skills
+  19. Statistical Methods
+  20. Linear Algebra
+  21. Object Oriented Programming
+  22. Object Oriented Programming Lab
+  23. Data Structures and Introduction to Algorithms
+  24. Algorithms Design and Analysis
+  25. Database Systems
+  26. Database Systems Lab
+  27. Operating Systems
+  28. Operating Systems Lab
+  29. Data Communications & Computer Networks
+  30. Practical Training
+  31. Digital Logic Design
+  32. Computer Organization and Assembly Language
+  33. Introduction to Software Engineering
+  34. Software Requirements Analysis
+  35. Software Design and Architecture
+  36. Software Construction
+  37. Software Quality Assurance and Testing
+  38. Software Project Management
+  39. Software Engineering Approaches to Human Computer Interaction
+  40. System Analysis and Design
+  41. Database Management System
+  42. Information Systems Security
+  43. Artificial Intelligence
+  44. Mobile Application Development
+  45. Electronic Business
+  46. Webpage Design and Internet Programming
+  47. Webpage Design and Internet Programming LAB
+  48. Graduation Project 1
+  49. Graduation Project 2
+  50. Server Side Programming
+  51. Formal Methods in Software Engineering
+  52. Software Re-Engineering
+  53. Software Documentation
+  54. Risk Management for Software Intensive Projects
+  55. Secure Software Development
+  56. Wireless Networks and Applications
+  57. Multimedia Systems
+  58. Numerical Analysis
+  59. Advanced Topics in Programming
+  60. Special Topic in Software Engineering (1)
+  61. Special Topic in Software Engineering (2)
+
+── Computer Graphics & Animation (57 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Introduction to Computer Science
+  12. Structured Programming
+  13. Structured Programming Lab
+  14. Calculus (1)
+  15. Calculus (2)
+  16. Discrete Mathematics (1)
+  17. Technical Writing and Communication Skills
+  18. Statistical Methods
+  19. Linear Algebra
+  20. Object Oriented Programming
+  21. Object Oriented Programming Lab
+  22. Practical Training
+  23. Computer Applications in Computer Graphics
+  24. Webpage Design and Internet Programming
+  25. Video Editing and Production
+  26. 3D Modeling
+  27. 3D Materials and Lighting
+  28. Computer Graphics
+  29. Data Structures for Games
+  30. Algorithms and AI for Games
+  31. Human Computer Interaction
+  32. Multimedia Systems
+  33. Game Design
+  34. 2D Animation
+  35. 3D Animation
+  36. 3D Rigging and Skinning
+  37. Interactive 3D Graphics
+  38. Game Programming
+  39. Digital Image Processing
+  40. Usable Security and Privacy
+  41. Virtual and Augmented Reality
+  42. Database Systems
+  43. Database Systems Lab
+  44. Operating Systems
+  45. Digital Logic Design
+  46. Computer Organization and Assembly Language
+  47. Electronic Business
+  48. Graduation Project (1)
+  49. Graduation Project (2)
+  50. 3D Character Modeling
+  51. User Experience
+  52. Computer Vision
+  53. Visual and Sound Effects
+  54. Selected Topics in Games
+  55. Selected Topics in 2D Animation
+  56. Selected Topics in Computer Animation
+  57. Selected Topics in Computer Graphics
+
+── Cybersecurity (61 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Introduction to Computer Science
+  12. Structured Programming
+  13. Structured Programming Lab
+  14. Calculus (1)
+  15. Calculus (2)
+  16. Discrete Mathematics (1)
+  17. Technical Writing and Communication Skills
+  18. Statistical Methods
+  19. Linear Algebra
+  20. Practical Training
+  21. Cybersecurity Fundamentals
+  22. Data Structures and Algorithms for Cybersecurity
+  23. Database Fundamentals
+  24. Database Security
+  25. Database Security Lab
+  26. Operating Systems
+  27. Programming for Security Professionals
+  28. Programming for Security Professionals Lab
+  29. Networks Fundamentals
+  30. Secure Web Design and Development
+  31. Secure Web Design and Development Lab
+  32. Cryptography
+  33. Network Security and Protocols
+  34. Network Security and Protocols Lab
+  35. Artificial Intelligence and Data Analytics
+  36. Secure Systems Development and Design
+  37. Infrastructure Security using Linux
+  38. Auditing, Policies, Legal, Ethics, Compliance
+  39. Data Integrity and Authentication
+  40. Digital Forensics and Incident Response
+  41. Digital Forensics and Incident Response Lab
+  42. Malware Analysis and Risk Management
+  43. Ethical Hacking and Penetration Testing
+  44. Information Systems Risk Management
+  45. Graduation Project 1
+  46. Graduation Project 2
+  47. Identity Management
+  48. Cyber Crimes
+  49. Blockchain Technology
+  50. Advanced Forensics
+  51. Mobile and Wireless Security
+  52. Multimedia Security
+  53. Cloud Computing Security
+  54. Network Programming
+  55. Internet of Things
+  56. Hardware Security
+  57. Social Engineering and Human Factors
+  58. E-Business Security
+  59. Cyber Resilience and Business Continuity
+  60. Special Topics in Cybersecurity (1)
+  61. Special Topics in Cybersecurity (2)
+
+── Data Science & Artificial Intelligence (57 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Introduction to Computer Science
+  12. Structured Programming
+  13. Structured Programming Lab
+  14. Calculus (1)
+  15. Calculus (2)
+  16. Discrete Mathematics (1)
+  17. Technical Writing and Communication Skills
+  18. Statistical Methods
+  19. Linear Algebra
+  20. Object Oriented Programming
+  21. Object Oriented Programming Lab
+  22. Data Structures and Introduction to Algorithms
+  23. Algorithms Design and Analysis
+  24. Database Systems
+  25. Database Systems Lab
+  26. Operating Systems
+  27. Data Communications & Computer Networks
+  28. Practical Training
+  29. Principles of Probability
+  30. Advanced Statistical Methods
+  31. Programming for Data Science
+  32. Introduction to Data Science
+  33. Machine Learning
+  34. Deep Learning
+  35. Data Mining
+  36. Big Data Analytics
+  37. Data Visualization
+  38. Natural Language Processing
+  39. Computer Vision
+  40. Neural Networks and Deep Learning
+  41. Pattern Recognition
+  42. AI Ethics and Governance
+  43. Cloud Computing for Data Science
+  44. Information Retrieval and Search
+  45. Reinforcement Learning
+  46. Time Series Analysis
+  47. Business Intelligence
+  48. Artificial Intelligence
+  49. Graduation Project 1
+  50. Graduation Project 2
+  51. Human Computer Interaction
+  52. Advanced Machine Learning
+  53. Text Mining
+  54. Bioinformatics
+  55. Knowledge Representation
+  56. Special Topics in Data Science (1)
+  57. Special Topics in Data Science (2)
+
+── Computer Engineering (78 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Structured Programming
+  12. Structured Programming Lab
+  13. Calculus (1)
+  14. Calculus (2)
+  15. Calculus (3)
+  16. Basic Concepts in Chemistry
+  17. Physics (1)
+  18. Physics (2)
+  19. Physics Lab
+  20. Technical Writing and Communication Skills
+  21. Engineering Drawing Lab
+  22. Engineering Workshop
+  23. Engineering Ethics
+  24. Engineering Economics
+  25. Engineering Mathematics (1)
+  26. Linear Algebra
+  27. Numerical Analysis
+  28. Applied Probability and Statistics
+  29. Object Oriented Programming
+  30. Object Oriented Programming Lab
+  31. Data Structures and Introduction to Algorithms
+  32. Algorithms Design and Analysis
+  33. Database Systems
+  34. Discrete Mathematics (1)
+  35. Electric Circuits (1)
+  36. Electric Circuits (2)
+  37. Electric Circuits Lab
+  38. Electronics (1)
+  39. Digital Electronics
+  40. Digital Electronics Lab
+  41. Programming Applications Lab
+  42. Digital Logic Design
+  43. Digital Logic Lab
+  44. Computer Design Lab
+  45. Computer Architecture (1)
+  46. Computer Architecture (2)
+  47. Microprocessors
+  48. Embedded Systems
+  49. Embedded Systems Lab
+  50. Computer Networks
+  51. Computer Networks Lab
+  52. Operating Systems and Security
+  53. Operating Systems Lab
+  54. Artificial Intelligence and Machine Learning
+  55. Practical Training
+  56. Senior Project (1)
+  57. Senior Project (2)
+  58. Automatic Control
+  59. Automatic Control Lab
+  60. Information Security Fundamentals
+  61. Signals and Systems
+  62. Communication Principles
+  63. Digital Image Processing
+  64. Software Engineering
+  65. VLSI Circuits
+  66. Mobile Application Programming
+  67. High-Performance Computing
+  68. Advanced Computer Networks
+  69. Digital System Design
+  70. Network Management & Security
+  71. Advanced Machine Learning
+  72. Wireless Networks
+  73. Cloud Computing & Security
+  74. Cellular Communications
+  75. Digital Signal Processing
+  76. Wireless IoT
+  77. Special Topics in Computer Engineering (1)
+  78. Special Topics in Computer Engineering (2)
+
+── Electronics Engineering (76 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Structured Programming
+  11. Structured Programming Lab
+  12. Calculus (1)
+  13. Calculus (2)
+  14. Calculus (3)
+  15. Basic Concepts in Chemistry
+  16. Physics (1)
+  17. Physics (2)
+  18. Physics Lab
+  19. Technical Writing and Communication Skills
+  20. Engineering Drawing Lab
+  21. Engineering Workshop
+  22. Engineering Economics
+  23. Engineering Ethics
+  24. Engineering Mathematics (1)
+  25. Engineering Mathematics (2)
+  26. Linear Algebra
+  27. Numerical Analysis
+  28. Applied Probability and Statistics
+  29. Electric Circuits (1)
+  30. Electric Circuits (2)
+  31. Electric Circuits Lab
+  32. Electronics (1)
+  33. Electronics (2)
+  34. Electronics Lab
+  35. Digital Electronics
+  36. Digital Electronics Lab
+  37. Communication Electronics
+  38. Communication Electronics Lab
+  39. Optical Electronics
+  40. Digital Logic Design
+  41. Digital Logic Lab
+  42. Embedded Systems
+  43. Electromagnetics (1)
+  44. Signals and Systems
+  45. Programming Applications in Signals & Systems Lab
+  46. Communications (1)
+  47. Communications (2)
+  48. Communications Lab
+  49. Digital Signal Processing
+  50. Instruments and Measurements
+  51. Instruments and Measurements Lab
+  52. Electric Machines (1)
+  53. Power Electronics
+  54. Automatic Control
+  55. Automatic Control Lab
+  56. Object Oriented Programming
+  57. VLSI Circuits
+  58. Industrial Electronics
+  59. Industrial Electronics Lab
+  60. Medical Electronics
+  61. Practical Training
+  62. Senior Project (1)
+  63. Senior Project (2)
+  64. RF Microelectronics
+  65. Mixed Signal IC Design
+  66. Solid State Electronics
+  67. Analog IC Design
+  68. Image Processing
+  69. Materials Physics and Chemistry for Engineers
+  70. Computer Architecture (1)
+  71. Microprocessors
+  72. Digital Control
+  73. Special Topics in Electronics Engineering
+  74. Special Topics in Computer Engineering (1)
+  75. Special Topics in Communications Engineering (1)
+  76. Special Topics in Power And Energy Engineering
+
+── Communications Engineering / IoT (66 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Structured Programming
+  11. Structured Programming Lab
+  12. Calculus (1)
+  13. Calculus (2)
+  14. Calculus (3)
+  15. Basic Concepts in Chemistry
+  16. Physics (1)
+  17. Physics (2)
+  18. Physics Lab
+  19. Technical Writing and Communication Skills
+  20. Engineering Drawing Lab
+  21. Engineering Workshop
+  22. Engineering Ethics
+  23. Engineering Economics
+  24. Engineering Mathematics (1)
+  25. Engineering Mathematics (2)
+  26. Linear Algebra
+  27. Applied Probability and Statistics
+  28. Numerical Analysis
+  29. Electric Circuits (1)
+  30. Electric Circuits (2)
+  31. Electric Circuits Lab
+  32. Electronics (1)
+  33. Digital Logic Design
+  34. Digital Logic Lab
+  35. Computer Architecture (1)
+  36. Microprocessors
+  37. Computer Networks
+  38. Computer Networks Lab
+  39. Operating Systems and Security
+  40. Signals and Systems
+  41. Digital Signal Processing
+  42. Communications (1)
+  43. Communications (2)
+  44. Communications Lab
+  45. Antennas and Waves Propagation
+  46. Introduction to IoT
+  47. Internet of Things Programming and Applications
+  48. Internet of Things Programming and Applications Lab
+  49. IoT Sensors and Applications
+  50. IoT Sensors and Applications Lab
+  51. IoT Security and Privacy
+  52. IoT Security Lab
+  53. Wireless IoT
+  54. Wireless IoT Lab
+  55. Practical Training
+  56. Senior Project (1)
+  57. Senior Project (2)
+  58. Automatic Control
+  59. Software Engineering
+  60. Embedded Systems
+  61. Network Management & Security
+  62. Mobile Application Programming
+  63. Cellular Communications
+  64. Digital Image Processing
+  65. Special Topics in Communications Engineering (1)
+  66. Special Topics in Communications Engineering (2)
+
+── Electrical Power & Energy Engineering (72 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Structured Programming
+  11. Structured Programming Lab
+  12. Calculus (1)
+  13. Calculus (2)
+  14. Calculus (3)
+  15. Basic Concepts in Chemistry
+  16. Physics (1)
+  17. Physics (2)
+  18. Physics Lab
+  19. Technical Writing and Communication Skills
+  20. Engineering Drawing Lab
+  21. Engineering Workshop
+  22. Engineering Ethics
+  23. Engineering Economics
+  24. Engineering Mathematics (1)
+  25. Engineering Mathematics (2)
+  26. Linear Algebra
+  27. Numerical Analysis
+  28. Applied Probability and Statistics
+  29. Electric Circuits (1)
+  30. Electric Circuits (2)
+  31. Electric Circuits Lab
+  32. Electronics (1)
+  33. Electronics (2)
+  34. Electronics Lab
+  35. Digital Logic Design
+  36. Digital Logic Lab
+  37. Electromagnetics (1)
+  38. Signals and Systems
+  39. Programming Applications in Signals & Systems Lab
+  40. Communications (1)
+  41. Thermodynamics
+  42. Instruments and Measurements
+  43. Instruments and Measurements Lab
+  44. Electric Machines (1)
+  45. Electric Machines (2)
+  46. Electric Machinery Lab
+  47. Power Systems Analysis
+  48. Power Systems Lab
+  49. Power Electronics
+  50. Power Electronics Lab
+  51. Power Systems Planning, Operation and Control
+  52. Automatic Control
+  53. Automatic Control Lab
+  54. Power Systems Protection
+  55. Power Systems Protection Lab
+  56. Energy Efficiency & Auditing
+  57. Power Systems Economics & Reliability
+  58. Renewable Energy Systems (1)
+  59. Practical Training
+  60. Senior Project (1)
+  61. Senior Project (2)
+  62. Object Oriented Programming
+  63. Embedded Systems
+  64. Energy Conversion
+  65. Transmission & Distribution Systems
+  66. High Voltage Engineering
+  67. Reliability of Power Systems
+  68. Power Systems Design
+  69. Electric Drives Systems
+  70. Renewable Energy Systems (2)
+  71. Special Topics in Power Engineering
+  72. Special Topics in Energy Engineering
+
+── Networks & Information Security Engineering (64 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Introduction to Computer Science
+  11. Structured Programming
+  12. Structured Programming Lab
+  13. Calculus (1)
+  14. Calculus (2)
+  15. Discrete Mathematics (1)
+  16. Technical Writing and Communication Skills
+  17. Statistical Methods
+  18. Linear Algebra
+  19. Object Oriented Programming
+  20. Object Oriented Programming Lab
+  21. Data Structures and Introduction to Algorithms
+  22. Algorithms Design and Analysis
+  23. Operating Systems
+  24. Operating Systems Lab
+  25. Data Communications & Computer Networks
+  26. Practical Training
+  27. Cybersecurity Fundamentals
+  28. Database Fundamentals
+  29. Database Security
+  30. Database Security Lab
+  31. Secure Web Design and Development
+  32. Secure Web Design and Development Lab
+  33. Cryptography
+  34. Network Security and Protocols
+  35. Network Security and Protocols Lab
+  36. Network Administration & Management
+  37. Network Architecture and Design
+  38. Firewall and VPN Systems
+  39. Firewall and VPN Systems Lab
+  40. Advanced Network Security
+  41. Advanced Network Security Lab
+  42. Cyber Attack and Prevention
+  43. Cyber Laws and Digital Forensics
+  44. Operating Systems Security
+  45. Computer and Network Forensics
+  46. Computer and Network Forensics Lab
+  47. Intrusion Detection Systems
+  48. Intrusion Detection Systems Lab
+  49. Wireless Network Security
+  50. Wireless Network Security Lab
+  51. Senior Project (1)
+  52. Senior Project (2)
+  53. Cloud Security
+  54. Cloud Security Lab
+  55. Identity Management
+  56. Advanced Forensics
+  57. Blockchain Technology
+  58. Mobile and Wireless Security
+  59. Network Programming
+  60. Network Performance Analysis
+  61. Special Topics in Network Security Engineering (1)
+  62. Special Topics in Network Security Engineering (2)
+  63. Special Topics in Information Security (1)
+  64. Special Topics in Information Security (2)
+
+── Business Administration (59 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Scientific Research Methods
+  11. Mathematics for Business
+  12. Statistical Methods for Business
+  13. Principles of Management
+  14. Microeconomics
+  15. Macroeconomics
+  16. Principles of Accounting (1)
+  17. Principles of Accounting (2)
+  18. Principles of Marketing
+  19. Management Information Systems
+  20. Computer Applications in Business
+  21. Principles of Finance
+  22. Financial Management
+  23. Organizational Behavior
+  24. Management Communication Skills
+  25. Operations Research for Business
+  26. Logistics Management
+  27. Business Ethics and Social Responsibility
+  28. Production and Operations Management
+  29. Quality Management
+  30. Public Relations Management
+  31. Strategic Management
+  32. Human Resources Management
+  33. Change Management
+  34. International Business Management
+  35. Managerial Accounting
+  36. Sales Management
+  37. E-Business for Business Students
+  38. Decision Support Systems
+  39. Marketing Management
+  40. Banking
+  41. Commercial & Electronic Legislation
+  42. Graduation Project
+  43. E-Marketing Channels
+  44. International Marketing
+  45. Enterprise Resource Planning (ERP)
+  46. Enterprise Management
+  47. Organization Theory
+  48. Financial Planning and Control
+  49. Data Analysis
+  50. Investment Management
+  51. Innovation Management
+  52. Services Management
+  53. Knowledge Management
+  54. Financial Analysis
+  55. Managerial Economics
+  56. Risk Management
+  57. Purchasing and Inventory Management
+  58. Conflict & Negotiation Management
+  59. Islamic Business Management
+
+── Accounting (53 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Mathematics for Business
+  11. Statistical Methods for Business
+  12. Principles of Management
+  13. Microeconomics
+  14. Macroeconomics
+  15. Principles of Accounting (1)
+  16. Principles of Accounting (2)
+  17. Principles of Marketing
+  18. Management Information Systems
+  19. Computer Applications in Business
+  20. Intermediate Accounting (1)
+  21. Intermediate Accounting (2)
+  22. Principles of Finance
+  23. Financial Management
+  24. Auditing (1)
+  25. Auditing (2)
+  26. Cost Accounting
+  27. Managerial Accounting
+  28. Accounting for Financial Institutions (Banks & Insurance)
+  29. Governmental Accounting
+  30. Advanced Accounting
+  31. Financial Statements Analysis (1)
+  32. International Accounting Standards
+  33. Accounting Theory
+  34. International Accounting
+  35. Accounting Information Systems
+  36. Computer Applications in Accounting
+  37. Accounting for Taxation
+  38. Commercial & Electronic Legislation
+  39. Organizational Behavior
+  40. Management Communication Skills
+  41. Business Ethics and Social Responsibility
+  42. Strategic Management
+  43. Human Resources Management
+  44. Graduation Project
+  45. Corporate Accounting
+  46. Financial Markets
+  47. Banking
+  48. Portfolio Management
+  49. Modern Cases in Accounting
+  50. Forensic Accounting
+  51. Islamic Accounting
+  52. Islamic Banking
+  53. E-Business for Business Students
+
+── E-Marketing & Social Media (51 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Mathematics for Business
+  11. Statistical Methods for Business
+  12. Principles of Management
+  13. Microeconomics
+  14. Macroeconomics
+  15. Principles of Accounting (1)
+  16. Principles of Marketing
+  17. Management Information Systems
+  18. Computer Applications in Business
+  19. Organizational Behavior
+  20. Management Communication Skills
+  21. Digital Marketing Fundamentals
+  22. Social Media Management
+  23. Social Media Marketing and Advertising
+  24. SEO and Search Engine Marketing
+  25. Content Marketing and Strategy
+  26. E-Commerce Systems
+  27. Email Marketing
+  28. Website Marketing and Analytics
+  29. Marketing Analytics
+  30. Consumer Behavior Online
+  31. Brand Management in the Digital Era
+  32. Digital Media Production
+  33. E-Marketing Channels
+  34. E-Marketing Strategy
+  35. Marketing Research
+  36. Public Relations and Social Media
+  37. Mobile Marketing
+  38. Influencer Marketing
+  39. Business Ethics and Social Responsibility
+  40. Commercial & Electronic Legislation
+  41. Strategic Management
+  42. E-Business for Business Students
+  43. Graduation Project
+  44. Sales Management
+  45. International Marketing
+  46. Customer Relationship Management
+  47. Innovation Management
+  48. Financial Management
+  49. Human Resources Management
+  50. Special Topics in E-Marketing (1)
+  51. Special Topics in E-Marketing (2)
+
+── Business Information Technology (58 courses) ──
+  1. Arabic Language Communication Skills
+  2. English Language Communication Skills
+  3. National Education
+  4. Military Science
+  5. Entrepreneurship and Innovation
+  6. Life Skills
+  7. History of Science
+  8. Sports and Health
+  9. Philosophy and Critical Thinking
+  10. Mathematics for Business
+  11. Statistical Methods for Business
+  12. Principles of Management
+  13. Microeconomics
+  14. Macroeconomics
+  15. Principles of Accounting (1)
+  16. Principles of Marketing
+  17. Management Information Systems
+  18. Computer Applications in Business
+  19. Introduction to Computer Science
+  20. Human Resources Management
+  21. Business Applications Programming
+  22. Business Applications Programming Lab
+  23. Web Development for Business Applications
+  24. Database Management for Business
+  25. Database Management for Business Lab
+  26. Business Data Communications
+  27. Advanced Business Applications Programming
+  28. Analysis and Design of Information System
+  29. E-Business for Business Students
+  30. Decision Support Systems
+  31. Enterprise Resource Planning Systems (ERP)
+  32. Enterprise Resource Planning Systems (ERP) Lab
+  33. Knowledge Management Systems
+  34. Information Security
+  35. Business Intelligence Systems
+  36. Mobile Business Applications
+  37. Cloud Computing
+  38. Business Process Modeling
+  39. IT Project Management
+  40. Advanced Applications in E-Business & SCM
+  41. Business Ethics and Social Responsibility
+  42. Quality Management
+  43. Strategic Management
+  44. Commercial & Electronic Legislation
+  45. Principles of Finance
+  46. Banking
+  47. Managerial Accounting
+  48. Accounting Information Systems
+  49. Training
+  50. Graduation Project
+  51. Object Oriented Programming
+  52. Fundamentals of Graphic Design for Business
+  53. Communication Skills and Technologies
+  54. Customer Relations Management
+  55. Advanced Database Management Systems
+  56. Logistics and SCM Systems
+  57. Advanced System Analysis and Design
+  58. Advanced Topics in BIT
+
+
+═══════════════════════════════════════════════════════════════
+  JORDAN UNIVERSITY (UJ)
+═══════════════════════════════════════════════════════════════
+
+── Computer Science (54 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Effective Communication Skills
+  7. Calculus (1)
+  8. Calculus (2)
+  9. Linear Algebra
+  10. Discrete Mathematics
+  11. Statistics and Probability
+  12. Physics (1)
+  13. Physics (2)
+  14. Physics Lab
+  15. Computer Skills (C++)
+  16. Advanced Programming
+  17. Programming in Special Languages
+  18. Data Structures
+  19. Theory of Computation
+  20. Theory of Algorithms
+  21. Numerical Analysis
+  22. Modelling and Simulation
+  23. Pattern Recognition
+  24. Computer Networks (1)
+  25. Computer Networks (2)
+  26. Systems Programming
+  27. Graph Theory
+  28. Network Programming
+  29. Computer Systems Performance
+  30. Computer Security
+  31. Parallel Processing
+  32. Distributed Systems
+  33. Multimedia Networking
+  34. Mobile and Wireless Networks
+  35. Design and Implementation of Programming Languages
+  36. Compiler Construction
+  37. Operating Systems
+  38. Embedded Systems
+  39. Database Systems
+  40. Artificial Intelligence
+  41. Image Processing
+  42. Software Engineering
+  43. System Analysis and Design
+  44. Web Application Development (1)
+  45. Web Application Development (2)
+  46. Management Information Systems
+  47. Fundamentals of Information Technology
+  48. Practical Training
+  49. Project
+  50. Certified Software
+  51. Internet and Electronic Commerce
+  52. Human Computer Interaction
+  53. Digital Image Processing
+  54. Advanced Topics in Computer Networks
+
+── Computer Information Systems (CIS) (38 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Statistics and Probability
+  9. Discrete Mathematics
+  10. Computer Skills (C++)
+  11. Programming in Special Languages
+  12. Data Structures
+  13. Algorithms
+  14. Database Systems
+  15. Database Lab
+  16. Management Information Systems
+  17. Systems Analysis and Design
+  18. Computer Networks
+  19. Information Security
+  20. Software Engineering
+  21. Project Management
+  22. E-Commerce
+  23. ERP Systems
+  24. Business Intelligence
+  25. Data Warehousing
+  26. IT Governance
+  27. Object Oriented Programming
+  28. Web Programming
+  29. Mobile Applications
+  30. Accounting Information Systems
+  31. Decision Support Systems
+  32. Human Computer Interaction
+  33. Practical Training
+  34. Graduation Project
+  35. Advanced Database Systems
+  36. Knowledge Management
+  37. Cloud Computing
+  38. Digital Transformation
+
+── Business Information Systems (BIS) (33 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus for Business
+  7. Statistics for Business
+  8. Principles of Management
+  9. Microeconomics
+  10. Macroeconomics
+  11. Principles of Accounting (1)
+  12. Principles of Accounting (2)
+  13. Principles of Marketing
+  14. Business Finance
+  15. Computer Skills
+  16. Introduction to Programming
+  17. Database Systems
+  18. Management Information Systems
+  19. Business Process Management
+  20. E-Commerce
+  21. ERP Systems
+  22. IT Project Management
+  23. Decision Support Systems
+  24. Business Intelligence
+  25. Accounting Information Systems
+  26. Digital Transformation
+  27. System Analysis and Design
+  28. Organizational Behavior
+  29. Business Ethics
+  30. Strategic Management
+  31. Human Resources Management
+  32. Practical Training
+  33. Graduation Project
+
+── Computer Engineering (43 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Calculus (3)
+  9. Linear Algebra
+  10. Differential Equations
+  11. Physics (1)
+  12. Physics (2)
+  13. Physics Lab
+  14. Engineering Drawing
+  15. Digital Logic
+  16. Logic Lab
+  17. Assembly Language and Microprocessors
+  18. Circuit Theory (1)
+  19. Circuit Theory (2)
+  20. Electronics (1)
+  21. Electronics (2)
+  22. Electronics Lab
+  23. Data Structures and Algorithms
+  24. Object Oriented Programming
+  25. Operating Systems
+  26. Computer Networks
+  27. Computer Architecture
+  28. Microcontrollers
+  29. Digital Signal Processing
+  30. Embedded Systems
+  31. Software Engineering
+  32. VLSI Design
+  33. Computer Organization
+  34. Control Systems
+  35. Wireless Communications
+  36. Real-Time Systems
+  37. Database Systems
+  38. Practical Training
+  39. Senior Project (1)
+  40. Senior Project (2)
+  41. Digital Image Processing
+  42. Advanced Computer Networks
+  43. Advanced VLSI
+
+── Civil Engineering (50 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Linear Algebra
+  9. Differential Equations
+  10. Numerical Methods
+  11. Physics (1)
+  12. Chemistry
+  13. Engineering Drawing
+  14. Engineering Mechanics (Statics)
+  15. Engineering Mechanics (Dynamics)
+  16. Strength of Materials (1)
+  17. Strength of Materials (2)
+  18. Fluid Mechanics
+  19. Hydraulics
+  20. Hydraulics Lab
+  21. Surveying (1)
+  22. Surveying (2)
+  23. Surveying Lab
+  24. Structural Analysis (1)
+  25. Structural Analysis (2)
+  26. Reinforced Concrete Design (1)
+  27. Reinforced Concrete Design (2)
+  28. Steel Structure Design
+  29. Pre-stressed Concrete
+  30. Soil Mechanics (1)
+  31. Soil Mechanics (2)
+  32. Soil Mechanics Lab
+  33. Foundation Engineering
+  34. Geotechnical Engineering
+  35. Transportation Engineering
+  36. Highway Engineering
+  37. Traffic Engineering
+  38. Environmental Engineering
+  39. Water and Wastewater Treatment
+  40. Construction Management
+  41. Engineering Economics
+  42. Engineering Ethics
+  43. Materials of Construction
+  44. Materials Lab
+  45. Practical Training
+  46. Senior Project (1)
+  47. Senior Project (2)
+  48. Bridge Engineering
+  49. Advanced Structural Analysis
+  50. Earthquake Engineering
+
+── Mechanical Engineering (47 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Calculus (3)
+  9. Linear Algebra
+  10. Differential Equations
+  11. Numerical Methods
+  12. Physics (1)
+  13. Physics (2)
+  14. Chemistry
+  15. Engineering Drawing
+  16. Engineering Drawing Lab
+  17. Statics
+  18. Dynamics
+  19. Strength of Materials
+  20. Thermodynamics (1)
+  21. Thermodynamics (2)
+  22. Fluid Mechanics
+  23. Fluid Mechanics Lab
+  24. Heat Transfer
+  25. Heat Transfer Lab
+  26. Material Science and Engineering
+  27. Machine Design (1)
+  28. Machine Design (2)
+  29. Manufacturing Processes
+  30. Manufacturing Processes Lab
+  31. Control Systems
+  32. Control Systems Lab
+  33. Vibrations and Dynamics of Machines
+  34. Applied Thermodynamics
+  35. Refrigeration and Air Conditioning
+  36. Finite Element Method
+  37. CAD/CAM
+  38. Renewable Energy Systems
+  39. Mechatronics
+  40. Engineering Economics
+  41. Engineering Ethics
+  42. Practical Training
+  43. Senior Project (1)
+  44. Senior Project (2)
+  45. Internal Combustion Engines
+  46. Turbomachinery
+  47. Advanced Fluid Mechanics
+
+── Electrical Engineering (52 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Calculus (3)
+  9. Linear Algebra
+  10. Differential Equations
+  11. Numerical Methods
+  12. Physics (1)
+  13. Physics (2)
+  14. Engineering Drawing
+  15. Circuit Theory (1)
+  16. Circuit Theory (2)
+  17. Circuits Lab
+  18. Electronics (1)
+  19. Electronics (2)
+  20. Electronics Lab
+  21. Signals and Systems
+  22. Digital Electronics
+  23. Digital Electronics Lab
+  24. Electromagnetic Fields
+  25. Electromagnetics Lab
+  26. Power Systems (1)
+  27. Power Systems (2)
+  28. Power Systems Lab
+  29. Control Systems
+  30. Control Systems Lab
+  31. Microprocessors
+  32. Microprocessors Lab
+  33. Communication Systems
+  34. Communication Systems Lab
+  35. Power Electronics
+  36. Power Electronics Lab
+  37. Electric Machines (1)
+  38. Electric Machines (2)
+  39. Electric Machines Lab
+  40. Digital Signal Processing
+  41. Instrumentation and Measurements
+  42. Measurements Lab
+  43. High Voltage Engineering
+  44. Energy Conversion
+  45. Engineering Economics
+  46. Engineering Ethics
+  47. Practical Training
+  48. Senior Project (1)
+  49. Senior Project (2)
+  50. Renewable Energy Systems
+  51. Smart Grids
+  52. Advanced Power Systems
+
+── Chemical Engineering (48 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Calculus (3)
+  9. Linear Algebra
+  10. Differential Equations
+  11. Numerical Methods
+  12. General Chemistry (1)
+  13. General Chemistry (2)
+  14. Chemistry Lab
+  15. Organic Chemistry
+  16. Organic Chemistry Lab
+  17. Physical Chemistry
+  18. Physics (1)
+  19. Engineering Drawing
+  20. Material and Energy Balances
+  21. Material and Energy Balances Lab
+  22. Thermodynamics (1)
+  23. Thermodynamics (2)
+  24. Fluid Mechanics
+  25. Fluid Mechanics Lab
+  26. Heat Transfer
+  27. Heat Transfer Lab
+  28. Mass Transfer
+  29. Mass Transfer Lab
+  30. Chemical Reaction Engineering (1)
+  31. Chemical Reaction Engineering (2)
+  32. Process Control
+  33. Process Control Lab
+  34. Transport Phenomena
+  35. Safety and Environmental Engineering
+  36. Plant Design and Economics
+  37. Chemical Plant Lab
+  38. Biochemistry
+  39. Biochemical Engineering
+  40. Instrumentation and Process Measurements
+  41. Engineering Economics
+  42. Engineering Ethics
+  43. Practical Training
+  44. Senior Project (1)
+  45. Senior Project (2)
+  46. Polymer Engineering
+  47. Petroleum Engineering
+  48. Advanced Process Control
+
+── Industrial Engineering (47 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Linear Algebra
+  9. Differential Equations
+  10. Numerical Methods
+  11. Physics (1)
+  12. Chemistry
+  13. Engineering Drawing
+  14. Statics
+  15. Dynamics
+  16. Engineering Materials
+  17. Engineering Economy
+  18. Engineering Statistics
+  19. Applied Probability and Statistics
+  20. Operations Research (1)
+  21. Operations Research (2)
+  22. Work Analysis and Measurement
+  23. Work Analysis Lab
+  24. Manufacturing Processes
+  25. Manufacturing Processes Lab
+  26. Quality Control and Management
+  27. Quality Control Lab
+  28. Production Planning and Control
+  29. Scheduling
+  30. Supply Chain Management
+  31. Purchasing and Procurement
+  32. Simulation
+  33. Simulation Lab
+  34. Ergonomics and Human Factors
+  35. Ergonomics Lab
+  36. CAD/CAM
+  37. Automation and Robotics
+  38. Maintenance Engineering
+  39. Reliability Engineering
+  40. Project Management
+  41. Engineering Ethics
+  42. Practical Training
+  43. Senior Project (1)
+  44. Senior Project (2)
+  45. Advanced Operations Research
+  46. Lean Manufacturing
+  47. Six Sigma
+
+── Business Administration (38 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Mathematics for Business
+  7. Statistics for Business
+  8. Principles of Management
+  9. Microeconomics
+  10. Macroeconomics
+  11. Financial Accounting (1)
+  12. Financial Accounting (2)
+  13. Principles of Marketing
+  14. Business Finance
+  15. Human Resource Management
+  16. Business Law
+  17. Organizational Behavior
+  18. Managerial Accounting
+  19. Cost Accounting
+  20. Operations Management
+  21. Business Research Methods
+  22. Strategic Management
+  23. Entrepreneurship and Innovation
+  24. International Business
+  25. Project Management
+  26. Business Ethics
+  27. Commercial Law
+  28. Decision Making
+  29. Management Information Systems
+  30. Marketing Management
+  31. Consumer Behavior
+  32. Financial Management
+  33. Investment Management
+  34. Graduation Project
+  35. E-Commerce
+  36. CRM
+  37. Innovation Management
+  38. Change Management
+
+── Accounting (39 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Mathematics for Business
+  7. Statistics for Business
+  8. Principles of Management
+  9. Microeconomics
+  10. Macroeconomics
+  11. Principles of Accounting (1)
+  12. Principles of Accounting (2)
+  13. Principles of Marketing
+  14. Business Finance
+  15. Intermediate Accounting (1)
+  16. Intermediate Accounting (2)
+  17. Intermediate Accounting (3)
+  18. Cost Accounting
+  19. Managerial Accounting
+  20. Auditing (1)
+  21. Auditing (2)
+  22. Taxation
+  23. Tax Accounting
+  24. Financial Reporting and Analysis
+  25. Accounting Information Systems
+  26. Computer Applications in Accounting
+  27. Governmental and Non-Profit Accounting
+  28. Advanced Financial Accounting
+  29. International Accounting Standards (IFRS)
+  30. Corporate Governance
+  31. Accounting Theory
+  32. Banking Accounting
+  33. Insurance Accounting
+  34. Business Law
+  35. Commercial Law
+  36. Graduation Project
+  37. Forensic Accounting
+  38. Islamic Accounting
+  39. Advanced Auditing
+
+── Finance (37 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Mathematics for Business
+  7. Statistics for Business
+  8. Principles of Management
+  9. Microeconomics
+  10. Macroeconomics
+  11. Financial Accounting (1)
+  12. Financial Accounting (2)
+  13. Managerial Accounting
+  14. Principles of Marketing
+  15. Business Law
+  16. Corporate Finance
+  17. Financial Management
+  18. Investments and Portfolio Management
+  19. Securities Analysis
+  20. Financial Markets and Institutions
+  21. Money and Banking
+  22. Commercial Banking
+  23. Islamic Banking and Finance
+  24. International Finance
+  25. Foreign Exchange Markets
+  26. Financial Derivatives
+  27. Options and Futures
+  28. Risk Management
+  29. Credit Analysis
+  30. Financial Analysis and Reporting
+  31. Mergers and Acquisitions
+  32. Financial Planning
+  33. Monetary Economics
+  34. Graduation Project
+  35. Private Equity
+  36. Venture Capital
+  37. Advanced Corporate Finance
+
+── Marketing (38 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Mathematics for Business
+  7. Statistics for Business
+  8. Principles of Management
+  9. Microeconomics
+  10. Macroeconomics
+  11. Financial Accounting (1)
+  12. Managerial Accounting
+  13. Business Finance
+  14. Principles of Marketing
+  15. Consumer Behavior
+  16. Marketing Research
+  17. Advertising and Promotion
+  18. Brand Management
+  19. Digital Marketing
+  20. E-Marketing Channels
+  21. Retail Marketing
+  22. Sales Management
+  23. International Marketing
+  24. Marketing Strategy
+  25. Product Management
+  26. Pricing Strategies
+  27. Public Relations
+  28. Marketing Communications
+  29. Social Media Marketing
+  30. Content Marketing
+  31. Customer Relationship Management
+  32. Marketing Ethics and Social Responsibility
+  33. Business Law
+  34. Organizational Behavior
+  35. Graduation Project
+  36. Neuromarketing
+  37. Influencer Marketing
+  38. Marketing Analytics
+
+── Economics (35 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Calculus (1)
+  7. Calculus (2)
+  8. Linear Algebra
+  9. Statistics
+  10. Econometrics
+  11. Mathematics for Economists
+  12. Principles of Accounting
+  13. Microeconomics (1)
+  14. Microeconomics (2)
+  15. Advanced Microeconomics
+  16. Macroeconomics (1)
+  17. Macroeconomics (2)
+  18. Advanced Macroeconomics
+  19. Development Economics
+  20. International Economics
+  21. Labor Economics
+  22. Public Finance
+  23. Monetary Economics
+  24. Banking and Financial Institutions
+  25. Environmental and Resource Economics
+  26. Industrial Organization
+  27. Economic History
+  28. History of Economic Thought
+  29. Applied Econometrics
+  30. Research Methods in Economics
+  31. Business Law
+  32. Graduation Project
+  33. Agricultural Economics
+  34. Health Economics
+  35. Urban Economics
+
+── Management Information Systems (41 courses) ──
+  1. Arabic Language Skills
+  2. English Language Skills
+  3. Islamic Culture
+  4. National Education
+  5. Military Sciences
+  6. Mathematics for Business
+  7. Statistics for Business
+  8. Principles of Management
+  9. Microeconomics
+  10. Macroeconomics
+  11. Financial Accounting (1)
+  12. Principles of Marketing
+  13. Business Finance
+  14. Programming Fundamentals
+  15. Object Oriented Programming
+  16. Database Systems
+  17. Database Lab
+  18. Systems Analysis and Design
+  19. Computer Networks
+  20. Network Administration
+  21. Management Information Systems
+  22. Business Intelligence
+  23. E-Commerce
+  24. ERP Systems
+  25. SAP Fundamentals
+  26. Decision Support Systems
+  27. Knowledge Management
+  28. IT Project Management
+  29. IT Governance (COBIT)
+  30. Information Security
+  31. Cybersecurity Fundamentals
+  32. Digital Transformation
+  33. Cloud Computing
+  34. Business Process Management
+  35. Data Analytics
+  36. Organizational Behavior
+  37. Strategic Management
+  38. Graduation Project
+  39. Advanced ERP
+  40. Mobile Business Applications
+  41. Big Data Analytics
+
+
+═══════════════════════════════════════════════════════════════
+  GJU (GJU)
+═══════════════════════════════════════════════════════════════
+
+── Computer Science (53 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Discrete Mathematics
+  12. Statistics and Probability
+  13. Introduction to Programming (Python)
+  14. Programming Fundamentals (C++)
+  15. Object Oriented Programming
+  16. Data Structures
+  17. Algorithms
+  18. Computer Organization and Architecture
+  19. Operating Systems
+  20. Operating Systems Lab
+  21. Computer Networks
+  22. Computer Networks Lab
+  23. Information Security
+  24. Artificial Intelligence
+  25. Software Engineering
+  26. Software Engineering Lab
+  27. Compiler Construction
+  28. Computer Graphics
+  29. Web Technologies
+  30. Mobile Computing
+  31. Image Understanding
+  32. Database Systems
+  33. Database Lab
+  34. Field Training
+  35. Senior Project (1)
+  36. Senior Project (2)
+  37. Data Mining
+  38. Machine Learning
+  39. Deep Learning
+  40. Big Data and Cloud Computing
+  41. Data Visualization
+  42. Natural Language Processing
+  43. Computer Vision
+  44. Network Security
+  45. Cryptography
+  46. Digital Forensics
+  47. Penetration Testing
+  48. Security Architecture
+  49. Human Computer Interaction
+  50. Game Development
+  51. IoT Systems
+  52. Selected Topics in Computer Science (1)
+  53. Selected Topics in Computer Science (2)
+
+── Computer Engineering (61 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Statistics and Probability
+  14. Numerical Methods
+  15. Physics (1)
+  16. Physics (2)
+  17. Physics Lab
+  18. Engineering Drawing
+  19. Engineering Economics
+  20. Engineering Ethics
+  21. Electrical Circuits (1)
+  22. Electrical Circuits (2)
+  23. Electrical Circuits Lab
+  24. Digital Logic Design
+  25. Digital Logic Lab
+  26. Computer Organization and Architecture
+  27. Computer Architecture Lab
+  28. Microprocessor Systems
+  29. Microprocessor Lab
+  30. Data Structures
+  31. Algorithms
+  32. Object Oriented Programming
+  33. Systems Programming
+  34. Systems Programming Lab
+  35. Operating Systems
+  36. Operating Systems Lab
+  37. Computer Networks
+  38. Computer Networks Lab
+  39. Network Protocols
+  40. Data Communication
+  41. Computer Security
+  42. Software Engineering
+  43. Embedded Systems Design
+  44. Embedded Systems Lab
+  45. Database Systems
+  46. Database Lab
+  47. Parallel Architectures
+  48. Field Training
+  49. Senior Project (1)
+  50. Senior Project (2)
+  51. Machine Learning
+  52. Deep Learning
+  53. Natural Language Processing
+  54. Big Data and Cloud Computing
+  55. Image Processing
+  56. Computer Vision
+  57. Robotics
+  58. Robot Programming
+  59. Advanced Image Processing
+  60. Special Topics in Computer Engineering (1)
+  61. Special Topics in Computer Engineering (2)
+
+── Game Design & Media Informatics (45 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Discrete Mathematics
+  11. Statistics and Probability
+  12. Introduction to Programming
+  13. Object Oriented Programming
+  14. Data Structures
+  15. Game Engine Development
+  16. Game Programming
+  17. 2D Game Design
+  18. 3D Game Design
+  19. Computer Graphics
+  20. Computer Graphics Lab
+  21. Character Animation
+  22. Skeletal Animation
+  23. Motion Capture
+  24. UX/UI Design for Games
+  25. Game Artificial Intelligence
+  26. Sound Design and Audio Programming
+  27. Mobile Game Development
+  28. Web Game Development
+  29. Digital Storytelling and Narrative Design
+  30. Virtual Reality and Augmented Reality
+  31. XR Development
+  32. Game Production and Project Management
+  33. Digital Media Production
+  34. Video Editing
+  35. 3D Modeling
+  36. Database Systems
+  37. Software Engineering
+  38. Field Training
+  39. Senior Project (1)
+  40. Senior Project (2)
+  41. Shader Programming
+  42. Level Design
+  43. Multiplayer Systems
+  44. Selected Topics in Game Design (1)
+  45. Selected Topics in Game Design (2)
+
+── Energy Engineering (56 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Differential Equations
+  14. Numerical Methods
+  15. Physics (1)
+  16. Physics (2)
+  17. Physics Lab
+  18. Chemistry
+  19. Engineering Drawing
+  20. Engineering Economics
+  21. Engineering Ethics
+  22. Statics
+  23. Dynamics
+  24. Strength of Materials
+  25. Thermodynamics (1)
+  26. Thermodynamics (2)
+  27. Thermodynamics Lab
+  28. Fluid Mechanics
+  29. Fluid Mechanics Lab
+  30. Heat Transfer
+  31. Heat Transfer Lab
+  32. Electrical Circuits
+  33. Electrical Circuits Lab
+  34. Power Electronics
+  35. Power Electronics Lab
+  36. Control Systems
+  37. Control Systems Lab
+  38. Energy Conversion Systems
+  39. Renewable Energy Systems
+  40. Solar Energy Engineering
+  41. Wind Energy Systems
+  42. Electrical Power Systems
+  43. Power Transmission and Distribution
+  44. Energy Storage Technologies
+  45. Battery Systems
+  46. Smart Grids and Energy Management
+  47. Environmental Impact Assessment
+  48. Energy Management and Auditing
+  49. Field Training
+  50. Senior Design Project (1)
+  51. Senior Design Project (2)
+  52. Fuel Cells
+  53. Hydrogen Energy Systems
+  54. Advanced Renewable Energy
+  55. Special Topics in Energy Engineering (1)
+  56. Special Topics in Energy Engineering (2)
+
+── Civil & Environmental Engineering (57 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Linear Algebra
+  12. Differential Equations
+  13. Numerical Methods
+  14. Physics (1)
+  15. Chemistry
+  16. Engineering Drawing
+  17. Engineering Drawing Lab
+  18. Engineering Economics
+  19. Engineering Ethics
+  20. Statics
+  21. Dynamics
+  22. Strength of Materials (1)
+  23. Strength of Materials (2)
+  24. Strength of Materials Lab
+  25. Fluid Mechanics
+  26. Fluid Mechanics Lab
+  27. Hydraulics
+  28. Hydraulics Lab
+  29. Water Resources Engineering
+  30. Structural Analysis (1)
+  31. Structural Analysis (2)
+  32. Reinforced Concrete Design (1)
+  33. Reinforced Concrete Design (2)
+  34. Concrete Lab
+  35. Steel Structures (1)
+  36. Steel Structures (2)
+  37. Soil Mechanics (1)
+  38. Soil Mechanics (2)
+  39. Soil Mechanics Lab
+  40. Foundation Engineering
+  41. Geotechnical Engineering
+  42. Surveying
+  43. Surveying Lab
+  44. Transportation Engineering
+  45. Highway Design
+  46. Environmental Engineering
+  47. Wastewater Treatment
+  48. Air Quality Engineering
+  49. Construction Management
+  50. Construction Methods and Equipment
+  51. Sustainable Infrastructure and Green Buildings
+  52. Field Training
+  53. Senior Design Project (1)
+  54. Senior Design Project (2)
+  55. Bridge Engineering
+  56. Earthquake Engineering
+  57. Advanced Structural Analysis
+
+── Electrical Engineering (58 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Differential Equations
+  14. Numerical Methods
+  15. Physics (1)
+  16. Physics (2)
+  17. Physics Lab
+  18. Engineering Drawing
+  19. Engineering Economics
+  20. Engineering Ethics
+  21. Electrical Circuits (1)
+  22. Electrical Circuits (2)
+  23. Electrical Circuits Lab
+  24. Electronics (1)
+  25. Electronics (2)
+  26. Electronics Lab
+  27. Signals and Systems
+  28. Signals and Systems Lab
+  29. Digital Systems
+  30. Digital Systems Lab
+  31. Control Systems
+  32. Control Systems Lab
+  33. Power Electronics
+  34. Power Electronics Lab
+  35. Microcontrollers
+  36. Microcontrollers Lab
+  37. Electromagnetic Fields
+  38. Electromagnetics Lab
+  39. Electric Machines
+  40. Electric Machines Lab
+  41. Communication Systems
+  42. Communication Systems Lab
+  43. 5G and IoT Systems
+  44. 5G Lab
+  45. Power Transmission and Distribution
+  46. Power Systems Lab
+  47. Digital Signal Processing
+  48. DSP Lab
+  49. Instrumentation and Measurements
+  50. Measurements Lab
+  51. Field Training
+  52. Senior Design Project (1)
+  53. Senior Design Project (2)
+  54. Renewable Energy Systems
+  55. Smart Grids
+  56. Advanced Power Electronics
+  57. Special Topics in Electrical Engineering (1)
+  58. Special Topics in Electrical Engineering (2)
+
+── Industrial Engineering (55 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Linear Algebra
+  12. Statistics and Probability
+  13. Numerical Methods
+  14. Physics (1)
+  15. Chemistry
+  16. Engineering Drawing
+  17. Statics
+  18. Dynamics
+  19. Engineering Materials
+  20. Materials Lab
+  21. Engineering Economy
+  22. Engineering Ethics
+  23. Operations Research (1)
+  24. Operations Research (2)
+  25. Work Analysis and Measurement
+  26. Work Measurement Lab
+  27. Manufacturing Systems
+  28. Manufacturing Lab
+  29. CNC Programming
+  30. Quality Management
+  31. Statistical Quality Control
+  32. Quality Lab
+  33. Production Planning and Control
+  34. Scheduling and Sequencing
+  35. Supply Chain Management
+  36. Logistics and Distribution
+  37. Simulation
+  38. Simulation Lab
+  39. Ergonomics and Human Factors
+  40. Ergonomics Lab
+  41. Automation and Robotics
+  42. Robotics Lab
+  43. Maintenance Engineering
+  44. Reliability Engineering
+  45. CAD/CAM
+  46. CAD Lab
+  47. Applied Engineering Statistics
+  48. Field Training
+  49. Senior Design Project (1)
+  50. Senior Design Project (2)
+  51. Lean Manufacturing
+  52. Six Sigma
+  53. Industry 4.0
+  54. Special Topics in Industrial Engineering (1)
+  55. Special Topics in Industrial Engineering (2)
+
+── Mechanical & Maintenance Engineering (62 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Differential Equations
+  14. Numerical Methods
+  15. Physics (1)
+  16. Physics (2)
+  17. Chemistry
+  18. Engineering Drawing
+  19. Engineering Drawing Lab
+  20. Statics
+  21. Dynamics
+  22. Strength of Materials (1)
+  23. Strength of Materials (2)
+  24. Strength of Materials Lab
+  25. Thermodynamics (1)
+  26. Thermodynamics (2)
+  27. Thermodynamics Lab
+  28. Fluid Mechanics
+  29. Fluid Mechanics Lab
+  30. Heat Transfer
+  31. Heat Transfer Lab
+  32. Engineering Materials
+  33. Materials Lab
+  34. Machine Design (1)
+  35. Machine Design (2)
+  36. Manufacturing Processes
+  37. Manufacturing Lab
+  38. Maintenance Engineering
+  39. Preventive Maintenance
+  40. Predictive Maintenance
+  41. Reliability Engineering
+  42. Failure Analysis
+  43. Vibrations and Noise Control
+  44. Vibrations Lab
+  45. Control Systems
+  46. Control Systems Lab
+  47. CAD/CAM
+  48. CAD Lab
+  49. Finite Element Method
+  50. FEM Lab
+  51. Robotics
+  52. Automation Systems
+  53. Engineering Economics
+  54. Engineering Ethics
+  55. Field Training
+  56. Senior Design Project (1)
+  57. Senior Design Project (2)
+  58. Tribology
+  59. Advanced Machine Design
+  60. Advanced Manufacturing
+  61. Special Topics in Mechanical Engineering (1)
+  62. Special Topics in Mechanical Engineering (2)
+
+── Mechatronics Engineering (64 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Differential Equations
+  14. Numerical Methods
+  15. Physics (1)
+  16. Physics (2)
+  17. Engineering Drawing
+  18. Engineering Economics
+  19. Engineering Ethics
+  20. Electrical Circuits (1)
+  21. Electrical Circuits (2)
+  22. Electrical Circuits Lab
+  23. Electronics
+  24. Electronics Lab
+  25. Digital Electronics
+  26. Digital Electronics Lab
+  27. Digital Logic Design
+  28. Digital Logic Lab
+  29. Microcontrollers and Embedded Systems
+  30. Embedded Systems Lab
+  31. Control Systems (1)
+  32. Control Systems (2)
+  33. Control Systems Lab
+  34. Sensors and Actuators
+  35. Sensors Lab
+  36. Robotics (1)
+  37. Robotics (2)
+  38. Robotics Lab
+  39. Automation and PLCs
+  40. Automation Lab
+  41. Hydraulics and Pneumatics
+  42. Hydraulics Lab
+  43. Statics
+  44. Dynamics
+  45. Strength of Materials
+  46. Machine Design
+  47. Manufacturing Processes
+  48. Signal Processing
+  49. Digital Signal Processing
+  50. DSP Lab
+  51. Machine Learning for Mechatronics
+  52. Computer Vision for Mechatronics
+  53. CV Lab
+  54. Mechatronic System Design
+  55. Mechatronics Lab
+  56. CAD/CAM
+  57. MATLAB and Simulink
+  58. Field Training
+  59. Senior Design Project (1)
+  60. Senior Design Project (2)
+  61. Advanced Robotics
+  62. Industry 4.0 and Smart Manufacturing
+  63. Special Topics in Mechatronics (1)
+  64. Special Topics in Mechatronics (2)
+
+── Biomedical Engineering (59 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Differential Equations
+  14. Numerical Methods
+  15. Physics (1)
+  16. Physics (2)
+  17. Physics Lab
+  18. General Chemistry
+  19. Organic Chemistry
+  20. Organic Chemistry Lab
+  21. Biochemistry
+  22. Biochemistry Lab
+  23. Biology (1)
+  24. Biology (2)
+  25. Cell Biology
+  26. Anatomy and Physiology
+  27. Engineering Drawing
+  28. Engineering Economics
+  29. Engineering Ethics
+  30. Electrical Circuits
+  31. Electrical Circuits Lab
+  32. Electronics for Biomedical Engineers
+  33. Electronics Lab
+  34. Signal Processing
+  35. Biomedical Signal Processing
+  36. Biosignal Lab
+  37. Medical Instrumentation
+  38. Medical Instrumentation Lab
+  39. Biomechanics
+  40. Biomechanics Lab
+  41. Medical Imaging Systems
+  42. Medical Imaging Lab
+  43. Tissue Engineering and Biomaterials
+  44. Biomaterials Lab
+  45. Bioinformatics
+  46. Computational Biology
+  47. Rehabilitation Engineering
+  48. Assistive Technology
+  49. Clinical Engineering and Hospital Management
+  50. Medical Devices Regulation
+  51. Quality and Safety in Healthcare
+  52. Field Training
+  53. Senior Design Project (1)
+  54. Senior Design Project (2)
+  55. Nanobiotechnology
+  56. Neural Engineering
+  57. Advanced Medical Imaging
+  58. Special Topics in Biomedical Engineering (1)
+  59. Special Topics in Biomedical Engineering (2)
+
+── Pharmaceutical & Chemical Engineering (62 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Calculus (1)
+  10. Calculus (2)
+  11. Calculus (3)
+  12. Linear Algebra
+  13. Differential Equations
+  14. Numerical Methods
+  15. Physics (1)
+  16. Engineering Drawing
+  17. Engineering Economics
+  18. Engineering Ethics
+  19. General Chemistry (1)
+  20. General Chemistry (2)
+  21. Chemistry Lab
+  22. Organic Chemistry (1)
+  23. Organic Chemistry (2)
+  24. Organic Chemistry Lab
+  25. Physical Chemistry
+  26. Physical Chemistry Lab
+  27. Biochemistry
+  28. Biochemistry Lab
+  29. Microbiology
+  30. Microbiology Lab
+  31. Pharmacology
+  32. Pharmacokinetics
+  33. Material and Energy Balances
+  34. Material Balances Lab
+  35. Thermodynamics (1)
+  36. Thermodynamics (2)
+  37. Fluid Mechanics
+  38. Fluid Mechanics Lab
+  39. Heat Transfer
+  40. Heat Transfer Lab
+  41. Mass Transfer
+  42. Mass Transfer Lab
+  43. Chemical Reaction Engineering (1)
+  44. Chemical Reaction Engineering (2)
+  45. Reaction Engineering Lab
+  46. Process Control
+  47. Process Control Lab
+  48. Pharmaceutical Manufacturing
+  49. Pharmaceutical Technology
+  50. Drug Delivery Systems
+  51. Drug Formulation Lab
+  52. Quality Assurance in Pharmaceutical Industry
+  53. Regulatory Affairs and GMP
+  54. Environmental Engineering
+  55. Field Training
+  56. Senior Design Project (1)
+  57. Senior Design Project (2)
+  58. Polymer Chemistry
+  59. Advanced Drug Delivery
+  60. Pharmaceutical Biotechnology
+  61. Special Topics in Pharmaceutical Engineering (1)
+  62. Special Topics in Pharmaceutical Engineering (2)
+
+── International Accounting (44 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Mathematics for Business
+  10. Statistics for Business
+  11. Principles of Management
+  12. Microeconomics
+  13. Macroeconomics
+  14. Principles of Marketing
+  15. Organizational Behavior
+  16. Financial Accounting (1)
+  17. Financial Accounting (2)
+  18. Intermediate Accounting (1)
+  19. Intermediate Accounting (2)
+  20. Cost Accounting
+  21. Managerial Accounting
+  22. Auditing (1)
+  23. Auditing (2)
+  24. Taxation (Jordan & Germany)
+  25. International Tax Law
+  26. International Accounting Standards (IFRS)
+  27. US GAAP Principles
+  28. German Commercial Code (HGB)
+  29. Consolidated Financial Statements
+  30. Advanced Financial Reporting
+  31. Financial Analysis
+  32. Corporate Governance
+  33. Accounting Information Systems
+  34. ERP for Accounting (SAP)
+  35. Business Law
+  36. Commercial Law
+  37. International Business
+  38. Cross-Cultural Management
+  39. Field Training (Germany)
+  40. Field Training (Jordan)
+  41. Graduation Project
+  42. Forensic Accounting
+  43. Islamic Finance
+  44. Advanced Auditing
+
+── Logistic Sciences (44 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Mathematics for Business
+  10. Statistics for Business
+  11. Principles of Management
+  12. Microeconomics
+  13. Macroeconomics
+  14. Financial Accounting (1)
+  15. Managerial Accounting
+  16. Principles of Marketing
+  17. Organizational Behavior
+  18. Operations Management
+  19. Operations Research
+  20. Supply Chain Management
+  21. Supply Chain Analytics
+  22. Transportation and Warehousing
+  23. Warehouse Management Systems
+  24. Procurement and Purchasing
+  25. Supplier Management
+  26. Inventory Control and Management
+  27. Demand Forecasting
+  28. Logistics Technology and Information Systems
+  29. ERP for Logistics (SAP)
+  30. Port and Maritime Logistics
+  31. Air Cargo and Freight
+  32. International Trade and Customs
+  33. Trade Finance
+  34. Logistics Network Design and Optimization
+  35. Risk Management in Logistics
+  36. Business Continuity
+  37. Sustainable Logistics and Green Supply Chain
+  38. E-Commerce Logistics and Last-Mile Delivery
+  39. Field Training (Germany)
+  40. Field Training (Jordan)
+  41. Graduation Project
+  42. Advanced Supply Chain Analytics
+  43. Reverse Logistics
+  44. Cold Chain Management
+
+── Management Science (42 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Mathematics for Business
+  10. Statistics for Business
+  11. Principles of Management
+  12. Microeconomics
+  13. Macroeconomics
+  14. Financial Accounting (1)
+  15. Managerial Accounting
+  16. Financial Management
+  17. Principles of Marketing
+  18. Marketing Management
+  19. Organizational Behavior
+  20. Human Resources Management
+  21. Operations Research
+  22. Operations Management
+  23. Business Strategy and Strategic Management
+  24. Entrepreneurship and Innovation Management
+  25. Project Management
+  26. Business Ethics and CSR
+  27. International Business
+  28. Cross-Cultural Management
+  29. Planning and Managing Quality in Organizations
+  30. Quality Management
+  31. Change Management
+  32. Organizational Development
+  33. Business Law
+  34. Commercial Law
+  35. Business Analytics
+  36. Decision Science
+  37. Field Training (Germany)
+  38. Field Training (Jordan)
+  39. Graduation Project
+  40. Advanced Strategic Management
+  41. Family Business Management
+  42. Consulting Skills
+
+── Business Intelligence & Data Analytics (49 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Mathematics for Business
+  10. Statistics for Business
+  11. Advanced Statistics
+  12. Principles of Management
+  13. Microeconomics
+  14. Macroeconomics
+  15. Financial Accounting (1)
+  16. Managerial Accounting
+  17. Principles of Marketing
+  18. Organizational Behavior
+  19. Programming for Business (Python/R)
+  20. Programming Lab
+  21. Database Systems
+  22. Database Lab
+  23. Advanced Database Systems
+  24. Data Mining
+  25. Data Mining Lab
+  26. Machine Learning
+  27. Machine Learning Lab
+  28. Artificial Intelligence for Business
+  29. Business Intelligence Tools
+  30. BI Lab (Tableau/Power BI)
+  31. Data Visualization
+  32. Visualization Lab
+  33. Big Data Analytics
+  34. Big Data Lab (Hadoop/Spark)
+  35. Data Warehousing and ETL
+  36. Data Warehouse Lab
+  37. Decision Support Systems
+  38. Expert Systems
+  39. Text Mining and Sentiment Analysis
+  40. Predictive Analytics
+  41. Prescriptive Analytics
+  42. Business Analytics Applications (Case Studies)
+  43. Cloud Analytics Platforms (AWS/Azure)
+  44. Field Training (Germany)
+  45. Field Training (Jordan)
+  46. Graduation Project
+  47. Deep Learning for Business
+  48. Advanced ML
+  49. Knowledge Graphs
+
+── Digital Marketing (49 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Mathematics for Business
+  10. Statistics for Business
+  11. Principles of Management
+  12. Microeconomics
+  13. Macroeconomics
+  14. Financial Accounting (1)
+  15. Managerial Accounting
+  16. Principles of Marketing
+  17. Consumer Behavior
+  18. Marketing Research
+  19. Digital Marketing Fundamentals
+  20. Online Marketing Strategy
+  21. Social Media Management
+  22. Social Media Advertising
+  23. Search Engine Optimization (SEO)
+  24. Search Engine Marketing (SEM)
+  25. Content Marketing and Storytelling
+  26. E-Commerce and Online Retail
+  27. E-Commerce Lab
+  28. Marketing Analytics
+  29. Digital Analytics Tools (Google Analytics)
+  30. Consumer Behavior in Digital Markets
+  31. Neuromarketing
+  32. Digital Advertising (Display, Video, Native)
+  33. Email Marketing and Marketing Automation
+  34. Brand Management in Digital Era
+  35. Influencer Marketing and Affiliate Marketing
+  36. Website Design and UX for Marketers
+  37. Mobile Marketing
+  38. App Store Optimization
+  39. German for Business Communication
+  40. Organizational Behavior
+  41. Business Ethics and CSR
+  42. Business Law
+  43. Commercial Law
+  44. Field Training (Germany)
+  45. Field Training (Jordan)
+  46. Graduation Project
+  47. Advanced Social Media Strategy
+  48. Data-Driven Marketing
+  49. AI in Marketing
+
+── Architecture (50 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. Mathematics for Architects
+  10. Physics for Architects
+  11. Architectural Design Studio (1)
+  12. Architectural Design Studio (2)
+  13. Architectural Design Studio (3)
+  14. Architectural Design Studio (4)
+  15. Architectural Design Studio (5)
+  16. Architectural Design Studio (6)
+  17. Architectural Drawing and Representation
+  18. Hand Drawing
+  19. Digital Drawing
+  20. Building Materials and Technology
+  21. Building Materials Lab
+  22. Structural Systems (1)
+  23. Structural Systems (2)
+  24. Building Construction (1)
+  25. Building Construction (2)
+  26. Environmental Control Systems (Lighting)
+  27. Environmental Control Systems (HVAC)
+  28. Urban Planning and Design
+  29. Urban Design Studio
+  30. History of Architecture (1)
+  31. History of Architecture (2)
+  32. Contemporary Architecture
+  33. Islamic Architecture
+  34. German Architecture and Urban Design
+  35. Interior Design
+  36. Interior Design Studio
+  37. Landscape Architecture
+  38. Landscape Design Studio
+  39. Digital Fabrication and BIM
+  40. Parametric Design
+  41. Revit/ArchiCAD
+  42. Building Code and Regulations
+  43. Professional Practice
+  44. Engineering Economics for Architects
+  45. Field Training (Germany)
+  46. Field Training (Jordan)
+  47. Graduation Project
+  48. Sustainable Design
+  49. Bioclimatic Architecture
+  50. Advanced Urban Design
+
+── Design & Visual Communication (50 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. Islamic Culture / Societal Values
+  7. National Education
+  8. Military Sciences
+  9. History of Art and Design
+  10. Design Theory and Methodology
+  11. Graphic Design Fundamentals (1)
+  12. Graphic Design Fundamentals (2)
+  13. Typography (1)
+  14. Typography (2)
+  15. Type Design
+  16. Branding and Corporate Identity
+  17. Brand Strategy
+  18. Digital Illustration
+  19. Vector Graphics (Adobe Illustrator)
+  20. Photo Editing (Adobe Photoshop)
+  21. Photography
+  22. Studio Photography
+  23. UI Design
+  24. UX Design
+  25. User Research
+  26. Prototyping and Wireframing
+  27. Web Design
+  28. Responsive Design
+  29. Motion Graphics
+  30. Animation (After Effects)
+  31. Video Production
+  32. Print Media Design
+  33. Publication Design
+  34. Editorial Design
+  35. Packaging Design
+  36. Retail Design
+  37. Exhibition and Spatial Design
+  38. Wayfinding and Signage
+  39. Advertising and Campaign Design
+  40. Copywriting for Design
+  41. 3D Design and Visualization
+  42. 3D Rendering
+  43. Digital Marketing for Designers
+  44. Field Training (Germany)
+  45. Field Training (Jordan)
+  46. Portfolio Development
+  47. Graduation Project
+  48. AR/VR for Design
+  49. Sustainable Design
+  50. Advanced Branding
+
+── Translation (German, English, Arabic) (51 courses) ──
+  1. Arabic Language
+  2. English Language (1)
+  3. English Language (2)
+  4. German Language (1)
+  5. German Language (2)
+  6. German Language (3)
+  7. German Language (4)
+  8. German Language (5)
+  9. German Language (6)
+  10. Introduction to Linguistics
+  11. Arabic Linguistics and Stylistics
+  12. English Linguistics and Stylistics
+  13. German Linguistics
+  14. Introduction to Translation Studies
+  15. Translation Theories
+  16. Translation Techniques (Arabic-English)
+  17. Translation Techniques (English-Arabic)
+  18. Translation Techniques (Arabic-German)
+  19. Translation Techniques (German-Arabic)
+  20. Translation Techniques (English-German)
+  21. Translation Techniques (German-English)
+  22. General Translation Practice (AR-EN-DE)
+  23. Advanced Translation Practice
+  24. Technical Translation (Engineering and Science)
+  25. Legal and Administrative Translation
+  26. Legal Terminology
+  27. Medical Translation
+  28. Medical Terminology
+  29. Economic and Business Translation
+  30. Business Terminology
+  31. Media Translation
+  32. News Translation
+  33. Subtitling
+  34. Literary Translation
+  35. Cultural Translation
+  36. Computer-Assisted Translation (CAT Tools)
+  37. SDL Trados
+  38. memoQ
+  39. Localization and Globalization
+  40. Consecutive Interpretation
+  41. Simultaneous Interpretation
+  42. Community Interpreting
+  43. Conference Interpreting
+  44. German Culture and Civilization
+  45. Arabic Culture
+  46. Islamic Civilization
+  47. Field Training (Germany)
+  48. Field Training (Jordan)
+  49. Graduation Project
+  50. Audiovisual Translation
+  51. Machine Translation and Post-Editing
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Universities: 3
+  Unique Majors: 41 (including Other)
+  University-Major Combinations: 48
+  Total Courses: 2531
