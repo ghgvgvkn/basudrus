@@ -3155,63 +3155,21 @@ export default function BasUdrus() {
       {curTab==="ai"&&(
         <div className="page-scroll">
           <div style={{maxWidth:700,margin:"0 auto",padding:"0 16px 20px"}}>
-            {/* ── AI Hero Header ── */}
-            {(()=>{
-              const hasMessages = wellbeingMsgs.length>0 || tutorMsgs.length>0;
-              const collapsed = hasMessages;
-              return (
-              <div style={{
-                background:"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)",
-                borderRadius:collapsed?20:28,padding:collapsed?"16px 24px":"56px 24px 44px",marginBottom:collapsed?12:18,position:"relative",overflow:"hidden",
-                transition:"all 0.5s cubic-bezier(0.4,0,0.2,1)",
-              }}>
-                {/* Large ambient glow behind orb */}
-                <div style={{position:"absolute",top:collapsed?"-60%":"10%",left:"50%",transform:"translateX(-50%)",width:collapsed?200:340,height:collapsed?200:340,borderRadius:"50%",background:"radial-gradient(circle,rgba(168,85,247,0.12),rgba(139,92,246,0.06),transparent 70%)",filter:"blur(60px)",transition:"all 0.5s ease"}}/>
-                {/* Warm glow top-right */}
-                <div style={{position:"absolute",top:-60,right:-40,width:220,height:220,borderRadius:"50%",background:"radial-gradient(circle,rgba(251,146,60,0.1),rgba(244,63,94,0.05),transparent 70%)",filter:"blur(40px)"}}/>
-                {/* Cool glow bottom-left */}
-                <div style={{position:"absolute",bottom:-50,left:-40,width:200,height:200,borderRadius:"50%",background:"radial-gradient(circle,rgba(99,102,241,0.08),rgba(59,130,246,0.04),transparent 70%)",filter:"blur(35px)"}}/>
-
-                <div style={{position:"relative",zIndex:1,textAlign:"center",display:"flex",flexDirection:collapsed?"row":"column",alignItems:"center",justifyContent:collapsed?"center":"flex-start",gap:collapsed?14:0}}>
-                  {/* Glowing orb */}
-                  <div style={{
-                    width:collapsed?44:120,height:collapsed?44:120,borderRadius:"50%",margin:collapsed?0:"0 auto 28px",flexShrink:0,
-                    background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
-                    boxShadow:collapsed
-                      ?"0 4px 20px rgba(168,85,247,0.2)"
-                      :"0 0 60px rgba(251,146,60,0.2),0 0 120px rgba(168,85,247,0.12),0 8px 40px rgba(139,92,246,0.18),inset 0 -6px 16px rgba(0,0,0,0.08),inset 0 4px 12px rgba(255,255,255,0.1)",
-                    animation:"orbFloat 6s ease-in-out infinite",
-                    transition:"all 0.5s cubic-bezier(0.4,0,0.2,1)",
-                  }}/>
-                  {!collapsed&&(
-                    <div>
-                      <h2 style={{fontSize:26,fontWeight:800,color:"#1e1b4b",margin:"0 0 10px",letterSpacing:"-0.03em",lineHeight:1.3}}>
-                        Hey {profile.name?.split(" ")[0]||"there"},<br/>What do you need today?
-                      </h2>
-                      <p style={{fontSize:14,color:"#6b7280",margin:0,fontWeight:400}}>
-                        Your AI study companion — always here for you
-                      </p>
-                    </div>
-                  )}
-                  {collapsed&&(
-                    <span style={{fontSize:15,fontWeight:700,color:"#1e1b4b",letterSpacing:"-0.02em"}}>AI Study Hub</span>
-                  )}
-                </div>
-              </div>
-              );
-            })()}
+            {/* ── AI Section Title ── */}
 
             {/* ── Tab Selector ── */}
-            <div className="ai-tab-row" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:18}}>
-              {([["wellbeing","🌿","Wellbeing"],["tutor","🎓","Tutor"],["match","🎯","Match"],["plan","📅","Planner"]] as const).map(([tab,icon,lbl])=>(
+            <div className="ai-tab-row" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20,marginTop:8}}>
+              {([["wellbeing","🌿","Wellbeing","Mental health support"],["tutor","🎓","Tutor","Ask anything academic"],["match","🎯","Match","Find study partners"],["plan","📅","Planner","Organize your schedule"]] as const).map(([tab,icon,lbl,desc])=>(
                 <button key={tab} onClick={()=>setAiTab(tab)} style={{
-                  display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"12px 6px",
-                  borderRadius:16,border:`1.5px solid ${aiTab===tab?"#6366f1":T.border}`,
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"16px 8px 14px",
+                  borderRadius:18,border:`2px solid ${aiTab===tab?"#6366f1":"transparent"}`,
                   background:aiTab===tab?"linear-gradient(135deg,#eef2ff,#e0e7ff)":T.surface,
+                  boxShadow:aiTab===tab?"0 4px 20px rgba(99,102,241,0.15)":"0 2px 8px rgba(0,0,0,0.04)",
                   cursor:"pointer",transition:"all 0.2s",
                 }}>
-                  <span style={{fontSize:20}}>{icon}</span>
-                  <span style={{fontSize:11,fontWeight:aiTab===tab?700:500,color:aiTab===tab?"#4338ca":T.muted}}>{lbl}</span>
+                  <span style={{fontSize:24}}>{icon}</span>
+                  <span style={{fontSize:13,fontWeight:aiTab===tab?800:600,color:aiTab===tab?"#4338ca":T.navy}}>{lbl}</span>
+                  <span style={{fontSize:9,color:aiTab===tab?"#6366f1":T.muted,fontWeight:500,lineHeight:1.2,textAlign:"center"}}>{desc}</span>
                 </button>
               ))}
             </div>
@@ -3254,7 +3212,7 @@ export default function BasUdrus() {
                       ];
                       const q=quotes[Math.floor(Date.now()/86400000)%quotes.length];
                       return (
-                        <div style={{textAlign:"center",padding:"40px 16px",color:T.muted,position:"relative",zIndex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
+                        <div style={{textAlign:"center",padding:"20px 16px",color:T.muted,position:"relative",zIndex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
                           {/* Ambient glows */}
                           <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",background:"radial-gradient(circle,rgba(168,85,247,0.1),rgba(139,92,246,0.04),transparent 70%)",filter:"blur(50px)",zIndex:0}}/>
                           <div style={{position:"absolute",top:"-10%",right:"-5%",width:160,height:160,borderRadius:"50%",background:"radial-gradient(circle,rgba(251,146,60,0.08),transparent 70%)",filter:"blur(30px)",zIndex:0}}/>
@@ -3265,9 +3223,16 @@ export default function BasUdrus() {
                             boxShadow:"0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
                             animation:"orbFloat 6s ease-in-out infinite",
                           }}/>
-                          <div style={{fontSize:15,fontWeight:700,color:"#1e1b4b",lineHeight:1.5,fontStyle:"italic",marginBottom:6,position:"relative",zIndex:1}}>{q.q}</div>
-                          <div style={{fontSize:12,color:"#6b7280",position:"relative",zIndex:1}}>— {q.t}</div>
-                          <div style={{fontSize:12,color:"#9ca3af",marginTop:18,position:"relative",zIndex:1}}>Start typing below, or pick a mood and prompt to begin.</div>
+                          <div style={{fontSize:16,fontWeight:700,color:"#1e1b4b",position:"relative",zIndex:1}}>How are you feeling today?</div>
+                          <div style={{fontSize:12,color:"#6b7280",marginTop:8,position:"relative",zIndex:1}}>Tell me what's on your mind — I'm here to listen</div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center",marginTop:14,position:"relative",zIndex:1}}>
+                            {["I'm stressed","Feeling anxious","Need to vent","Help me relax"].map(q=>(
+                              <button key={q} onClick={()=>setWellbeingInput(q)}
+                                style={{padding:"8px 14px",borderRadius:99,border:"1.5px solid rgba(16,185,129,0.2)",background:"rgba(255,255,255,0.7)",backdropFilter:"blur(8px)",fontSize:12,color:"#065f46",cursor:"pointer",fontWeight:600,transition:"border-color 0.15s"}}>
+                                {q}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       );
                     })()}
@@ -3463,20 +3428,25 @@ export default function BasUdrus() {
                     </select>
                   </div>
 
-                  <div style={{height:370,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:10,background:T.bg}}>
+                  <div style={{height:370,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:10,background:tutorMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
                     {tutorMsgs.length===0&&(
-                      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:"20px 10px"}}>
+                      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"20px 10px",position:"relative",zIndex:1}}>
+                        {/* Ambient glows */}
+                        <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",background:"radial-gradient(circle,rgba(99,102,241,0.1),rgba(139,92,246,0.04),transparent 70%)",filter:"blur(50px)",zIndex:0}}/>
+                        <div style={{position:"absolute",bottom:"10%",right:"5%",width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(59,130,246,0.08),transparent 70%)",filter:"blur(30px)",zIndex:0}}/>
+                        {/* Orb */}
                         <div style={{
-                          width:56,height:56,borderRadius:"50%",
-                          background:"radial-gradient(circle at 35% 35%,#6366f1,#818cf8,#a78bfa)",
-                          boxShadow:"0 0 30px rgba(99,102,241,0.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26
-                        }}>🎓</div>
-                        <div style={{fontSize:16,fontWeight:700,color:T.navy,textAlign:"center"}}>What do you need help with?</div>
-                        <div style={{fontSize:12,color:T.muted,textAlign:"center",maxWidth:280}}>Ask about any concept, problem, or course material</div>
-                        <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center",marginTop:4}}>
+                          width:90,height:90,borderRadius:"50%",marginBottom:24,position:"relative",zIndex:1,
+                          background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
+                          boxShadow:"0 0 50px rgba(99,102,241,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
+                          animation:"orbFloat 6s ease-in-out infinite",
+                        }}/>
+                        <div style={{fontSize:16,fontWeight:700,color:"#1e1b4b",textAlign:"center",position:"relative",zIndex:1}}>What do you need help with?</div>
+                        <div style={{fontSize:12,color:"#6b7280",textAlign:"center",maxWidth:280,marginTop:8,position:"relative",zIndex:1}}>Ask about any concept, problem, or course material</div>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center",marginTop:14,position:"relative",zIndex:1}}>
                           {["Explain recursion","Solve integrals","Newton's 2nd law","Ohm's Law"].map(q=>(
                             <button key={q} onClick={()=>setTutorInput(q)}
-                              style={{padding:"8px 14px",borderRadius:99,border:`1.5px solid ${T.border}`,background:T.surface,fontSize:12,color:T.textSoft,cursor:"pointer",fontWeight:600,transition:"border-color 0.15s"}}>
+                              style={{padding:"8px 14px",borderRadius:99,border:"1.5px solid rgba(99,102,241,0.2)",background:"rgba(255,255,255,0.7)",backdropFilter:"blur(8px)",fontSize:12,color:"#4338ca",cursor:"pointer",fontWeight:600,transition:"border-color 0.15s"}}>
                               {q}
                             </button>
                           ))}
