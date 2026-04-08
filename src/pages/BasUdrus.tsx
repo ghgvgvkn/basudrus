@@ -237,8 +237,10 @@ const makeCSS = (T: Theme) => `
   .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
   .request-card:hover { box-shadow:0 12px 32px rgba(0,0,0,0.08); transform:translateY(-3px) scale(1.01); }
   .streak-badge { display:inline-flex; align-items:center; gap:5px; background:linear-gradient(135deg,#C44D1A,#B07D00); color:#fff; padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; }
-  .ai-msg { padding:13px 16px; border-radius:16px; font-size:14px; line-height:1.75; max-width:88%; animation:fadeIn 0.25s ease; word-break:break-word; }
+  .ai-msg { padding:16px 20px; border-radius:24px; font-size:15px; line-height:1.6; max-width:85%; animation:fadeIn 0.3s ease; word-break:break-word; border:1px solid rgba(255,255,255,0.4); box-shadow: 0 4px 16px rgba(0,0,0,0.03); }
   .ai-msg b { font-weight:700; }
+  .msg-mine, .ai-msg.user { background: linear-gradient(135deg, ${T.accent}, #6C8EF5); color: #fff; border-bottom-right-radius: 6px; border:none; box-shadow: 0 6px 20px rgba(74, 124, 247, 0.25); }
+  .msg-theirs, .ai-msg.assistant { background: linear-gradient(135deg, ${T.surface}, ${T.bg}); color: ${T.text}; border-bottom-left-radius: 6px; }
   .match-score-high { background:linear-gradient(135deg,#0E7E5A,#0A6B4C); color:#fff; }
   .match-score-mid { background:linear-gradient(135deg,#B07D00,#9B6E00); color:#fff; }
   .match-score-low { background:linear-gradient(135deg,#6B7280,#596673); color:#fff; }
@@ -249,6 +251,39 @@ const makeCSS = (T: Theme) => `
   @media(prefers-reduced-motion:reduce){ *,*::before,*::after { animation-duration:0.01ms!important; transition-duration:0.01ms!important; } }
   /* Nav glassmorphism */
   .nav-inner { backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+  /* Mesh glow (Siri-style orbit) */
+  @keyframes orbit {
+    0% { transform: rotate(0deg) translateX(30px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(30px) rotate(-360deg); }
+  }
+  .mesh-glow {
+    position: absolute;
+    top: -20%; left: -10%; right: -10%; bottom: -20%;
+    background: radial-gradient(circle at 30% 50%, rgba(74, 124, 247, 0.08), transparent 50%),
+                radial-gradient(circle at 70% 30%, rgba(67, 197, 158, 0.08), transparent 50%);
+    filter: blur(60px);
+    z-index: 0;
+    pointer-events: none;
+    animation: orbit 15s linear infinite;
+  }
+  /* Bento Box grid for Features */
+  .bento-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  @media(min-width: 600px) {
+    .bento-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media(min-width: 800px) {
+    .bento-grid { grid-template-columns: repeat(3, 1fr); }
+    .landing-feat:nth-child(1) { grid-column: span 2; grid-row: span 2; padding: 40px; }
+    .landing-feat:nth-child(1) .landing-feat-icon { font-size: 52px; margin-bottom: 24px; }
+    .landing-feat:nth-child(1) h3 { font-size: 26px; }
+    .landing-feat:nth-child(1) p { font-size: 15px; }
+    .landing-feat:nth-child(2) { grid-column: span 1; }
+    .landing-feat:nth-child(4) { grid-column: span 2; }
+  }
   /* Smooth page transitions */
   .page-scroll > div { animation:fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
   /* Better touch targets (Fitts' law — minimum 44px) */
@@ -2002,15 +2037,15 @@ export default function BasUdrus() {
       </nav>
 
       {/* ── HERO ── */}
-      <div className="landing-hero" style={{maxWidth:960,margin:"0 auto",padding:"72px 24px 48px",display:"flex",flexDirection:"column",alignItems:"center",gap:36}}>
-        <div style={{textAlign:"center",maxWidth:720}}>
+      <div className="landing-hero" style={{maxWidth:960,margin:"0 auto",padding:"72px 24px 48px",display:"flex",flexDirection:"column",alignItems:"center",gap:36,position:"relative",overflow:"hidden"}}>
+        <div className="mesh-glow" />
+        <div style={{textAlign:"center",maxWidth:720,zIndex:1,position:"relative"}}>
           <div style={{display:"inline-flex",alignItems:"center",gap:6,background:T.surface,border:`1px solid ${T.border}`,padding:"6px 16px",borderRadius:99,fontSize:11,color:T.textSoft,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,0.04)"}}>
             <span style={{width:7,height:7,background:T.green,borderRadius:"50%",display:"inline-block",boxShadow:`0 0 0 3px ${T.greenSoft}`}}/>
             Built for Jordanian university students
           </div>
-          <h1 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(52px,8vw,88px)",lineHeight:1.02,color:T.navy,marginBottom:20,textAlign:"center",letterSpacing:"-0.04em"}}>
-            Stop studying alone.<br/>
-            <span style={{fontStyle:"italic",color:T.accent,fontSize:"1.12em"}}>Find your partner.</span>
+          <h1 style={{fontSize:"clamp(56px, 10vw, 84px)",fontWeight:800,letterSpacing:"-0.04em",lineHeight:1.05,color:T.navy,marginBottom:20,zIndex:1,position:"relative"}}>
+            Find your ultimate <span style={{background:"linear-gradient(135deg, #4A7CF7, #43C59E)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>study partner</span>
           </h1>
           <p style={{fontSize:18,color:T.textSoft,lineHeight:1.75,maxWidth:540,marginBottom:32,textAlign:"center",margin:"0 auto 32px"}}>
             Match with students at your university who take the exact same course — study together online or on campus. Free, fast, and built just for you.
@@ -2088,7 +2123,7 @@ export default function BasUdrus() {
             <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(26px,5.5vw,44px)",color:T.navy,marginBottom:8,lineHeight:1.12}}>Everything you need to <span style={{fontStyle:"italic",color:T.accent}}>study smarter</span></h2>
             <p className="section-subtitle" style={{fontSize:14,color:T.textSoft,maxWidth:500,margin:"0 auto",lineHeight:1.7}}>More than a matching app — a complete study ecosystem built around Jordanian students.</p>
           </div>
-          <div className="landing-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:18}}>
+          <div className="bento-grid">
             {[
               {icon:"🤝",title:"Study Partner Matching",desc:"AI pairs you with students in your exact course, matching study style and schedule preferences."},
               {icon:"🎓",title:"AI Tutor — Ustaz",desc:"Your personal AI teaching assistant. Upload course materials, ask questions, get explanations 24/7."},
