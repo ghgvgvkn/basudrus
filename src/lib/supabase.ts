@@ -3,7 +3,23 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,        // Keep sessions alive (prevents 401s)
+    persistSession: true,          // Survive page refreshes
+    detectSessionInUrl: true,      // Handle OAuth redirects
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10,         // Rate-limit realtime events (prevents flooding at 2000 users)
+    },
+  },
+  global: {
+    headers: {
+      "x-client-info": "bas-udrus/1.0",  // Identify app in Supabase logs
+    },
+  },
+});
 
 export type Profile = {
   id: string;

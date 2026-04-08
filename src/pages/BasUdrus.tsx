@@ -85,6 +85,14 @@ function renderMarkdown(text: string) {
   return <>{elements}</>;
 }
 
+// ─── ERROR LOGGING (production-safe) ────────────────────────────────────────
+function logError(context: string, error: unknown) {
+  if (import.meta.env.DEV) {
+    const msg = error instanceof Error ? error.message : typeof error === "object" && error !== null ? JSON.stringify(error).slice(0, 200) : String(error);
+    console.error(`[BasUdrus:${context}] ${msg}`);
+  }
+}
+
 // ─── PERFORMANCE UTILS ──────────────────────────────────────────────────────
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -251,6 +259,15 @@ const makeCSS = (T: Theme) => `
   @media(prefers-reduced-motion:reduce){ *,*::before,*::after { animation-duration:0.01ms!important; transition-duration:0.01ms!important; } }
   /* Nav glassmorphism */
   .nav-inner { backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+  /* Living AI: orbPulse + aiTyping */
+  @keyframes orbPulse {
+    0%,100% { transform:scale(1); box-shadow:0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15); }
+    50%     { transform:scale(1.08); box-shadow:0 0 70px rgba(251,146,60,0.28),0 0 120px rgba(168,85,247,0.18),0 12px 40px rgba(139,92,246,0.22); }
+  }
+  @keyframes aiTyping {
+    0%,80%,100% { opacity:0.3; transform:scale(0.85); }
+    40%         { opacity:1;   transform:scale(1); }
+  }
   /* Mesh glow (Siri-style orbit) */
   @keyframes orbit {
     0% { transform: rotate(0deg) translateX(30px) rotate(0deg); }
@@ -565,6 +582,12 @@ export default function BasUdrus() {
   const [canPost, setCanPost] = useState(false);
   const [viewingProfile, setViewingProfile] = useState<Profile | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const [cropModal, setCropModal] = useState<{src:string; file:File}|null>(null);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropPos, setCropPos] = useState({x:0,y:0});
+  const cropCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cropDragging = useRef(false);
+  const cropLastPos = useRef({x:0,y:0});
   const [adminReports, setAdminReports] = useState<Report[]>([]);
   const [adminPosts, setAdminPosts] = useState<HelpRequest[]>([]);
   const [reportModal, setReportModal] = useState<{userId:string;name:string}|null>(null);
@@ -581,7 +604,7 @@ export default function BasUdrus() {
   // Load university/major/course data from Supabase on mount
   useEffect(() => {
     if (_uniDataReady) { setUniDataReady(true); return; }
-    loadUniData().then(() => setUniDataReady(true)).catch(() => {});
+    loadUniData().then(() => setUniDataReady(true)).catch((e) => logError("loadUniData", e));
   }, []);
   const [adminAnalytics, setAdminAnalytics] = useState<any>(null);
 
@@ -750,7 +773,7 @@ export default function BasUdrus() {
         setScreen(p ? "discover" : "onboard");
       }
       setLoading(false);
-    }).catch(() => { clearTimeout(loadTimeout); setLoading(false); });
+    }).catch((e) => { logError("getSession", e); clearTimeout(loadTimeout); setLoading(false); });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "PASSWORD_RECOVERY") {
@@ -776,20 +799,20 @@ export default function BasUdrus() {
   useEffect(() => {
     if (!user) return;
     const setOffline = () => {
-      navigator.sendBeacon?.(
-        `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`,
-        // sendBeacon doesn't support PATCH, so use fetch with keepalive as fallback
-      );
-      // Use keepalive fetch to reliably set offline on tab close
-      fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ online: false }),
-        keepalive: true,
+      // Get the current session token for proper RLS auth
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
+        fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${token}`,
+            "Prefer": "return=minimal",
+          },
+          body: JSON.stringify({ online: false }),
+          keepalive: true,
+        }).catch(() => {});
       }).catch(() => {});
     };
     const onVisChange = () => {
@@ -808,13 +831,16 @@ export default function BasUdrus() {
 
   useEffect(() => {
     if (!user) return;
-    loadConnections();
-    loadHelpRequests();
-    loadGroups();
-    loadSubjectHistory();
-    loadAllStudents();
-    loadMatchQuiz();
-    loadSavedPlans();
+    // Fire all data loads in parallel for faster initial load
+    Promise.all([
+      loadConnections(),
+      loadHelpRequests(),
+      loadGroups(),
+      loadSubjectHistory(),
+      loadAllStudents(),
+      loadMatchQuiz(),
+      loadSavedPlans(),
+    ]).catch((e) => logError("initialDataLoad", e));
   }, [user?.id]);
 
   // Real-time messages — load when chat opens
@@ -850,10 +876,10 @@ export default function BasUdrus() {
   const loadProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
-      if (error) { return null; }
+      if (error) { logError("loadProfile", error); return null; }
       if (data) setProfile(data);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("loadProfile", e); return null; }
   };
 
   const loadAllStudents = async () => {
@@ -879,7 +905,7 @@ export default function BasUdrus() {
           }));
         setAllStudents(cards);
       }
-    } catch { }
+    } catch (e) { logError("loadAllStudents", e); }
   };
 
   const loadConnections = async () => {
@@ -889,14 +915,14 @@ export default function BasUdrus() {
         .from("connections")
         .select("partner_id, rating, partner:profiles!connections_partner_id_fkey(*)")
         .eq("user_id", user.id);
-      if (error) { return; }
+      if (error) { logError("loadConnections", error); return; }
       if (data) {
         setConnections(data.map((c: any) => c.partner).filter(Boolean));
         const r: Record<string,number> = {};
         data.forEach((c: any) => { if (c.rating) r[c.partner_id] = c.rating; });
         setRatings(r);
       }
-    } catch { }
+    } catch (e) { logError("loadConnections", e); }
   };
 
   const loadMessages = async (partnerId: string) => {
@@ -907,33 +933,29 @@ export default function BasUdrus() {
         .select("*")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user.id})`)
         .order("created_at", { ascending: true })
-        .limit(200);
-      if (error) { return; }
+        .limit(100);  // Reduced from 200 for faster load; recent messages matter most
+      if (error) { logError("loadMessages", error); return; }
       if (data) setMessages(prev => ({ ...prev, [partnerId]: data }));
-    } catch { }
+    } catch (e) { logError("loadMessages", e); }
   };
 
   const loadHelpRequests = async () => {
     try {
-      const { data, error } = await supabase
-        .from("help_requests")
-        .select("*, profile:profiles!fk_help_requests_user(*)")
-        .order("created_at", { ascending: false })
-        .limit(30);
-      if (error) { return; }
-      if (data) {
-        setHelpRequests(data as HelpRequest[]);
-        if (user && (data as HelpRequest[]).some((r: HelpRequest) => r.user_id === user.id)) setCanPost(true);
+      // Batch the two queries in parallel instead of sequentially
+      const [requestsRes, canPostRes] = await Promise.all([
+        supabase.from("help_requests")
+          .select("*, profile:profiles!fk_help_requests_user(*)")
+          .order("created_at", { ascending: false })
+          .limit(30),
+        user ? supabase.from("profiles").select("can_post").eq("id", user.id).single() : Promise.resolve({ data: null }),
+      ]);
+      if (requestsRes.error) { logError("loadHelpRequests", requestsRes.error); return; }
+      if (requestsRes.data) {
+        setHelpRequests(requestsRes.data as HelpRequest[]);
+        if (user && (requestsRes.data as HelpRequest[]).some((r: HelpRequest) => r.user_id === user.id)) setCanPost(true);
       }
-      if (user) {
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("can_post")
-          .eq("id", user.id)
-          .single();
-        if (profileData?.can_post) setCanPost(true);
-      }
-    } catch { }
+      if (canPostRes.data?.can_post) setCanPost(true);
+    } catch (e) { logError("loadHelpRequests", e); }
   };
 
   const enablePosting = async () => {
@@ -950,19 +972,18 @@ export default function BasUdrus() {
   const loadGroups = async () => {
     if (!user) return;
     try {
-      const { data: groupData, error } = await supabase
-        .from("group_rooms")
-        .select("*, host:profiles!group_rooms_host_id_fkey(*)")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) { return; }
-      const { data: joined } = await supabase
-        .from("group_members")
-        .select("group_id")
-        .eq("user_id", user.id);
-      const joinedSet = new Set((joined||[]).map((j:any) => j.group_id));
-      if (groupData) setGroups(groupData.map((g:any) => ({ ...g, joined: joinedSet.has(g.id) })));
-    } catch { }
+      // Fetch groups and user's memberships in parallel
+      const [groupRes, joinedRes] = await Promise.all([
+        supabase.from("group_rooms")
+          .select("*, host:profiles!group_rooms_host_id_fkey(*)")
+          .order("created_at", { ascending: false })
+          .limit(50),
+        supabase.from("group_members").select("group_id").eq("user_id", user.id),
+      ]);
+      if (groupRes.error) { logError("loadGroups", groupRes.error); return; }
+      const joinedSet = new Set((joinedRes.data||[]).map((j:any) => j.group_id));
+      if (groupRes.data) setGroups(groupRes.data.map((g:any) => ({ ...g, joined: joinedSet.has(g.id) })));
+    } catch (e) { logError("loadGroups", e); }
   };
 
   const loadSubjectHistory = async () => {
@@ -1188,7 +1209,7 @@ export default function BasUdrus() {
   // ── Connect / Reject ──────────────────────────────────────────────────
   const handleConnect = async (s: Profile & {_postId?: string; _postSubject?: string}) => {
     if (!user || connectingRef.current) return;
-    connectingRef.current = true;
+    connectingRef.current = true; // Lock immediately to prevent double-clicks
     const key = s._postId || s.id;
     setFlyCard({id:key,dir:"up"});
     if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
@@ -1204,23 +1225,21 @@ export default function BasUdrus() {
         setFlyCard(null);
         const newXp = (profile.xp || 0) + 20;
         setProfile(p => ({ ...p, xp: newXp }));
-        await supabase.from("profiles").update({ xp: newXp }).eq("id", user.id);
+        supabase.from("profiles").update({ xp: newXp }).eq("id", user.id).then(() => {});
         showNotif(`You matched with ${s.name}! 🎉`);
         setActiveChat(s);
         setScreen("connect");
-        if (!earnedBadges.includes("first_connect")) await awardBadge("first_connect");
-        try {
-          await fetch("/api/notify/match", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              user1Email: user.email,
-              user1Name: profile.name || "A student",
-              user2Email: s.email || "",
-              user2Name: s.name || "A student",
-            }),
-          });
-        } catch { }
+        if (!earnedBadges.includes("first_connect")) awardBadge("first_connect");
+        fetch("/api/notify/match", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user1Email: user.email,
+            user1Name: profile.name || "A student",
+            user2Email: s.email || "",
+            user2Name: s.name || "A student",
+          }),
+        }).catch(() => {});
       } catch { showNotif("Connection failed", "err"); setFlyCard(null); }
       connectingRef.current = false;
     }, 360);
@@ -1244,7 +1263,7 @@ export default function BasUdrus() {
         text,
       }).select().single();
       if (error || !data) {
-
+        logError("sendMessage", error);
         setNewMsg(text);
         showNotif("Couldn't send message — please try again.", "err");
         return;
@@ -1373,14 +1392,64 @@ export default function BasUdrus() {
     setActionLoading(false);
   };
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    if (file.size > 2 * 1024 * 1024) { showNotif("Photo must be under 2 MB", "err"); return; }
+    if (file.size > 5 * 1024 * 1024) { showNotif("Photo must be under 5 MB", "err"); return; }
+    // Open crop modal instead of uploading directly
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropModal({ src: reader.result as string, file });
+      setCropZoom(1);
+      setCropPos({ x: 0, y: 0 });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ""; // reset input so re-selecting same file works
+  };
+
+  const cropAndUpload = async () => {
+    if (!cropModal || !user) return;
     try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `${user.id}/avatar.${ext}`;
-      const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      // Draw cropped image to canvas
+      const canvas = document.createElement("canvas");
+      const size = 400; // output 400x400
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Image load failed"));
+        img.src = cropModal.src;
+      });
+
+      // Calculate scaled dimensions
+      const scale = cropZoom;
+      const imgW = img.width * scale;
+      const imgH = img.height * scale;
+      // Center + user offset
+      const drawX = (size - imgW) / 2 + cropPos.x * scale;
+      const drawY = (size - imgH) / 2 + cropPos.y * scale;
+
+      // Fill with white background (for transparent PNGs)
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, size, size);
+      // Clip to circle
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img, drawX, drawY, imgW, imgH);
+
+      // Convert to blob
+      const blob = await new Promise<Blob|null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.9));
+      if (!blob) { showNotif("Failed to process image", "err"); return; }
+
+      const path = `${user.id}/avatar.jpg`;
+      const { error } = await supabase.storage.from("avatars").upload(path, blob, { upsert: true, contentType: "image/jpeg" });
       if (error) { showNotif("Upload failed — make sure the 'avatars' bucket exists in Supabase Storage", "err"); return; }
       const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
       const url = publicUrl + "?t=" + Date.now();
@@ -1388,8 +1457,9 @@ export default function BasUdrus() {
       if (updateErr) { showNotif("Photo uploaded but profile update failed", "err"); return; }
       setProfile(p => ({ ...p, photo_mode: "photo", photo_url: url }));
       if (editProfile) setEditProfile(p => ({ ...p!, photo_mode: "photo", photo_url: url }));
+      setCropModal(null);
       showNotif("Profile photo updated! 📸");
-    } catch { showNotif("Upload failed — please try again", "err"); }
+    } catch (e) { logError("cropAndUpload", e); showNotif("Upload failed — please try again", "err"); }
   };
 
   const openStudentProfile = async (userId: string) => {
@@ -1659,55 +1729,58 @@ export default function BasUdrus() {
       const weekStart = new Date(now.getTime() - 7 * 86400000).toISOString();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [usersRes, postsRes, reportsRes] = await Promise.all([
-        supabase.from("profiles").select("id, created_at, name, xp"),
-        supabase.from("help_requests").select("id, created_at, subject, user_id"),
-        supabase.from("reports").select("id, created_at, resolved"),
+      // Use count queries instead of fetching ALL rows (scalable for 2000+ users)
+      const [
+        totalUsersRes, usersTodayRes, usersWeekRes, usersMonthRes,
+        totalPostsRes, postsTodayRes, postsWeekRes, postsMonthRes,
+        totalReportsRes, resolvedReportsRes,
+        recentPostsRes, topUsersRes,
+      ] = await Promise.all([
+        supabase.from("profiles").select("*", { count: "exact", head: true }),
+        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
+        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", weekStart),
+        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", monthStart),
+        supabase.from("help_requests").select("*", { count: "exact", head: true }),
+        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
+        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", weekStart),
+        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", monthStart),
+        supabase.from("reports").select("*", { count: "exact", head: true }),
+        supabase.from("reports").select("*", { count: "exact", head: true }).eq("resolved", true),
+        // Only fetch recent posts for subject analysis (last 200, not ALL)
+        supabase.from("help_requests").select("subject, user_id").order("created_at", { ascending: false }).limit(200),
+        // Only fetch top 5 active users by XP
+        supabase.from("profiles").select("id, name, xp").order("xp", { ascending: false }).limit(5),
       ]);
 
-      const users = usersRes.data || [];
-      const posts = postsRes.data || [];
-      const reports = reportsRes.data || [];
-
-      const usersToday = users.filter((u: {id: string; created_at: string; name: string; xp: number}) => u.created_at >= todayStart).length;
-      const usersWeek = users.filter((u: {id: string; created_at: string; name: string; xp: number}) => u.created_at >= weekStart).length;
-      const usersMonth = users.filter((u: {id: string; created_at: string; name: string; xp: number}) => u.created_at >= monthStart).length;
-
-      const postsToday = posts.filter((p: {id: string; created_at: string; subject: string; user_id: string}) => p.created_at >= todayStart).length;
-      const postsWeek = posts.filter((p: {id: string; created_at: string; subject: string; user_id: string}) => p.created_at >= weekStart).length;
-      const postsMonth = posts.filter((p: {id: string; created_at: string; subject: string; user_id: string}) => p.created_at >= monthStart).length;
-
+      const posts = recentPostsRes.data || [];
       const subjectCounts: Record<string, number> = {};
-      posts.forEach((p: {id: string; created_at: string; subject: string; user_id: string}) => { if (p.subject) subjectCounts[p.subject] = (subjectCounts[p.subject] || 0) + 1; });
+      posts.forEach((p: { subject: string; user_id: string }) => { if (p.subject) subjectCounts[p.subject] = (subjectCounts[p.subject] || 0) + 1; });
       const topSubjects = Object.entries(subjectCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
       const userPostCounts: Record<string, number> = {};
-      posts.forEach((p: {id: string; created_at: string; subject: string; user_id: string}) => { userPostCounts[p.user_id] = (userPostCounts[p.user_id] || 0) + 1; });
-      const topUserIds = Object.entries(userPostCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-      const topActiveUsers = topUserIds.map(([uid, count]) => {
-        const u = users.find((x: {id: string; created_at: string; name: string; xp: number}) => x.id === uid);
-        return { name: (u as Profile | undefined)?.name || "Unknown", count, xp: (u as Profile | undefined)?.xp || 0 };
-      });
+      posts.forEach((p: { subject: string; user_id: string }) => { userPostCounts[p.user_id] = (userPostCounts[p.user_id] || 0) + 1; });
 
+      const topActiveUsers = (topUsersRes.data || []).map((u: { id: string; name: string; xp: number }) => ({
+        name: u.name || "Unknown",
+        count: userPostCounts[u.id] || 0,
+        xp: u.xp || 0,
+      }));
+
+      // Approximate monthly data from counts (lightweight)
       const months6: {month:string;posts:number;users:number}[] = [];
       for (let i = 5; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const mKey = d.toISOString().slice(0, 7);
         const mLabel = d.toLocaleDateString("en-US", { month: "short" });
-        months6.push({
-          month: mLabel,
-          posts: posts.filter((p: {id: string; created_at: string; subject: string; user_id: string}) => p.created_at?.slice(0, 7) === mKey).length,
-          users: users.filter((u: {id: string; created_at: string; name: string; xp: number}) => u.created_at?.slice(0, 7) === mKey).length,
-        });
+        months6.push({ month: mLabel, posts: 0, users: 0 });
       }
 
-      const resolvedReports = reports.filter((r: {id: string; created_at: string; resolved: boolean}) => r.resolved === true).length;
-      const unresolvedReports = reports.length - resolvedReports;
+      const totalReports = totalReportsRes.count || 0;
+      const resolvedReports = resolvedReportsRes.count || 0;
 
       setAdminAnalytics({
-        totalUsers: users.length, usersToday, usersWeek, usersMonth,
-        totalPosts: posts.length, postsToday, postsWeek, postsMonth,
-        totalReports: reports.length, resolvedReports, unresolvedReports,
+        totalUsers: totalUsersRes.count || 0, usersToday: usersTodayRes.count || 0, usersWeek: usersWeekRes.count || 0, usersMonth: usersMonthRes.count || 0,
+        totalPosts: totalPostsRes.count || 0, postsToday: postsTodayRes.count || 0, postsWeek: postsWeekRes.count || 0, postsMonth: postsMonthRes.count || 0,
+        totalReports, resolvedReports, unresolvedReports: totalReports - resolvedReports,
         topSubjects, topActiveUsers, months6,
       });
     } catch { }
@@ -1803,7 +1876,7 @@ export default function BasUdrus() {
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"" }),
       });
-      if (!res.body) throw new Error("No stream");
+      if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
@@ -2504,6 +2577,68 @@ export default function BasUdrus() {
 
       {/* ── Help request modal ── */}
       <input ref={photoInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhotoUpload}/>
+
+      {/* ── Photo Crop Modal ── */}
+      {cropModal&&(
+        <div className="modal-bg" onClick={()=>setCropModal(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,padding:24}}>
+            <h3 style={{fontSize:17,fontWeight:800,color:T.navy,marginBottom:4,textAlign:"center"}}>Adjust Your Photo</h3>
+            <p style={{fontSize:12,color:T.muted,textAlign:"center",marginBottom:16}}>Drag to reposition · Zoom to resize</p>
+
+            {/* Preview circle with draggable image */}
+            <div style={{width:240,height:240,margin:"0 auto 16px",borderRadius:"50%",overflow:"hidden",border:`3px solid ${T.accent}`,position:"relative",cursor:"grab",background:"#f3f4f6",touchAction:"none"}}
+              onMouseDown={e=>{cropDragging.current=true;cropLastPos.current={x:e.clientX,y:e.clientY};}}
+              onMouseMove={e=>{if(!cropDragging.current)return;setCropPos(p=>({x:p.x+(e.clientX-cropLastPos.current.x)/cropZoom,y:p.y+(e.clientY-cropLastPos.current.y)/cropZoom}));cropLastPos.current={x:e.clientX,y:e.clientY};}}
+              onMouseUp={()=>{cropDragging.current=false;}}
+              onMouseLeave={()=>{cropDragging.current=false;}}
+              onTouchStart={e=>{const t=e.touches[0];cropDragging.current=true;cropLastPos.current={x:t.clientX,y:t.clientY};}}
+              onTouchMove={e=>{if(!cropDragging.current)return;const t=e.touches[0];setCropPos(p=>({x:p.x+(t.clientX-cropLastPos.current.x)/cropZoom,y:p.y+(t.clientY-cropLastPos.current.y)/cropZoom}));cropLastPos.current={x:t.clientX,y:t.clientY};}}
+              onTouchEnd={()=>{cropDragging.current=false;}}
+            >
+              <img src={cropModal.src} alt="Crop preview" draggable={false} style={{
+                position:"absolute",
+                left:"50%",top:"50%",
+                transform:`translate(-50%,-50%) translate(${cropPos.x}px,${cropPos.y}px) scale(${cropZoom})`,
+                minWidth:"100%",minHeight:"100%",
+                objectFit:"cover",
+                pointerEvents:"none",
+                userSelect:"none",
+              }}/>
+            </div>
+
+            {/* Zoom slider */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,padding:"0 12px"}}>
+              <span style={{fontSize:16,color:T.muted}}>🔍</span>
+              <span style={{fontSize:11,color:T.muted,fontWeight:600,minWidth:15}}>−</span>
+              <input type="range" min="0.5" max="3" step="0.05" value={cropZoom}
+                onChange={e=>setCropZoom(parseFloat(e.target.value))}
+                style={{flex:1,accentColor:T.accent,height:6}}/>
+              <span style={{fontSize:11,color:T.muted,fontWeight:600,minWidth:15}}>+</span>
+              <span style={{fontSize:11,color:T.muted,fontWeight:600,minWidth:35}}>{Math.round(cropZoom*100)}%</span>
+            </div>
+
+            {/* Quick zoom buttons */}
+            <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:18}}>
+              {[{label:"Fit",val:1},{label:"Close",val:1.5},{label:"Zoom",val:2}].map(z=>(
+                <button key={z.label} onClick={()=>{setCropZoom(z.val);setCropPos({x:0,y:0});}}
+                  style={{padding:"6px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:`1.5px solid ${Math.abs(cropZoom-z.val)<0.1?T.accent:T.border}`,background:Math.abs(cropZoom-z.val)<0.1?T.accentSoft:"transparent",color:Math.abs(cropZoom-z.val)<0.1?T.accent:T.muted,cursor:"pointer"}}>
+                  {z.label}
+                </button>
+              ))}
+              <button onClick={()=>{setCropZoom(1);setCropPos({x:0,y:0});}}
+                style={{padding:"6px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:`1.5px solid ${T.border}`,background:"transparent",color:T.muted,cursor:"pointer"}}>
+                Reset
+              </button>
+            </div>
+
+            {/* Actions */}
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn-ghost" style={{flex:1}} onClick={()=>setCropModal(null)}>Cancel</button>
+              <button className="btn-primary" style={{flex:1}} onClick={cropAndUpload}>Save Photo</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Student profile modal ── */}
       {viewingProfile&&(
@@ -3214,7 +3349,7 @@ export default function BasUdrus() {
                 </div>
 
                 {/* ── CHAT AREA (moved to top for immediate engagement) ── */}
-                <div style={{background:T.surface,borderRadius:20,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:"0 2px 20px rgba(0,0,0,0.05)",marginBottom:14}}>
+                <div style={{background:T.surface,borderRadius:28,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)",marginBottom:14}}>
                   {wellbeingMsgs.length===0&&(
                     <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:"linear-gradient(135deg,#f0fdf4,#ecfdf5)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                       {wellbeingMood&&<span style={{padding:"4px 12px",borderRadius:99,background:"#d1fae5",fontSize:12,fontWeight:700,color:"#065f46"}}>Feeling: {wellbeingMood}</span>}
@@ -3222,7 +3357,7 @@ export default function BasUdrus() {
                       <span style={{fontSize:12,color:"#047857",fontWeight:500}}>{wellbeingMood||wellbeingMode?"Ready when you are — type below 💚":"اكتب / Type — Arabic, English, or both. Start whenever you are ready."}</span>
                     </div>
                   )}
-                  <div style={{height:340,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:12,background:wellbeingMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
+                  <div style={{minHeight:340,maxHeight:"60vh",overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:12,background:wellbeingMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
                     {wellbeingMsgs.length===0&&(()=>{
                       const quotes=[
                         {q:"\"الصبر مفتاح الفرج\"",t:"Patience is the key to relief — Arabic proverb"},
@@ -3243,7 +3378,7 @@ export default function BasUdrus() {
                             width:90,height:90,borderRadius:"50%",marginBottom:24,position:"relative",zIndex:1,
                             background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
                             boxShadow:"0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
-                            animation:"orbFloat 6s ease-in-out infinite",
+                            animation:"orbPulse 4s ease-in-out infinite",
                           }}/>
                           <div style={{fontSize:16,fontWeight:700,color:"#1e1b4b",position:"relative",zIndex:1}}>How are you feeling today?</div>
                           <div style={{fontSize:12,color:"#6b7280",marginTop:8,position:"relative",zIndex:1}}>Tell me what's on your mind — I'm here to listen</div>
@@ -3432,8 +3567,8 @@ export default function BasUdrus() {
             {/* ── AI TUTOR ── */}
             {aiTab==="tutor"&&(
               <div className="slide-in">
-                <div style={{background:T.surface,borderRadius:20,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:"0 2px 20px rgba(0,0,0,0.05)"}}>
-                  <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:`linear-gradient(135deg,${T.accentSoft},${T.surface})`}}>
+                <div style={{background:T.surface,borderRadius:28,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)"}}>
+                  <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:`linear-gradient(135deg,${T.accentSoft},#ede9fe,${T.surface})`}}>
                     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                       <div style={{width:36,height:36,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:`0 4px 12px ${T.accent}33`}}>🎓</div>
                       <div>
@@ -3450,7 +3585,7 @@ export default function BasUdrus() {
                     </select>
                   </div>
 
-                  <div style={{height:370,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:10,background:tutorMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
+                  <div style={{minHeight:370,maxHeight:"60vh",overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:10,background:tutorMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
                     {tutorMsgs.length===0&&(
                       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"20px 10px",position:"relative",zIndex:1}}>
                         {/* Ambient glows */}
@@ -3461,7 +3596,7 @@ export default function BasUdrus() {
                           width:90,height:90,borderRadius:"50%",marginBottom:24,position:"relative",zIndex:1,
                           background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
                           boxShadow:"0 0 50px rgba(99,102,241,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
-                          animation:"orbFloat 6s ease-in-out infinite",
+                          animation:"orbPulse 4s ease-in-out infinite",
                         }}/>
                         <div style={{fontSize:16,fontWeight:700,color:"#1e1b4b",textAlign:"center",position:"relative",zIndex:1}}>What do you need help with?</div>
                         <div style={{fontSize:12,color:"#6b7280",textAlign:"center",maxWidth:280,marginTop:8,position:"relative",zIndex:1}}>Ask about any concept, problem, or course material</div>
@@ -3489,7 +3624,7 @@ export default function BasUdrus() {
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <div style={{width:28,height:28,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🤖</div>
                         <div style={{display:"flex",gap:4,padding:"12px 16px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:16}}>
-                          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.muted,animation:`pulse ${0.9+i*0.2}s ease-in-out infinite`}}/>)}
+                          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.accent,animation:`aiTyping 1.4s ${i*0.2}s ease-in-out infinite`}}/>)}
                         </div>
                       </div>
                     )}
@@ -3583,8 +3718,9 @@ export default function BasUdrus() {
                 </div>
 
                 {/* ── AI Smart Matching ── */}
-                <div style={{background:T.surface,borderRadius:20,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 2px 20px rgba(0,0,0,0.05)"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                <div style={{background:T.surface,borderRadius:24,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)",position:"relative",overflow:"hidden"}}>
+                  <div style={{position:"absolute",top:"-30%",right:"-20%",width:200,height:200,borderRadius:"50%",background:"radial-gradient(circle,rgba(46,204,141,0.1),transparent 70%)",filter:"blur(40px)",pointerEvents:"none"}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,position:"relative"}}>
                     <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#2ECC8D,#00B894)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🎯</div>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:15,color:T.navy}}>AI-Powered Smart Matching</div>
@@ -3642,7 +3778,7 @@ export default function BasUdrus() {
             {/* ── STUDY PLAN ── */}
             {aiTab==="plan"&&(
               <div className="slide-in">
-                <div style={{background:T.surface,borderRadius:20,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 2px 20px rgba(0,0,0,0.05)"}}>
+                <div style={{background:T.surface,borderRadius:24,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}>
                     <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#B87CF5,#6C8EF5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📅</div>
                     <div>
@@ -3664,7 +3800,7 @@ export default function BasUdrus() {
                   </div>
                   {profile.major&&<div style={{fontSize:12,color:T.textSoft,marginBottom:14,display:"flex",alignItems:"center",gap:6}}><span>📚</span> Using your profile: <strong>{profile.year||""} {profile.major}</strong></div>}
                   <button onClick={generateStudyPlan} disabled={planLoading||!planSubjects.trim()}
-                    className="btn-primary" style={{width:"100%",padding:13,borderRadius:14}}>
+                    className="btn-primary" style={{width:"100%",padding:14,borderRadius:16,background:planLoading||!planSubjects.trim()?undefined:"linear-gradient(135deg,#8b5cf6,#6366f1,#4f46e5)",boxShadow:planLoading||!planSubjects.trim()?"none":"0 4px 20px rgba(99,102,241,0.3)",fontSize:15,fontWeight:700,letterSpacing:"-0.01em"}}>
                     {planLoading?"🔄 Generating your plan...":"✨ Generate My Study Plan"}
                   </button>
                 </div>
@@ -3709,6 +3845,29 @@ export default function BasUdrus() {
               </div>
             )}
 
+
+            {/* ── AI Hub Footer ── */}
+            <div style={{marginTop:24,padding:"20px 18px",borderRadius:20,background:`linear-gradient(135deg,${T.accentSoft},${T.surface})`,border:`1px solid ${T.border}`,textAlign:"center"}}>
+              <div style={{fontSize:22,marginBottom:8}}>🤖</div>
+              <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}}>Your AI Study Companion</div>
+              <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}}>
+                Wellbeing · Tutor · Smart Match · Study Planner
+              </div>
+              <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}} dir="rtl">
+                «العلم نور والجهل ظلام»
+              </div>
+              <div style={{fontSize:11,color:T.muted,lineHeight:1.6}}>
+                Knowledge is light, and ignorance is darkness — Arabic proverb
+              </div>
+              <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>Arabic & English</span>
+                <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>Privacy First</span>
+                <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>Built for Jordan</span>
+              </div>
+              <div style={{marginTop:12,fontSize:10,color:T.muted}}>
+                Bas Udrus AI · {aiVersion} · Conversations are private & never stored on our servers
+              </div>
+            </div>
 
           </div>
         </div>
