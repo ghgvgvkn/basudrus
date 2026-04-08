@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
+import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Connection, Message, HelpRequest, GroupRoom, SubjectHistory, Report, Notification } from "@/lib/supabase";
 
 const ADMIN_EMAIL = "ahm20250898@std.psut.edu.jo";
 
+import { 
+  AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel, 
+  statusColor, LIGHT, DARK, type Theme 
+} from "@/lib/constants";
 // ─── MARKDOWN RENDERER ──────────────────────────────────────────────────────
 function renderMarkdown(text: string) {
   if (!text) return null;
@@ -161,27 +166,7 @@ function getUniCards(): {uni: string; full: string; emoji: string}[] {
 }
 
 
-const AVATAR_COLORS = ["#6C8EF5","#F4845F","#43C59E","#B87CF5","#F5A623","#3BBFBF","#F06292","#66BB6A","#FF7043","#42A5F5"];
-
-const BADGES_DEF = [
-  { id:"first_connect",  icon:"🤝", name:"First Connect",   desc:"Connected with your first study partner",    xp:50  },
-  { id:"ice_breaker",    icon:"💬", name:"Ice Breaker",     desc:"Sent your first message",                    xp:30  },
-  { id:"helper",         icon:"🦸", name:"Helper",          desc:"Posted a study request",                     xp:100 },
-  { id:"streak_7",       icon:"🔥", name:"Week Warrior",    desc:"Maintained a 7-day study streak",            xp:150 },
-  { id:"streak_30",      icon:"👑", name:"Streak Legend",   desc:"Maintained a 30-day study streak",           xp:500 },
-  { id:"subject_master", icon:"📚", name:"Subject Master",  desc:"Completed 3 subjects",                       xp:200 },
-  { id:"top_rated",      icon:"⭐", name:"Top Rated",       desc:"Received a 5-star rating",                   xp:120 },
-  { id:"group_host",     icon:"🎓", name:"Group Host",      desc:"Created your first group study room",        xp:80  },
-];
-
-const getMeetIcon  = (t: string) => t==="online"?"🎥":t==="face"?"📍":"💬";
-const getMeetLabel = (t: string) => t==="online"?"Online":t==="face"?"On Campus":"Flexible";
-const statusColor  = (s: string) => s==="active"?"#1B8A5A":s==="done"?"#6B7280":"#B37A00";
-
-// ─── THEME ─────────────────────────────────────────────────────────────────────
-const LIGHT = { bg:"#F5F4F0", surface:"#FFFFFF", navy:"#0F1B2D", navyLight:"#1C2E45", accent:"#4A7CF7", accentSoft:"#EEF2FF", green:"#1B8A5A", greenSoft:"#E8FBF3", red:"#D93636", redSoft:"#FEF0F0", border:"#EAEAEA", muted:"#5A6370", text:"#1A2332", textSoft:"#3D4A5C", gold:"#B37A00", goldSoft:"#FFF8EC", navBg:"#FFFFFF" };
-const DARK  = { bg:"#0D1117", surface:"#161B22", navy:"#F0F6FF", navyLight:"#CDD9FF", accent:"#6B9CFF", accentSoft:"#1A2544", green:"#3DDC97", greenSoft:"#0D2B1E", red:"#FF6B6B", redSoft:"#2B0F0F", border:"#21262D", muted:"#9CA4AD", text:"#E6EDF3", textSoft:"#A0AAB5", gold:"#FFB938", goldSoft:"#2B1F0A", navBg:"#161B22" };
-type Theme = typeof LIGHT;
+// Constants imported from @/lib/constants
 
 const makeCSS = (T: Theme) => `
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -199,8 +184,8 @@ const makeCSS = (T: Theme) => `
   .scroll-col { display:flex; flex-direction:column; gap:16px; overflow-y:auto; overflow-x:hidden; padding:8px 16px 120px; scroll-snap-type:y mandatory; -webkit-overflow-scrolling:touch; cursor:grab; flex:1; min-height:0; }
   .scroll-col:active { cursor:grabbing; }
   .page-scroll { overflow-y:auto; height:calc(100dvh - 62px); }
-  .s-card { flex:0 0 auto; width:100%; max-width:500px; margin:0 auto; scroll-snap-align:start; background:${T.surface}; border-radius:22px; border:1px solid ${T.border}; box-shadow:0 2px 20px rgba(0,0,0,0.06); overflow:hidden; transition:box-shadow 0.2s; }
-  .s-card:hover { box-shadow:0 10px 40px rgba(0,0,0,0.11); }
+  .s-card { flex:0 0 auto; width:100%; max-width:500px; margin:0 auto; scroll-snap-align:start; background:${T.surface}; border-radius:22px; border:1px solid ${T.border}; box-shadow:0 8px 24px rgba(0,0,0,0.06); overflow:hidden; transition:all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+  .s-card:hover { box-shadow:0 22px 50px rgba(0,0,0,0.12); transform: translateY(-6px) scale(1.02); border:1px solid ${T.accent}44; }
   @keyframes flyUp    { to { transform:translateY(-130%) scale(0.85); opacity:0; } }
   @keyframes flyDown  { to { transform:translateY(130%) scale(0.85); opacity:0; } }
   @keyframes fadeIn   { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
@@ -217,11 +202,11 @@ const makeCSS = (T: Theme) => `
   .pop-in   { animation:popIn   0.28s ease forwards; will-change:transform,opacity; }
   .bounce-in{ animation:bounceIn 0.45s cubic-bezier(0.175,0.885,0.32,1.275) forwards; will-change:transform,opacity; }
   .pulse    { animation:pulse 1.6s ease-in-out infinite; will-change:transform; }
-  .btn-primary { background:${T.navy}; color:${T.bg}; border:none; padding:13px 28px; border-radius:99px; font-size:15px; font-weight:600; cursor:pointer; transition:background-color 0.2s,transform 0.2s,box-shadow 0.2s; letter-spacing:0.01em; }
-  .btn-primary:hover { background:${T.navyLight}; transform:translateY(-2px); box-shadow:0 8px 24px rgba(15,27,45,0.2); }
-  .btn-primary:active { transform:translateY(0); }
-  .btn-accent  { background:${T.accent}; color:#fff; border:none; padding:13px 28px; border-radius:99px; font-size:15px; font-weight:600; cursor:pointer; transition:filter 0.2s,transform 0.2s,box-shadow 0.2s; }
-  .btn-accent:hover  { filter:brightness(1.1); transform:translateY(-2px); box-shadow:0 8px 24px rgba(74,124,247,0.3); }
+  .btn-primary { background:${T.navy}; color:${T.bg}; border:none; padding:13px 28px; border-radius:99px; font-size:15px; font-weight:600; cursor:pointer; transition:all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); letter-spacing:0.01em; box-shadow: 0 6px 16px rgba(15,27,45,0.15); border-bottom: 2px solid rgba(0,0,0,0.15); }
+  .btn-primary:hover { background:${T.navyLight}; transform:translateY(-3px); box-shadow:0 12px 28px rgba(15,27,45,0.25); border-bottom-width: 4px; }
+  .btn-primary:active { transform:translateY(1px); border-bottom-width: 0px; box-shadow:0 4px 10px rgba(15,27,45,0.1); }
+  .btn-accent  { background:${T.accent}; color:#fff; border:none; padding:13px 28px; border-radius:99px; font-size:15px; font-weight:600; cursor:pointer; transition:all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); box-shadow: 0 6px 16px rgba(74,124,247,0.2); border-bottom: 2px solid rgba(0,0,0,0.1); }
+  .btn-accent:hover  { filter:brightness(1.1); transform:translateY(-3px); box-shadow:0 12px 30px rgba(74,124,247,0.35); border-bottom-width: 4px; }
   .btn-ghost   { background:transparent; color:${T.textSoft}; border:1.5px solid ${T.border}; padding:11px 24px; border-radius:99px; font-size:15px; font-weight:500; cursor:pointer; transition:border-color 0.2s,color 0.2s,background-color 0.2s; }
   .btn-ghost:hover { border-color:${T.accent}; color:${T.accent}; background:${T.accentSoft}; }
   .btn-danger  { background:${T.redSoft}; color:${T.red}; border:1.5px solid transparent; padding:12px 20px; border-radius:99px; font-size:14px; font-weight:700; cursor:pointer; transition:border-color 0.2s,transform 0.2s; }
@@ -247,10 +232,10 @@ const makeCSS = (T: Theme) => `
   .meet-opt.active { border-color:${T.accent}; background:${T.accentSoft}; }
   .color-dot { width:28px; height:28px; border-radius:50%; cursor:pointer; border:2.5px solid transparent; transition:border-color 0.15s,transform 0.15s; }
   .color-dot:hover,.color-dot.sel { border-color:${T.text}; transform:scale(1.18); }
-  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; transition:box-shadow 0.2s,transform 0.2s; }
-  .card:hover { box-shadow:0 6px 28px rgba(0,0,0,0.09); transform:translateY(-2px); }
-  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; transition:box-shadow 0.2s,transform 0.2s; }
-  .request-card:hover { box-shadow:0 4px 20px rgba(0,0,0,0.08); transform:translateY(-2px); }
+  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  .card:hover { box-shadow:0 16px 40px rgba(0,0,0,0.08); transform:translateY(-4px) scale(1.01); }
+  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  .request-card:hover { box-shadow:0 12px 32px rgba(0,0,0,0.08); transform:translateY(-3px) scale(1.01); }
   .streak-badge { display:inline-flex; align-items:center; gap:5px; background:linear-gradient(135deg,#C44D1A,#B07D00); color:#fff; padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; }
   .ai-msg { padding:13px 16px; border-radius:16px; font-size:14px; line-height:1.75; max-width:88%; animation:fadeIn 0.25s ease; word-break:break-word; }
   .ai-msg b { font-weight:700; }
@@ -262,8 +247,10 @@ const makeCSS = (T: Theme) => `
   button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2.5px solid ${T.accent}; outline-offset:2px; }
   /* Reduce motion for users who prefer it */
   @media(prefers-reduced-motion:reduce){ *,*::before,*::after { animation-duration:0.01ms!important; transition-duration:0.01ms!important; } }
+  /* Nav glassmorphism */
+  .nav-inner { backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
   /* Smooth page transitions */
-  .page-scroll > div { animation:fadeIn 0.3s ease; }
+  .page-scroll > div { animation:fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
   /* Better touch targets (Fitts' law — minimum 44px) */
   details summary { min-height:44px; display:flex; align-items:center; }
   details summary::-webkit-details-marker { display:none; }
@@ -277,7 +264,7 @@ const makeCSS = (T: Theme) => `
   .modal { background:${T.surface}; border-radius:24px; padding:28px; width:100%; max-width:460px; box-shadow:0 24px 80px rgba(0,0,0,0.25); animation:popIn 0.28s ease; max-height:92dvh; overflow-y:auto; border:1px solid ${T.border}; }
   .progress-track { background:${T.border}; border-radius:99px; height:6px; overflow:hidden; }
   /* Bottom tab bar — hidden on desktop, shown on mobile */
-  .bot-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:${T.navBg}; border-top:1.5px solid ${T.border}; z-index:200; padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px)); }
+  .bot-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:${T.navBg}; border-top:1.5px solid ${T.border}; z-index:200; padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px)); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
   .bot-tab { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:6px 2px; background:none; border:none; cursor:pointer; font-size:10px; font-weight:600; color:${T.muted}; transition:color 0.15s; line-height:1; }
   .bot-tab .bi { font-size:22px; line-height:1; display:block; }
   .bot-tab.active { color:${T.accent}; }
@@ -293,7 +280,7 @@ const makeCSS = (T: Theme) => `
     .top-tabs .tab-btn { font-size:13px!important; padding:9px 14px!important; white-space:nowrap!important; flex-shrink:0!important; flex:none!important; justify-content:center!important; border-radius:10px!important; font-weight:600!important; }
     .top-tabs .tab-icon { display:none!important; }
     .hide-mob { display:none!important; }
-    .nav-inner{ padding:8px 12px!important; flex-wrap:wrap!important; }
+    .nav-inner{ padding:8px 12px!important; flex-wrap:wrap!important; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
     .hero-section{ padding:52px 20px 36px!important; }
     .page-scroll { height:calc(100dvh - 52px); padding-bottom:16px; }
     .chat-wrap{ flex-direction:column!important; height:calc(100dvh - 52px)!important; }
@@ -869,9 +856,9 @@ export default function BasUdrus() {
         .eq("user_id", user.id);
       if (error) { return; }
       if (data) {
-        setConnections(data.map((c: {partner: Profile; partner_id: string; rating: number | null}) => c.partner).filter(Boolean));
+        setConnections(data.map((c: any) => c.partner).filter(Boolean));
         const r: Record<string,number> = {};
-        data.forEach((c: {partner: Profile; partner_id: string; rating: number | null}) => { if (c.rating) r[c.partner_id] = c.rating; });
+        data.forEach((c: any) => { if (c.rating) r[c.partner_id] = c.rating; });
         setRatings(r);
       }
     } catch { }
@@ -2006,7 +1993,7 @@ export default function BasUdrus() {
     <div style={{minHeight:"100dvh",background:T.bg,transition:"background-color 0.3s",overflowX:"hidden"}}>
       <style>{makeCSS(T)}</style>
       {/* ── STICKY NAV ── */}
-      <nav className="landing-nav" style={{padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.navBg+"ee",borderBottom:`1px solid ${T.border}`,position:"sticky",top:0,zIndex:50,backdropFilter:"blur(18px)",WebkitBackdropFilter:"blur(18px)"}}>
+      <nav className="landing-nav" style={{padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.navBg,borderBottom:`1px solid ${T.border}`,position:"sticky",top:0,zIndex:50,backdropFilter:"blur(18px)",WebkitBackdropFilter:"blur(18px)"}}>
         <Logo size={22} compact/>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button className="btn-ghost" style={{padding:"8px 16px",fontSize:12,borderRadius:99}} onClick={()=>{setAuthMode("login");setScreen("auth");}}>Log in</button>
@@ -2082,12 +2069,12 @@ export default function BasUdrus() {
               {step:"2",icon:"🎯",title:"Get matched",desc:"Our AI finds students in your exact courses who match your style — online, in-person, or both."},
               {step:"3",icon:"💬",title:"Study together",desc:"Message your partner, schedule sessions, and use our AI tutor to ace your exams as a team."}
             ].map((item,i)=>(
-              <div key={i} className="landing-step" style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"28px 22px",textAlign:"left",position:"relative",overflow:"hidden",boxShadow:"0 2px 16px rgba(0,0,0,0.04)",transition:"transform 0.2s,box-shadow 0.2s"}}>
+              <motion.div key={i} className="landing-step" initial={{opacity:0,y:40}} whileInView={{opacity:1,y:0}} viewport={{once:true,margin:"-50px"}} transition={{duration:0.5,delay:i*0.1}} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"28px 22px",textAlign:"left",position:"relative",overflow:"hidden",boxShadow:"0 2px 16px rgba(0,0,0,0.04)",transition:"transform 0.2s,box-shadow 0.2s"}}>
                 <div className="landing-step-num" style={{width:34,height:34,borderRadius:10,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:T.accent,marginBottom:14}}>{item.step}</div>
                 <div className="landing-step-icon" style={{fontSize:24,marginBottom:10}}>{item.icon}</div>
                 <h3 style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:6}}>{item.title}</h3>
                 <p style={{fontSize:13,color:T.textSoft,lineHeight:1.7,margin:0}}>{item.desc}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -2110,11 +2097,11 @@ export default function BasUdrus() {
               {icon:"📅",title:"AI Study Planner",desc:"Get a personalized weekly study schedule based on your courses, exams, and available time."},
               {icon:"🎯",title:"Smart Matchmaking",desc:"Psychology-based questionnaire finds your ideal study partner based on learning style and personality."}
             ].map((feat,i)=>(
-              <div key={i} className="landing-feat" style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:18,padding:"26px 22px",textAlign:"left",boxShadow:"0 2px 12px rgba(0,0,0,0.03)",transition:"transform 0.2s,box-shadow 0.2s"}}>
+              <motion.div key={i} className="landing-feat" initial={{opacity:0,y:40}} whileInView={{opacity:1,y:0}} viewport={{once:true,margin:"-50px"}} transition={{duration:0.5,delay:i*0.1}} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:18,padding:"26px 22px",textAlign:"left",boxShadow:"0 2px 12px rgba(0,0,0,0.03)",transition:"transform 0.2s,box-shadow 0.2s"}}>
                 <div className="landing-feat-icon" style={{fontSize:30,marginBottom:12}}>{feat.icon}</div>
                 <h3 style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:6}}>{feat.title}</h3>
                 <p style={{fontSize:13,color:T.textSoft,lineHeight:1.7,margin:0}}>{feat.desc}</p>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -2128,11 +2115,11 @@ export default function BasUdrus() {
           <p className="section-subtitle" style={{fontSize:14,color:T.textSoft,maxWidth:500,margin:"0 auto 32px",lineHeight:1.7}}>Every course, every major, every campus. We built Bas Udrus from the ground up for Jordanian universities.</p>
           <div className="landing-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:18,marginBottom:32}}>
             {getUniCards().map((u,i)=>(
-              <div key={i} className="landing-uni-card" style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"28px 22px",textAlign:"center",boxShadow:"0 2px 16px rgba(0,0,0,0.04)",transition:"transform 0.2s,box-shadow 0.2s"}}>
+              <motion.div key={i} className="landing-uni-card" initial={{opacity:0,y:40}} whileInView={{opacity:1,y:0}} viewport={{once:true,margin:"-50px"}} transition={{duration:0.5,delay:i*0.1}} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:18,padding:"28px 22px",textAlign:"center",boxShadow:"0 2px 16px rgba(0,0,0,0.04)",transition:"transform 0.2s,box-shadow 0.2s"}}>
                 <div className="landing-uni-emoji" style={{fontSize:34,marginBottom:10}}>{u.emoji}</div>
                 <div className="landing-uni-name" style={{fontSize:22,fontWeight:800,color:T.navy,marginBottom:4}}>{u.uni}</div>
                 <div style={{fontSize:13,color:T.textSoft,lineHeight:1.5}}>{u.full}</div>
-              </div>
+              </motion.div>
             ))}
           </div>
           <p style={{fontSize:13,color:T.muted}}>7 Jordanian universities and growing — request yours after signing up!</p>
@@ -2146,7 +2133,7 @@ export default function BasUdrus() {
             <div style={{display:"inline-block",background:T.accentSoft,color:T.accent,fontSize:11,fontWeight:700,letterSpacing:2,padding:"5px 14px",borderRadius:99,marginBottom:14,textTransform:"uppercase"}}>About Us</div>
             <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(26px,5.5vw,44px)",color:T.navy,marginBottom:8,lineHeight:1.12}}>Built by a student, <span style={{fontStyle:"italic",color:T.accent}}>for students</span></h2>
           </div>
-          <div className="landing-about" style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"28px 24px",boxShadow:"0 4px 24px rgba(0,0,0,0.05)"}}>
+          <motion.div className="landing-about" initial={{opacity:0,y:40}} whileInView={{opacity:1,y:0}} viewport={{once:true,margin:"-50px"}} transition={{duration:0.5}} style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:20,padding:"28px 24px",boxShadow:"0 4px 24px rgba(0,0,0,0.05)"}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:16,marginBottom:20,flexWrap:"wrap"}}>
               <div className="bu-logo" style={{width:52,height:52,borderRadius:16,background:"linear-gradient(135deg,#4A7CF7,#6C8EF5)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:18,flexShrink:0}}>BU</div>
               <div style={{flex:1,minWidth:200}}>
@@ -2175,7 +2162,7 @@ export default function BasUdrus() {
                 </div>
               ))}
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
 
@@ -2962,7 +2949,7 @@ export default function BasUdrus() {
                           <button className="btn-accent" style={{flex:1,padding:"13px 0",fontSize:15,borderRadius:16}} onClick={async()=>{
                             const conn=connections.find(c=>c.id===s.id);
                             if(conn){
-                              if(user) await sendNotification(s.id, user.id, "offer_help", postSubject, s._postId);
+                              if(user) await sendNotification(s.id, user.id, "offer_help", postSubject, s._postId || null);
                               setActiveChat(conn);setScreen("connect");loadMessages(conn.id);
                               showNotif("Offer sent! They'll be notified");
                             }
@@ -4194,7 +4181,7 @@ export default function BasUdrus() {
                         {a.topActiveUsers.length===0?(
                           <div style={{fontSize:12,color:T.muted,textAlign:"center",padding:20}}>No activity yet</div>
                         ):(
-                          a.topActiveUsers.map((u:{name:string;xp:number},i:number)=>{
+                          a.topActiveUsers.map((u:any,i:number)=>{
                             const colors = [
                               {bg:"#CECBF6",text:"#3C3489"},
                               {bg:"#9FE1CB",text:"#085041"},
