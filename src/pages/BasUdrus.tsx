@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Connection, Message, HelpRequest, GroupRoom, SubjectHistory, Report, Notification } from "@/lib/supabase";
+import { getMemory, saveMemory, getStats, incrementStats, getTokenTier, formatMemoryForPrompt, saveTrendingTopic, clearAllMemory } from "@/lib/ai-memory";
 
 const ADMIN_EMAIL = "ahm20250898@std.psut.edu.jo";
 
@@ -770,6 +771,13 @@ export default function BasUdrus() {
       clearTimeout(loadTimeout);
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email ?? "" });
+        // Capture name from OAuth provider metadata (Google, Apple, etc.)
+        const meta = session.user.user_metadata;
+        const oauthName = meta?.full_name || meta?.name || meta?.preferred_username || "";
+        if (oauthName) {
+          setProfile(p => ({ ...p, name: p.name || oauthName }));
+          setAuthForm(f => ({ ...f, name: f.name || oauthName }));
+        }
         const p = await loadProfile(session.user.id);
         setScreen(p ? "discover" : "onboard");
       }
@@ -784,8 +792,16 @@ export default function BasUdrus() {
       }
       // Skip token refresh events — they just renew the JWT, no need to reload profile
       if (event === "TOKEN_REFRESHED") return;
+      if (event === "INITIAL_SESSION") return; // handled by getSession above
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email ?? "" });
+        // Capture name from OAuth provider metadata (Google, Apple, etc.)
+        const meta = session.user.user_metadata;
+        const oauthName = meta?.full_name || meta?.name || meta?.preferred_username || "";
+        if (oauthName) {
+          setProfile(p => ({ ...p, name: p.name || oauthName }));
+          setAuthForm(f => ({ ...f, name: f.name || oauthName }));
+        }
         if (event === "SIGNED_IN" || event === "USER_UPDATED") {
           const p = await loadProfile(session.user.id);
           setScreen(p ? "discover" : "onboard");
@@ -1165,11 +1181,17 @@ export default function BasUdrus() {
   const handleOnboard = async () => {
     if (!profile.uni||!profile.major||!profile.year) return showNotif("Almost there! Fill required fields 👆","err");
     if (!user) { showNotif("Session expired — please sign in again","err"); setScreen("auth"); return; }
+    // Get the best available name (from profile state, authForm, or OAuth metadata)
+    const { data: { session } } = await supabase.auth.getSession();
+    const meta = session?.user?.user_metadata;
+    const bestName = profile.name || authForm.name || meta?.full_name || meta?.name || user.email.split("@")[0];
+    // Check if user has a Google/OAuth avatar
+    const oauthAvatar = meta?.avatar_url || meta?.picture || null;
     try {
-      const profileData = {
+      const profileData: Record<string, unknown> = {
         id: user.id,
         email: user.email,
-        name: profile.name || authForm.name,
+        name: bestName,
         uni: profile.uni,
         major: profile.major,
         year: profile.year,
@@ -1178,8 +1200,8 @@ export default function BasUdrus() {
         bio: profile.bio || "",
         avatar_emoji: profile.avatar_emoji || "🫶",
         avatar_color: profile.avatar_color || "#6C8EF5",
-        photo_mode: "initials",
-        photo_url: null,
+        photo_mode: oauthAvatar ? "photo" : "initials",
+        photo_url: oauthAvatar || null,
         streak: 4,
         xp: 0,
         badges: [],
@@ -1189,10 +1211,10 @@ export default function BasUdrus() {
         subjects: [],
       };
       const { error } = await supabase.from("profiles").upsert(profileData, { onConflict: "id" });
-      if (error) { showNotif("Error saving profile: " + error.message, "err"); return; }
-      setProfile(profileData);
+      if (error) { logError("handleOnboard:upsert", error); showNotif("Error saving profile: " + error.message, "err"); return; }
+      setProfile(profileData as typeof profile);
       setScreen("discover");
-      await loadAllStudents();
+      loadAllStudents().catch(e => logError("loadAllStudents", e));
     } catch (e) { logError("handleOnboard", e); showNotif("Something went wrong — please try again", "err"); }
   };
 
@@ -1791,14 +1813,18 @@ export default function BasUdrus() {
   };
 
   const handleSignOut = async () => {
-    try { await supabase.auth.signOut({ scope: "local" }); } catch (_) {}
-    try { await supabase.auth.signOut(); } catch (_) {}
+    // 1. Clear ALL Supabase storage FIRST — prevents stale session on reload
     Object.keys(localStorage).forEach(k => {
-      if (k.startsWith("sb-") || k.includes("supabase")) localStorage.removeItem(k);
+      if (k.startsWith("sb-") || k.includes("supabase") || k.includes("auth")) localStorage.removeItem(k);
     });
     Object.keys(sessionStorage).forEach(k => {
-      if (k.startsWith("sb-") || k.includes("supabase")) sessionStorage.removeItem(k);
+      if (k.startsWith("sb-") || k.includes("supabase") || k.includes("auth")) sessionStorage.removeItem(k);
     });
+    // 2. Clear AI memory
+    clearAllMemory();
+    // 3. Tell Supabase to sign out (global scope revokes token server-side too)
+    try { await supabase.auth.signOut({ scope: "global" }); } catch (_) { /* session may already be gone */ }
+    // 4. Reset ALL app state
     setUser(null);
     setProfile({ name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible", bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials", photo_url:null, streak:4, xp:0, badges:[], sessions:0, rating:0, subjects:[] });
     setConnections([]);
@@ -1813,7 +1839,8 @@ export default function BasUdrus() {
     setDismissed({});
     setRatings({});
     setScreen("landing");
-    setTimeout(() => window.location.reload(), 100);
+    // 5. Hard reload to fully reset — small delay so state updates flush
+    setTimeout(() => { window.location.href = window.location.origin; }, 150);
   };
 
   // ── AI Handlers ───────────────────────────────────────────────────────
@@ -1828,12 +1855,16 @@ export default function BasUdrus() {
     setTutorMsgs(newMsgs);
     setTutorLoading(true);
     setTutorMsgs(prev => [...prev, { role:"assistant" as const, content:"" }]);
+    // Save user message to memory
+    saveMemory("tutor", "user", msg);
+    if (tutorSubject) saveTrendingTopic(tutorSubject);
     try {
       const apiMsgs = fileCtx ? [...tutorMsgs, { role:"user" as const, content:msg+fileCtx }] : newMsgs;
+      const memory = formatMemoryForPrompt("tutor");
       const res = await fetch("/api/ai/tutor", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
+        body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", year:profile.year||"", uni:profile.uni||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
       });
       if (!res.ok || !res.body) throw new Error("AI error");
       const reader = res.body.getReader();
@@ -1857,12 +1888,16 @@ export default function BasUdrus() {
           } catch {}
         }
       }
+      // Save assistant response to memory & update stats
+      saveMemory("tutor", "assistant", assistantMsg.slice(0, 300));
+      const stats = incrementStats("tutor");
+      const tier = getTokenTier(stats);
+      setAiUserTier({ tier: tier.tier, interactionCount: stats.totalInteractions, maxTokens: tier.maxTokens });
     } catch {
       setTutorMsgs(prev => prev.slice(0,-1));
       showNotif("AI tutor error. Please try again.", "err");
     } finally {
       setTutorLoading(false);
-      if(user?.id) fetch(`/api/ai/user-stats/${user.id}`).then(r=>r.json()).then(d=>{ if(d.tier) setAiUserTier(d); }).catch(()=>{});
     }
   };
 
@@ -1874,11 +1909,14 @@ export default function BasUdrus() {
     setWellbeingMsgs(newMsgs);
     setWellbeingLoading(true);
     setWellbeingMsgs(prev => [...prev, { role:"assistant" as const, content:"" }]);
+    // Save user message to memory (wellbeing has limited memory for privacy)
+    saveMemory("wellbeing", "user", msg);
     try {
+      const memory = formatMemoryForPrompt("wellbeing");
       const res = await fetch("/api/ai/wellbeing", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
+        body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
       });
       if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
       const reader = res.body.getReader();
@@ -1903,12 +1941,16 @@ export default function BasUdrus() {
           } catch {}
         }
       }
+      // Save assistant response to memory & update stats
+      saveMemory("wellbeing", "assistant", assistantMsg.slice(0, 300));
+      const stats = incrementStats("wellbeing");
+      const tier = getTokenTier(stats);
+      setAiUserTier({ tier: tier.tier, interactionCount: stats.totalInteractions, maxTokens: tier.maxTokens });
     } catch {
       setWellbeingMsgs(prev => prev.slice(0,-1));
       showNotif("Could not reach Mental Health AI. Please try again.", "err");
     } finally {
       setWellbeingLoading(false);
-      if(user?.id) fetch(`/api/ai/user-stats/${user.id}`).then(r=>r.json()).then(d=>{ if(d.tier) setAiUserTier(d); }).catch(()=>{});
     }
   };
 
@@ -1933,6 +1975,9 @@ export default function BasUdrus() {
     if (!planSubjects.trim() || planLoading) return;
     setPlanLoading(true);
     setPlanResult("");
+    // Save the plan request to memory & track trending topics
+    saveMemory("planner", "user", `Subjects: ${planSubjects}, Exams: ${planExamDates || "none"}`);
+    saveTrendingTopic(planSubjects.split(",")[0]?.trim() || planSubjects);
     try {
       const res = await fetch("/api/ai/study-plan", {
         method:"POST",
@@ -1959,6 +2004,10 @@ export default function BasUdrus() {
         }
       }
       if (!fullPlan) setPlanResult("Failed to generate plan. Please try again.");
+      else {
+        saveMemory("planner", "assistant", fullPlan.slice(0, 300));
+        incrementStats("planner");
+      }
     } catch { showNotif("Failed to generate plan.", "err"); }
     setPlanLoading(false);
   };

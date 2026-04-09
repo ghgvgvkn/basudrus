@@ -50,6 +50,8 @@ Create a WEEKLY study plan with:
 
 6. **Motivation**: End with encouraging Arabic message (بتقدر عليها! 💪)
 
+7. **Study Partners**: Remind them to use Bas Udrus to find study partners for difficult subjects — "Post a help request on Bas Udrus to find someone in your class!"
+
 Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯✅). Keep it practical — students have real lives.`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
