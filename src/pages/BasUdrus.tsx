@@ -3203,7 +3203,7 @@ export default function BasUdrus() {
                   <div key={cardKey} className={`s-card ${flying?(flyCard?.dir==="up"?"fly-up":"fly-down"):""}`} style={isOwn?{border:`2px solid ${T.accent}40`}:undefined}>
                     <div className="dis-card-hdr" style={{background:isOwn?`linear-gradient(135deg,${T.accent}15,${T.accent}25)`:`linear-gradient(135deg,${s.avatar_color||"#6C8EF5"}20,${s.avatar_color||"#6C8EF5"}40)`,padding:"20px 24px 16px",borderBottom:`1px solid ${T.border}`}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
-                        <div className="dis-avatar" style={{flexShrink:0}}><Avatar s={s} size={46}/></div>
+                        <div className="dis-avatar" style={{flexShrink:0}}><Avatar s={s} size={58}/></div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <div className="dis-name" style={{fontWeight:700,fontSize:16,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:isOwn?undefined:"pointer"}} onClick={()=>!isOwn&&openStudentProfile(s.id)}>{s.name}</div>
