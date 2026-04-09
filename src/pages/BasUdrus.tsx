@@ -3,12 +3,13 @@ import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Connection, Message, HelpRequest, GroupRoom, SubjectHistory, Report, Notification } from "@/lib/supabase";
 import { getMemory, saveMemory, getStats, incrementStats, getTokenTier, formatMemoryForPrompt, saveTrendingTopic, clearAllMemory } from "@/lib/ai-memory";
+import { COURSE_CATEGORIES, ALL_COURSES, getCategoryForCourse } from "@/lib/courses";
 
 const ADMIN_EMAIL = "ahm20250898@std.psut.edu.jo";
 
-import { 
-  AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel, 
-  statusColor, LIGHT, DARK, type Theme 
+import {
+  AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel,
+  statusColor, LIGHT, DARK, type Theme
 } from "@/lib/constants";
 // ─── MARKDOWN RENDERER ──────────────────────────────────────────────────────
 function renderMarkdown(text: string) {
@@ -148,22 +149,32 @@ function getMajorsForUni(uniFilter: string): string[] {
   return _majorList.filter(m => m.university_id === uni.id).map(m => m.name);
 }
 
-function getCourseGroups(uniFilter: string, majorFilter: string): [string, string[]][] {
-  let majors = _majorList;
-  if (uniFilter) {
-    const uni = _uniList.find(u => u.name === uniFilter);
-    if (uni) majors = majors.filter(m => m.university_id === uni.id);
+/**
+ * Returns ALL courses grouped by category — global, NOT tied to major.
+ * Merges DB courses with the comprehensive hardcoded fallback list.
+ * Optional categoryFilter narrows to one category (for optional filtering, not enforced).
+ */
+function getCourseGroups(_uniFilter?: string, _majorFilter?: string, categoryFilter?: string): [string, string[]][] {
+  // Start with the comprehensive global list
+  const merged: Record<string, Set<string>> = {};
+  for (const [cat, courses] of Object.entries(COURSE_CATEGORIES)) {
+    merged[cat] = new Set(courses);
   }
-  if (majorFilter) {
-    majors = majors.filter(m => m.name === majorFilter);
+  // Add any DB courses that aren't in the hardcoded list
+  for (const c of _courseList) {
+    const cat = getCategoryForCourse(c.name);
+    if (!merged[cat]) merged[cat] = new Set();
+    merged[cat].add(c.name);
   }
+  // Build result
   const result: [string, string[]][] = [];
-  for (const m of majors) {
-    const uni = _uniList.find(u => u.id === m.university_id);
-    const label = `[${uni?.short_name || ""}] ${m.name}`;
-    const courses = _courseList.filter(c => c.major_id === m.id).map(c => c.name);
-    if (courses.length > 0) result.push([label, courses]);
+  for (const [cat, courseSet] of Object.entries(merged)) {
+    if (categoryFilter && cat !== categoryFilter) continue;
+    const sorted = Array.from(courseSet).sort((a, b) => a.localeCompare(b));
+    if (sorted.length > 0) result.push([cat, sorted]);
   }
+  // Sort categories alphabetically
+  result.sort((a, b) => a[0].localeCompare(b[0]));
   return result;
 }
 
@@ -643,17 +654,16 @@ export default function BasUdrus() {
   const courseDropRef = useRef<HTMLDivElement>(null);
 
   const allCourseOptions = useMemo(() => {
-    const groups = getCourseGroups(uniFilter, majorFilter);
+    const groups = getCourseGroups();
     const results: {course: string; group: string}[] = [];
     const seen = new Set<string>();
     for (const [cat, list] of groups) {
-      const label = cat.replace(/^\[[^\]]+\]\s*/, "");
       for (const c of list) {
-        if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: label }); }
+        if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: cat }); }
       }
     }
     return results;
-  }, [uniFilter, majorFilter, uniDataReady]);
+  }, [uniDataReady]);
 
   const debouncedCourseSearch = useDebounce(courseSearch, 150);
   const filteredCourseOptions = useMemo(() => {
@@ -716,15 +726,14 @@ export default function BasUdrus() {
 
   const editAllCourseOptions = useMemo(() => {
     if (!editProfile) return [];
-    const groups = getCourseGroups(editProfile.uni || "", editProfile.major || "");
+    const groups = getCourseGroups();
     const results: {course: string; group: string}[] = [];
     const seen = new Set<string>();
     for (const [cat, list] of groups) {
-      const label = cat.replace(/^\[[^\]]+\]\s*/, "");
-      for (const c of list) { if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: label }); } }
+      for (const c of list) { if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: cat }); } }
     }
     return results;
-  }, [editProfile?.uni, editProfile?.major, uniDataReady]);
+  }, [uniDataReady]);
 
   const editFilteredCourseOptions = useMemo(() => {
     const selected = new Set(editCoursesList);
@@ -1433,10 +1442,32 @@ export default function BasUdrus() {
     e.target.value = ""; // reset input so re-selecting same file works
   };
 
+  // Calculate initial zoom to "cover" the circle (fill it without gaps)
+  const [cropImgDims, setCropImgDims] = useState<{w:number;h:number}|null>(null);
+  const cropInitialZoom = useMemo(() => {
+    if (!cropImgDims) return 1;
+    const previewSize = 260;
+    // Scale to cover the circle — use the LARGER ratio so the full circle is filled
+    return Math.max(previewSize / cropImgDims.w, previewSize / cropImgDims.h);
+  }, [cropImgDims]);
+
+  // When crop modal opens, measure the image
+  useEffect(() => {
+    if (!cropModal) { setCropImgDims(null); return; }
+    const img = new Image();
+    img.onload = () => {
+      setCropImgDims({ w: img.naturalWidth, h: img.naturalHeight });
+      const previewSize = 260;
+      const coverZoom = Math.max(previewSize / img.naturalWidth, previewSize / img.naturalHeight);
+      setCropZoom(coverZoom);
+      setCropPos({ x: 0, y: 0 });
+    };
+    img.src = cropModal.src;
+  }, [cropModal?.src]);
+
   const cropAndUpload = async () => {
     if (!cropModal || !user) return;
     try {
-      // Draw cropped image to canvas
       const canvas = document.createElement("canvas");
       const size = 400; // output 400x400
       canvas.width = size;
@@ -1452,26 +1483,23 @@ export default function BasUdrus() {
         img.src = cropModal.src;
       });
 
-      // Calculate scaled dimensions
-      const scale = cropZoom;
-      const imgW = img.width * scale;
-      const imgH = img.height * scale;
-      // Center + user offset
-      const drawX = (size - imgW) / 2 + cropPos.x * scale;
-      const drawY = (size - imgH) / 2 + cropPos.y * scale;
+      // The preview circle is 260px. Canvas is 400px. Scale factor:
+      const canvasToPreview = size / 260;
+      // Draw the image at the same relative position/zoom as the preview
+      const imgW = img.naturalWidth * cropZoom * canvasToPreview;
+      const imgH = img.naturalHeight * cropZoom * canvasToPreview;
+      const drawX = (size - imgW) / 2 + cropPos.x * canvasToPreview;
+      const drawY = (size - imgH) / 2 + cropPos.y * canvasToPreview;
 
-      // Fill with white background (for transparent PNGs)
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, size, size);
-      // Clip to circle
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
       ctx.closePath();
       ctx.clip();
       ctx.drawImage(img, drawX, drawY, imgW, imgH);
 
-      // Convert to blob
-      const blob = await new Promise<Blob|null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.9));
+      const blob = await new Promise<Blob|null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
       if (!blob) { showNotif("Failed to process image", "err"); return; }
 
       const path = `${user.id}/avatar.jpg`;
@@ -2079,7 +2107,7 @@ export default function BasUdrus() {
     );
   };
 
-  const CourseSearch = ({value, onChange, uniFilter, majorFilter, placeholder}: {value:string; onChange:(v:string)=>void; uniFilter?:string; majorFilter?:string; placeholder?:string}) => {
+  const CourseSearch = ({value, onChange, placeholder}: {value:string; onChange:(v:string)=>void; uniFilter?:string; majorFilter?:string; placeholder?:string}) => {
     const [csSearch, setCsSearch] = useState("");
     const [csOpen, setCsOpen] = useState(false);
     const csRef = useRef<HTMLDivElement>(null);
@@ -2088,30 +2116,58 @@ export default function BasUdrus() {
       document.addEventListener("mousedown", handler);
       return () => document.removeEventListener("mousedown", handler);
     }, []);
-    const allCoursesRaw = getCourseGroups(uniFilter||"", majorFilter||"").flatMap(([group, courses]) => courses.map(c => ({course:c, group:group.replace(/^\[[^\]]+\]\s*/,"")})));
+    // Global course list — not tied to major
+    const allCoursesRaw = getCourseGroups().flatMap(([group, courses]) => courses.map(c => ({course:c, group})));
     const seenCs = new Set<string>(); const allCourses = allCoursesRaw.filter(c => { if (seenCs.has(c.course)) return false; seenCs.add(c.course); return true; });
-    const filtered = csSearch ? allCourses.filter(c => c.course.toLowerCase().includes(csSearch.toLowerCase())) : allCourses;
+    const filtered = useMemo(() => {
+      if (!csSearch) return allCourses.slice(0, 80);
+      const q = csSearch.toLowerCase();
+      const starts: typeof allCourses = [];
+      const wordStarts: typeof allCourses = [];
+      const contains: typeof allCourses = [];
+      for (const opt of allCourses) {
+        const name = opt.course.toLowerCase();
+        if (name.startsWith(q)) starts.push(opt);
+        else if (name.split(/[\s(&]/).some(w => w.startsWith(q))) wordStarts.push(opt);
+        else if (name.includes(q)) contains.push(opt);
+      }
+      return [...starts, ...wordStarts, ...contains].slice(0, 80);
+    }, [csSearch, allCourses]);
+    // Group the filtered results by category for display
+    const grouped = useMemo(() => {
+      const map = new Map<string, string[]>();
+      for (const item of filtered) {
+        if (!map.has(item.group)) map.set(item.group, []);
+        map.get(item.group)!.push(item.course);
+      }
+      return Array.from(map.entries());
+    }, [filtered]);
     return (
       <div ref={csRef} style={{position:"relative"}}>
         <div style={{display:"flex",alignItems:"center",border:`1.5px solid ${csOpen?T.accent:T.border}`,borderRadius:12,padding:"0 12px",background:T.bg,transition:"border-color 0.15s"}}>
           <span style={{fontSize:14,marginRight:6,opacity:0.5}}>🔍</span>
-          <input placeholder={placeholder||"Search courses..."} value={csOpen?csSearch:value}
+          <input placeholder={placeholder||"Search any course..."} value={csOpen?csSearch:value}
             onChange={e=>{setCsSearch(e.target.value);setCsOpen(true);}}
             onFocus={()=>setCsOpen(true)}
             style={{border:"none",outline:"none",background:"transparent",flex:1,fontSize:16,padding:"11px 0",color:T.text,minWidth:0,width:"100%"}}/>
           {(csSearch||value)&&<span style={{cursor:"pointer",fontSize:16,color:T.muted,padding:4}} onMouseDown={e=>{e.preventDefault();setCsSearch("");onChange("");}}>×</span>}
         </div>
         {csOpen&&(
-          <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.12)",maxHeight:220,overflowY:"auto",zIndex:50}}>
-            {filtered.length===0?(
+          <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.12)",maxHeight:260,overflowY:"auto",zIndex:50}}>
+            {grouped.length===0?(
               <div style={{padding:"16px 14px",textAlign:"center",fontSize:13,color:T.muted}}>{csSearch?`No courses match "${csSearch}"`:"No courses available"}</div>
             ):(
-              filtered.slice(0,60).map(({course,group})=>(
-                <div key={`${group}::${course}`} onMouseDown={e=>{e.preventDefault();onChange(course);setCsSearch("");setCsOpen(false);}}
-                  style={{padding:"9px 14px",cursor:"pointer",fontSize:13,color:T.text,borderBottom:`1px solid ${T.border}22`}}
-                  onMouseEnter={e=>(e.currentTarget.style.background=T.accentSoft)}
-                  onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                  {course}
+              grouped.map(([cat, courses])=>(
+                <div key={cat}>
+                  <div style={{padding:"8px 14px 4px",fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",position:"sticky",top:0,background:T.surface,zIndex:1}}>{cat}</div>
+                  {courses.map(course=>(
+                    <div key={course} onMouseDown={e=>{e.preventDefault();onChange(course);setCsSearch("");setCsOpen(false);}}
+                      style={{padding:"8px 14px 8px 24px",cursor:"pointer",fontSize:13,color:course===value?T.accent:T.text,fontWeight:course===value?700:400,background:course===value?T.accentSoft:"transparent"}}
+                      onMouseEnter={e=>{if(course!==value)(e.currentTarget as HTMLDivElement).style.background=T.border;}}
+                      onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.background=course===value?T.accentSoft:"transparent";}}>
+                      {course}
+                    </div>
+                  ))}
                 </div>
               ))
             )}
@@ -2652,60 +2708,66 @@ export default function BasUdrus() {
       {/* ── Photo Crop Modal ── */}
       {cropModal&&(
         <div className="modal-bg" onClick={()=>setCropModal(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,padding:24}}>
-            <h3 style={{fontSize:17,fontWeight:800,color:T.navy,marginBottom:4,textAlign:"center"}}>Adjust Your Photo</h3>
-            <p style={{fontSize:12,color:T.muted,textAlign:"center",marginBottom:16}}>Drag to reposition · Zoom to resize</p>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:440,padding:28}}>
+            <h3 style={{fontSize:18,fontWeight:800,color:T.navy,marginBottom:2,textAlign:"center"}}>Adjust Your Photo</h3>
+            <p style={{fontSize:12,color:T.muted,textAlign:"center",marginBottom:20}}>Drag to reposition · Pinch or slide to zoom</p>
 
-            {/* Preview circle with draggable image */}
-            <div style={{width:240,height:240,margin:"0 auto 16px",borderRadius:"50%",overflow:"hidden",border:`3px solid ${T.accent}`,position:"relative",cursor:"grab",background:"#f3f4f6",touchAction:"none"}}
-              onMouseDown={e=>{cropDragging.current=true;cropLastPos.current={x:e.clientX,y:e.clientY};}}
-              onMouseMove={e=>{if(!cropDragging.current)return;setCropPos(p=>({x:p.x+(e.clientX-cropLastPos.current.x)/cropZoom,y:p.y+(e.clientY-cropLastPos.current.y)/cropZoom}));cropLastPos.current={x:e.clientX,y:e.clientY};}}
+            {/* Preview circle — 260px for better visibility */}
+            <div style={{width:260,height:260,margin:"0 auto 20px",borderRadius:"50%",overflow:"hidden",border:`3px solid ${T.accent}`,position:"relative",cursor:cropDragging.current?"grabbing":"grab",background:"#f0f0f0",touchAction:"none",boxShadow:`0 0 0 4px ${T.bg}, 0 0 0 5px ${T.border}, 0 8px 32px rgba(0,0,0,0.12)`}}
+              onMouseDown={e=>{e.preventDefault();cropDragging.current=true;cropLastPos.current={x:e.clientX,y:e.clientY};}}
+              onMouseMove={e=>{if(!cropDragging.current)return;const dx=e.clientX-cropLastPos.current.x;const dy=e.clientY-cropLastPos.current.y;setCropPos(p=>({x:p.x+dx,y:p.y+dy}));cropLastPos.current={x:e.clientX,y:e.clientY};}}
               onMouseUp={()=>{cropDragging.current=false;}}
               onMouseLeave={()=>{cropDragging.current=false;}}
               onTouchStart={e=>{const t=e.touches[0];cropDragging.current=true;cropLastPos.current={x:t.clientX,y:t.clientY};}}
-              onTouchMove={e=>{if(!cropDragging.current)return;const t=e.touches[0];setCropPos(p=>({x:p.x+(t.clientX-cropLastPos.current.x)/cropZoom,y:p.y+(t.clientY-cropLastPos.current.y)/cropZoom}));cropLastPos.current={x:t.clientX,y:t.clientY};}}
+              onTouchMove={e=>{if(!cropDragging.current)return;const t=e.touches[0];const dx=t.clientX-cropLastPos.current.x;const dy=t.clientY-cropLastPos.current.y;setCropPos(p=>({x:p.x+dx,y:p.y+dy}));cropLastPos.current={x:t.clientX,y:t.clientY};}}
               onTouchEnd={()=>{cropDragging.current=false;}}
+              onWheel={e=>{e.preventDefault();const delta=e.deltaY>0?-0.02:0.02;setCropZoom(z=>Math.max(0.1,Math.min(5,z+delta)));}}
             >
-              <img src={cropModal.src} alt="Crop preview" draggable={false} style={{
-                position:"absolute",
-                left:"50%",top:"50%",
-                transform:`translate(-50%,-50%) translate(${cropPos.x}px,${cropPos.y}px) scale(${cropZoom})`,
-                minWidth:"100%",minHeight:"100%",
-                objectFit:"cover",
-                pointerEvents:"none",
-                userSelect:"none",
-              }}/>
+              {cropImgDims && (
+                <img src={cropModal.src} alt="Crop preview" draggable={false} style={{
+                  position:"absolute",
+                  left:"50%",top:"50%",
+                  width: cropImgDims.w * cropZoom,
+                  height: cropImgDims.h * cropZoom,
+                  transform:`translate(-50%,-50%) translate(${cropPos.x}px,${cropPos.y}px)`,
+                  pointerEvents:"none",
+                  userSelect:"none",
+                }}/>
+              )}
             </div>
 
-            {/* Zoom slider */}
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,padding:"0 12px"}}>
-              <span style={{fontSize:16,color:T.muted}}>🔍</span>
-              <span style={{fontSize:11,color:T.muted,fontWeight:600,minWidth:15}}>−</span>
-              <input type="range" min="0.5" max="3" step="0.05" value={cropZoom}
+            {/* Zoom controls */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,padding:"0 8px"}}>
+              <button onClick={()=>setCropZoom(z=>Math.max(0.1,z-0.05))} style={{width:32,height:32,borderRadius:8,border:`1.5px solid ${T.border}`,background:T.surface,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",color:T.text}}>−</button>
+              <input type="range" min={cropInitialZoom*0.3} max={cropInitialZoom*4} step="0.005" value={cropZoom}
                 onChange={e=>setCropZoom(parseFloat(e.target.value))}
                 style={{flex:1,accentColor:T.accent,height:6}}/>
-              <span style={{fontSize:11,color:T.muted,fontWeight:600,minWidth:15}}>+</span>
-              <span style={{fontSize:11,color:T.muted,fontWeight:600,minWidth:35}}>{Math.round(cropZoom*100)}%</span>
+              <button onClick={()=>setCropZoom(z=>Math.min(5,z+0.05))} style={{width:32,height:32,borderRadius:8,border:`1.5px solid ${T.border}`,background:T.surface,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",color:T.text}}>+</button>
+              <span style={{fontSize:11,color:T.muted,fontWeight:700,minWidth:40,textAlign:"right"}}>{cropImgDims?Math.round((cropZoom/cropInitialZoom)*100):100}%</span>
             </div>
 
-            {/* Quick zoom buttons */}
-            <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:18}}>
-              {[{label:"Fit",val:1},{label:"Close",val:1.5},{label:"Zoom",val:2}].map(z=>(
+            {/* Quick presets */}
+            <div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:20}}>
+              {[
+                {label:"Fill",val:cropInitialZoom,icon:"📐"},
+                {label:"Close-up",val:cropInitialZoom*1.5,icon:"🔍"},
+                {label:"Zoomed",val:cropInitialZoom*2.2,icon:"🎯"},
+              ].map(z=>(
                 <button key={z.label} onClick={()=>{setCropZoom(z.val);setCropPos({x:0,y:0});}}
-                  style={{padding:"6px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:`1.5px solid ${Math.abs(cropZoom-z.val)<0.1?T.accent:T.border}`,background:Math.abs(cropZoom-z.val)<0.1?T.accentSoft:"transparent",color:Math.abs(cropZoom-z.val)<0.1?T.accent:T.muted,cursor:"pointer"}}>
-                  {z.label}
+                  style={{padding:"7px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:`1.5px solid ${Math.abs(cropZoom-z.val)<0.02?T.accent:T.border}`,background:Math.abs(cropZoom-z.val)<0.02?T.accentSoft:"transparent",color:Math.abs(cropZoom-z.val)<0.02?T.accent:T.muted,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                  <span>{z.icon}</span> {z.label}
                 </button>
               ))}
-              <button onClick={()=>{setCropZoom(1);setCropPos({x:0,y:0});}}
-                style={{padding:"6px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:`1.5px solid ${T.border}`,background:"transparent",color:T.muted,cursor:"pointer"}}>
-                Reset
+              <button onClick={()=>{setCropZoom(cropInitialZoom);setCropPos({x:0,y:0});}}
+                style={{padding:"7px 14px",borderRadius:99,fontSize:11,fontWeight:700,border:`1.5px solid ${T.border}`,background:"transparent",color:T.muted,cursor:"pointer"}}>
+                ↺ Reset
               </button>
             </div>
 
             {/* Actions */}
             <div style={{display:"flex",gap:10}}>
-              <button className="btn-ghost" style={{flex:1}} onClick={()=>setCropModal(null)}>Cancel</button>
-              <button className="btn-primary" style={{flex:1}} onClick={cropAndUpload}>Save Photo</button>
+              <button className="btn-ghost" style={{flex:1,padding:13,borderRadius:14}} onClick={()=>setCropModal(null)}>Cancel</button>
+              <button className="btn-primary" style={{flex:1,padding:13,borderRadius:14}} onClick={cropAndUpload}>💾 Save Photo</button>
             </div>
           </div>
         </div>
@@ -3650,8 +3712,8 @@ export default function BasUdrus() {
                     <select value={tutorSubject} onChange={e=>setTutorSubject(e.target.value)}
                       style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${T.border}`,borderRadius:11,fontSize:13,fontWeight:600,color:T.text,background:T.surface,outline:"none"}}>
                       <option value="">📚 General — no specific subject</option>
-                      {getCourseGroups(profile.uni||"",profile.major||"").map(([cat,list])=>(
-                        <optgroup key={cat} label={cat.replace(/^\[[^\]]+\]\s*/,"")}>{list.map((c,i)=><option key={i} value={c}>{c}</option>)}</optgroup>
+                      {getCourseGroups().map(([cat,list])=>(
+                        <optgroup key={cat} label={cat}>{list.map((c,i)=><option key={i} value={c}>{c}</option>)}</optgroup>
                       ))}
                     </select>
                   </div>
