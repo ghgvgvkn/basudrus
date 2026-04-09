@@ -733,12 +733,12 @@ export default function BasUdrus() {
       for (const c of list) { if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: cat }); } }
     }
     return results;
-  }, [uniDataReady]);
+  }, [uniDataReady, !!editProfile]);
 
   const editFilteredCourseOptions = useMemo(() => {
     const selected = new Set(editCoursesList);
     const available = editAllCourseOptions.filter(o => !selected.has(o.course));
-    if (!editCourseSearch) return available;
+    if (!editCourseSearch) return available.slice(0, 80); // Show first 80 when not searching
     const q = editCourseSearch.toLowerCase();
     const startsWith: typeof available = [];
     const wordStarts: typeof available = [];
@@ -749,7 +749,7 @@ export default function BasUdrus() {
       else if (name.split(/[\s(&]/).some(w => w.startsWith(q))) wordStarts.push(opt);
       else if (name.includes(q)) contains.push(opt);
     }
-    return [...startsWith, ...wordStarts, ...contains];
+    return [...startsWith, ...wordStarts, ...contains].slice(0, 80);
   }, [editAllCourseOptions, editCourseSearch, editCoursesList]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [activeChat, messages]);
@@ -4186,7 +4186,7 @@ export default function BasUdrus() {
                         <option value="">Select year</option>{["Year 1","Year 2","Year 3","Year 4","Year 5"].map(y=><option key={y}>{y}</option>)}
                       </select>
                     </div>
-                    <div className="field"><label>Courses (optional — search and add as many as you like)</label>
+                    <div className="field"><label>Courses (search any course — not limited to your major)</label>
                       {editCoursesList.length > 0 && (
                         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
                           {editCoursesList.map(c => (
@@ -4205,7 +4205,7 @@ export default function BasUdrus() {
                           onClick={() => setEditCourseDropOpen(true)}>
                           <span style={{fontSize:14,marginRight:6,opacity:0.5}}>🔍</span>
                           <input
-                            placeholder={editProfile?.uni || editProfile?.major ? "Search courses…" : "Select university & major first to filter courses…"}
+                            placeholder="Search any course (e.g. Calculus, Data Structures, Physics 2…)"
                             value={editCourseDropOpen ? editCourseSearch : ""}
                             onChange={e => {setEditCourseSearch(e.target.value);setEditCourseDropOpen(true);}}
                             onFocus={() => setEditCourseDropOpen(true)}
@@ -4217,33 +4217,46 @@ export default function BasUdrus() {
                             >×</span>
                           )}
                         </div>
-                        {editCourseDropOpen && (
-                          <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.12)",maxHeight:220,overflowY:"auto",zIndex:50}}>
-                            {editFilteredCourseOptions.length === 0 ? (
+                        {editCourseDropOpen && (()=>{
+                          // Group filtered options by category for display
+                          const grouped = new Map<string, string[]>();
+                          for (const {course, group} of editFilteredCourseOptions) {
+                            if (!grouped.has(group)) grouped.set(group, []);
+                            grouped.get(group)!.push(course);
+                          }
+                          const entries = Array.from(grouped.entries());
+                          return (
+                          <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.12)",maxHeight:260,overflowY:"auto",zIndex:50}}>
+                            {entries.length === 0 ? (
                               <div style={{padding:"16px 14px",textAlign:"center",fontSize:13,color:T.muted}}>
-                                {editCourseSearch ? `No courses match "${editCourseSearch}"` : "No courses available — select university & major above"}
+                                {editCourseSearch ? `No courses match "${editCourseSearch}"` : "Start typing to search courses…"}
                               </div>
                             ) : (
-                              editFilteredCourseOptions.slice(0, 60).map(({course, group}) => (
-                                <div
-                                  key={`${group}::${course}`}
-                                  onMouseDown={e => {
-                                    e.preventDefault();
-                                    const updated = [...editCoursesList, course];
-                                    setEditProfile(p => ({...p!, course: serializeCourses(updated)}));
-                                    setEditCourseSearch("");
-                                  }}
-                                  style={{padding:"9px 14px",cursor:"pointer",fontSize:13,color:T.text,borderBottom:`1px solid ${T.border}22`}}
-                                  onMouseEnter={e => (e.currentTarget.style.background = T.accentSoft)}
-                                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                                >
-                                  {course}
-                                  <span style={{fontSize:10,color:T.muted,marginLeft:6}}>({group})</span>
+                              entries.map(([cat, courses]) => (
+                                <div key={cat}>
+                                  <div style={{padding:"8px 14px 4px",fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",position:"sticky",top:0,background:T.surface,zIndex:1}}>{cat}</div>
+                                  {courses.map(course => (
+                                    <div
+                                      key={course}
+                                      onMouseDown={e => {
+                                        e.preventDefault();
+                                        const updated = [...editCoursesList, course];
+                                        setEditProfile(p => ({...p!, course: serializeCourses(updated)}));
+                                        setEditCourseSearch("");
+                                      }}
+                                      style={{padding:"8px 14px 8px 24px",cursor:"pointer",fontSize:13,color:T.text}}
+                                      onMouseEnter={e => (e.currentTarget.style.background = T.accentSoft)}
+                                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                    >
+                                      {course}
+                                    </div>
+                                  ))}
                                 </div>
                               ))
                             )}
                           </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                     <div className="field"><label>Meet preference</label>
