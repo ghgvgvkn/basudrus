@@ -782,13 +782,15 @@ export default function BasUdrus() {
         setAuthMode("new-password");
         return;
       }
+      // Skip token refresh events — they just renew the JWT, no need to reload profile
+      if (event === "TOKEN_REFRESHED") return;
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email ?? "" });
-        const p = await loadProfile(session.user.id);
-        if (event === "SIGNED_IN") {
+        if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+          const p = await loadProfile(session.user.id);
           setScreen(p ? "discover" : "onboard");
         }
-      } else {
+      } else if (event === "SIGNED_OUT") {
         setUser(null);
         setScreen("landing");
       }
@@ -876,8 +878,9 @@ export default function BasUdrus() {
   // ── Data loaders ─────────────────────────────────────────────────────
   const loadProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
       if (error) { logError("loadProfile", error); return null; }
+      if (!data) return null;
       if (data) setProfile(data);
       return data;
     } catch (e) { logError("loadProfile", e); return null; }
@@ -948,7 +951,7 @@ export default function BasUdrus() {
           .select("*, profile:profiles!fk_help_requests_user(*)")
           .order("created_at", { ascending: false })
           .limit(30),
-        user ? supabase.from("profiles").select("can_post").eq("id", user.id).single() : Promise.resolve({ data: null }),
+        user ? supabase.from("profiles").select("can_post").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       ]);
       if (requestsRes.error) { logError("loadHelpRequests", requestsRes.error); return; }
       if (requestsRes.data) {
@@ -976,7 +979,7 @@ export default function BasUdrus() {
       // Fetch groups and user's memberships in parallel
       const [groupRes, joinedRes] = await Promise.all([
         supabase.from("group_rooms")
-          .select("*, host:profiles!group_rooms_host_id_fkey(*)")
+          .select("*, host:profiles!fk_group_rooms_host(*)")
           .order("created_at", { ascending: false })
           .limit(50),
         supabase.from("group_members").select("group_id").eq("user_id", user.id),
@@ -1017,7 +1020,7 @@ export default function BasUdrus() {
   const saveChatHistory = async (feature: "tutor"|"wellbeing", msgs: {role:"user"|"assistant";content:string}[]) => {
     if (!user || msgs.length === 0) return;
     try {
-      const { data: existing } = await supabase.from("chat_history").select("id").eq("user_id", user.id).eq("feature", feature).limit(1).single();
+      const { data: existing } = await supabase.from("chat_history").select("id").eq("user_id", user.id).eq("feature", feature).limit(1).maybeSingle();
       if (existing) {
         await supabase.from("chat_history").update({ messages: msgs, updated_at: new Date().toISOString() }).eq("id", existing.id);
       } else {
@@ -1029,7 +1032,7 @@ export default function BasUdrus() {
   const loadChatHistory = async (feature: "tutor"|"wellbeing") => {
     if (!user) return [];
     try {
-      const { data } = await supabase.from("chat_history").select("messages").eq("user_id", user.id).eq("feature", feature).limit(1).single();
+      const { data } = await supabase.from("chat_history").select("messages").eq("user_id", user.id).eq("feature", feature).limit(1).maybeSingle();
       if (data?.messages && Array.isArray(data.messages)) return data.messages as {role:"user"|"assistant";content:string}[];
     } catch {}
     return [];
@@ -1061,7 +1064,7 @@ export default function BasUdrus() {
   const loadMatchQuiz = async () => {
     if (!user) return;
     try {
-      const { data } = await supabase.from("match_quiz").select("answers").eq("user_id", user.id).single();
+      const { data } = await supabase.from("match_quiz").select("answers").eq("user_id", user.id).maybeSingle();
       if (data?.answers) { setMatchQuiz(data.answers); setMatchQuizSaved(true); }
     } catch { }
   };
@@ -1190,7 +1193,7 @@ export default function BasUdrus() {
       setProfile(profileData);
       setScreen("discover");
       await loadAllStudents();
-    } catch { showNotif("Something went wrong — please try again", "err"); }
+    } catch (e) { logError("handleOnboard", e); showNotif("Something went wrong — please try again", "err"); }
   };
 
   // ── Award badge ───────────────────────────────────────────────────────
@@ -1337,7 +1340,7 @@ export default function BasUdrus() {
       // Award top_rated badge to the partner who received the 5-star rating
       if (stars===5) {
         try {
-          const { data: partnerProfile } = await supabase.from("profiles").select("badges,xp").eq("id", partnerId).single();
+          const { data: partnerProfile } = await supabase.from("profiles").select("badges,xp").eq("id", partnerId).maybeSingle();
           if (partnerProfile && !(partnerProfile.badges || []).includes("top_rated")) {
             const b = BADGES_DEF.find(b=>b.id==="top_rated");
             if (b) {
@@ -1466,7 +1469,7 @@ export default function BasUdrus() {
   const openStudentProfile = async (userId: string) => {
     if (userId === user?.id) { setScreen("profile"); return; }
     try {
-      const { data, error: profErr } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      const { data, error: profErr } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
       if (profErr) { showNotif("Could not load profile", "err"); return; }
       if (data) setViewingProfile(data as Profile);
       else showNotif("Profile not found", "err");
@@ -1542,7 +1545,7 @@ export default function BasUdrus() {
         filled: 0,
         link: newGrp.link,
         location: newGrp.location,
-      }).select("*, host:profiles!group_rooms_host_id_fkey(*)").single();
+      }).select("*, host:profiles!fk_group_rooms_host(*)").single();
       if (error) { showNotif("Failed to create room — " + error.message, "err"); return; }
       if (data) {
         setGroups(prev=>[{...data, joined:false} as GroupRoom,...prev]);
@@ -1701,7 +1704,7 @@ export default function BasUdrus() {
     const channel = supabase.channel("notif-" + user.id)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, async (payload) => {
         const newNotif = payload.new as Notification;
-        const { data: fromProfile } = await supabase.from("profiles").select("*").eq("id", newNotif.from_id).single();
+        const { data: fromProfile } = await supabase.from("profiles").select("*").eq("id", newNotif.from_id).maybeSingle();
         setNotifications(prev => [{ ...newNotif, from_profile: fromProfile } as Notification, ...prev]);
       })
       .subscribe();
