@@ -22,9 +22,7 @@ export default async function handler(req: Request) {
 
     const prompt = `You are the study planner inside Bas Udrus — a study app built for Jordanian university students. Create a plan that fits REAL Jordanian student life.
 
-═══════════════════════════════════════════
-STUDENT INFO
-═══════════════════════════════════════════
+STUDENT INFO:
 - Major: ${major || "Not specified"}
 - Year: ${year || "Not specified"}
 - Subjects to study: ${subjects}
@@ -32,60 +30,27 @@ STUDENT INFO
 
 ${langInstruction}
 
-═══════════════════════════════════════════
-PLAN REQUIREMENTS
-═══════════════════════════════════════════
+Create a WEEKLY study plan with:
 
-1. **Weekly Schedule** (built for Jordanian life)
-   - Sunday–Thursday: Full study days with specific time blocks (e.g., 9:00-10:30 AM)
-   - Friday: REST DAY — family, prayer, recharge (light review only if exam is within 3 days)
-   - Saturday: Flexible — catch-up day or lighter study
-   - Account for: long commutes (many students travel 1-2 hours), possible part-time work, 8am class exhaustion
-   - Each time block: which subject, what to focus on (specific chapters, topics, problem sets)
+1. **Weekly Schedule** (Sun–Thu full study, Fri rest/family, Sat flexible catch-up)
+   - Specific time blocks (e.g., 9:00-10:30 AM) for each subject
+   - Account for commutes, 8am class exhaustion, possible part-time work
 
-2. **Subject-Specific Study Techniques**
-   - Math/Calculus/Statistics → Active recall, solve problems without looking at solutions, then check
-   - Programming → Write code from scratch, debug exercises, build mini-projects
-   - Theory courses → Mind maps, teach-back method, flashcards (Anki-style spaced repetition)
-   - Science labs → Pre-read procedures, understand the WHY, write predictions before lab
-   - Language courses → Immersion blocks, conversation practice, vocabulary in context
-   - Always specify: "Use active recall for X" not just "study X"
+2. **Study Techniques** per subject
+   - Math → solve problems without looking, then check
+   - Programming → code from scratch, debug exercises
+   - Theory → mind maps, teach-back, spaced repetition flashcards
+   - Always specify technique, not just "study X"
 
-3. **Pomodoro Schedule**
-   - 25 min focused study → 5 min break (stretch, water, fresh air)
-   - After 4 Pomodoros → 15-20 min longer break
-   - Between different subjects → 10 min transition break (walk, snack)
-   - Never schedule more than 3 consecutive hours without a real break
+3. **Pomodoro Schedule**: 25 min study → 5 min break → after 4 rounds: 15 min break
 
-4. **Exam Prep Countdown** (if dates provided)
-   - Weeks before exam: chapter-by-chapter review
-   - 1 week before: practice exams, past papers, identify weak spots
-   - 3 days before: focused review of weak areas only
-   - Night before: LIGHT review only, early sleep
-   - Day of: quick confidence review (1 page summary), good breakfast
+4. **Exam Prep** (if dates given): countdown milestones, past papers, weak-spot focus
 
-5. **Daily Mini-Goals**
-   - Each day starts with 3 specific goals (achievable, measurable)
-   - End of day: check off + plan tomorrow's goals
-   - Weekly review every Saturday: what worked, what didn't, adjust
+5. **Daily Mini-Goals**: 3 specific achievable goals per day
 
-6. **Bas Udrus Integration**
-   - Suggest using Bas Udrus "Find Study Partner" for difficult subjects
-   - Recommend joining study rooms for group review sessions
-   - "Post a help request on Bas Udrus if you're stuck on [subject]"
+6. **Motivation**: End with encouraging Arabic message (بتقدر عليها! 💪)
 
-7. **Motivation & Self-Care**
-   - End with an encouraging message in Arabic: "بتقدر عليها! كل يوم بتقرب أكتر من هدفك 💪"
-   - Include 1 self-care reminder per day (sleep, hydration, movement)
-   - Remind them: "Your GPA doesn't define you, but your effort does — والله بتقدر"
-
-═══════════════════════════════════════════
-FORMATTING
-═══════════════════════════════════════════
-- Use markdown with clear headers (##), bold (**), and bullet points
-- Use emojis for visual scanning (📚 📝 ⏰ 💪 🎯 ✅)
-- Make it scannable — students should be able to glance and know what to do next
-- Keep it practical and realistic — students have lives, commutes, and social obligations`;
+Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯✅). Keep it practical — students have real lives.`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -96,8 +61,9 @@ FORMATTING
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 3000,
+        max_tokens: 2500,
         messages: [{ role: "user", content: prompt }],
+        stream: true,
       }),
     });
 
@@ -105,11 +71,51 @@ FORMATTING
       return new Response(JSON.stringify({ plan: "Failed to generate plan. Please try again." }), { status: 200 });
     }
 
-    const data = await response.json();
-    const plan = data.content?.[0]?.text || "Failed to generate plan.";
+    // Stream the response to avoid Vercel timeout
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-    return new Response(JSON.stringify({ plan }), {
-      headers: { "Content-Type": "application/json" },
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = response.body!.getReader();
+        let buffer = "";
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const data = line.slice(6);
+              if (data === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: parsed.delta.text })}\n\n`));
+                }
+              } catch {}
+            }
+          }
+        } catch {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
     });
   } catch {
     return new Response(JSON.stringify({ plan: "Error generating plan. Please try again." }), { status: 200 });

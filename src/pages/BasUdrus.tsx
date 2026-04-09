@@ -1939,8 +1939,26 @@ export default function BasUdrus() {
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({ subjects:planSubjects, major:profile.major, year:profile.year, examDates:planExamDates, userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
       });
-      const data = await res.json();
-      setPlanResult(data.plan||"");
+      if (!res.ok || !res.body) { showNotif("Failed to generate plan.", "err"); setPlanLoading(false); return; }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullPlan = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const parsed = JSON.parse(line.slice(6));
+            if (parsed.content) { fullPlan += parsed.content; setPlanResult(fullPlan); }
+          } catch {}
+        }
+      }
+      if (!fullPlan) setPlanResult("Failed to generate plan. Please try again.");
     } catch { showNotif("Failed to generate plan.", "err"); }
     setPlanLoading(false);
   };
