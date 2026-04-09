@@ -15,14 +15,16 @@ export default async function handler(req: Request) {
     }
 
     const langInstruction = lang === "ar"
-      ? "Write the ENTIRE plan in Arabic (Jordanian dialect). Use Arabic for everything."
+      ? "Write the ENTIRE plan in Arabic (Jordanian dialect). Use Arabic for everything including headers and tips."
       : lang === "en"
       ? "Write the ENTIRE plan in English only."
-      : "Write the plan in English with key motivational phrases in Arabic.";
+      : "Write the plan in English with key motivational phrases in Arabic (يلا، بتقدر، خلصها).";
 
-    const prompt = `You are a study planner for a Jordanian university student.
+    const prompt = `You are the study planner inside Bas Udrus — a study app built for Jordanian university students. Create a plan that fits REAL Jordanian student life.
 
-STUDENT INFO:
+═══════════════════════════════════════════
+STUDENT INFO
+═══════════════════════════════════════════
 - Major: ${major || "Not specified"}
 - Year: ${year || "Not specified"}
 - Subjects to study: ${subjects}
@@ -30,28 +32,60 @@ STUDENT INFO:
 
 ${langInstruction}
 
-Create a detailed, realistic WEEKLY study plan. Include:
+═══════════════════════════════════════════
+PLAN REQUIREMENTS
+═══════════════════════════════════════════
 
-1. **Daily schedule** (Sunday–Thursday, with lighter Friday/Saturday)
-   - Specific time blocks (e.g., 9:00-10:30 AM)
-   - Which subject in each block
-   - What to focus on (chapters, topics, problem sets)
+1. **Weekly Schedule** (built for Jordanian life)
+   - Sunday–Thursday: Full study days with specific time blocks (e.g., 9:00-10:30 AM)
+   - Friday: REST DAY — family, prayer, recharge (light review only if exam is within 3 days)
+   - Saturday: Flexible — catch-up day or lighter study
+   - Account for: long commutes (many students travel 1-2 hours), possible part-time work, 8am class exhaustion
+   - Each time block: which subject, what to focus on (specific chapters, topics, problem sets)
 
-2. **Study techniques** for each subject
-   - Active recall, practice problems, flashcards, etc.
-   - Specific to the subject type (math → problems, theory → mind maps)
+2. **Subject-Specific Study Techniques**
+   - Math/Calculus/Statistics → Active recall, solve problems without looking at solutions, then check
+   - Programming → Write code from scratch, debug exercises, build mini-projects
+   - Theory courses → Mind maps, teach-back method, flashcards (Anki-style spaced repetition)
+   - Science labs → Pre-read procedures, understand the WHY, write predictions before lab
+   - Language courses → Immersion blocks, conversation practice, vocabulary in context
+   - Always specify: "Use active recall for X" not just "study X"
 
-3. **Break schedule**
-   - Pomodoro blocks (25 min study, 5 min break)
-   - Longer breaks between subjects
+3. **Pomodoro Schedule**
+   - 25 min focused study → 5 min break (stretch, water, fresh air)
+   - After 4 Pomodoros → 15-20 min longer break
+   - Between different subjects → 10 min transition break (walk, snack)
+   - Never schedule more than 3 consecutive hours without a real break
 
-4. **Exam prep** (if dates provided)
-   - Countdown with milestones
-   - Review sessions before each exam
+4. **Exam Prep Countdown** (if dates provided)
+   - Weeks before exam: chapter-by-chapter review
+   - 1 week before: practice exams, past papers, identify weak spots
+   - 3 days before: focused review of weak areas only
+   - Night before: LIGHT review only, early sleep
+   - Day of: quick confidence review (1 page summary), good breakfast
 
-5. **Motivation tip** at the end (in Arabic if the student is Jordanian)
+5. **Daily Mini-Goals**
+   - Each day starts with 3 specific goals (achievable, measurable)
+   - End of day: check off + plan tomorrow's goals
+   - Weekly review every Saturday: what worked, what didn't, adjust
 
-Keep it practical and realistic — students have lives too. Use markdown formatting.`;
+6. **Bas Udrus Integration**
+   - Suggest using Bas Udrus "Find Study Partner" for difficult subjects
+   - Recommend joining study rooms for group review sessions
+   - "Post a help request on Bas Udrus if you're stuck on [subject]"
+
+7. **Motivation & Self-Care**
+   - End with an encouraging message in Arabic: "بتقدر عليها! كل يوم بتقرب أكتر من هدفك 💪"
+   - Include 1 self-care reminder per day (sleep, hydration, movement)
+   - Remind them: "Your GPA doesn't define you, but your effort does — والله بتقدر"
+
+═══════════════════════════════════════════
+FORMATTING
+═══════════════════════════════════════════
+- Use markdown with clear headers (##), bold (**), and bullet points
+- Use emojis for visual scanning (📚 📝 ⏰ 💪 🎯 ✅)
+- Make it scannable — students should be able to glance and know what to do next
+- Keep it practical and realistic — students have lives, commutes, and social obligations`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

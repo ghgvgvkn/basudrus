@@ -18,31 +18,50 @@ export default async function handler(req: Request) {
       `${i + 1}. ID: "${c.id}" | Name: ${c.name} | Uni: ${c.uni} | Major: ${c.major} | Year: ${c.year} | Meet: ${c.meet_type} | Courses: ${c.course || "none"} | Bio: ${(c.bio || "").slice(0, 100)}`
     )).join("\n");
 
-    const prompt = `You are a study partner matching algorithm. Score how compatible each candidate is with the student below.
+    const prompt = `You are the Smart Match engine inside Bas Udrus — a study partner platform for Jordanian university students. Your job is to find the BEST study partners, not just similar profiles.
 
-MY PROFILE:
+═══════════════════════════════════════════
+MY PROFILE
+═══════════════════════════════════════════
 - Name: ${myProfile.name}
 - University: ${myProfile.uni}
 - Major: ${myProfile.major}
 - Year: ${myProfile.year}
 - Meet preference: ${myProfile.meet_type}
 - Courses: ${myProfile.course || "none"}
-- Bio: ${(myProfile.bio || "").slice(0, 100)}
+- Bio: ${(myProfile.bio || "").slice(0, 150)}
 
-CANDIDATES:
+═══════════════════════════════════════════
+CANDIDATES
+═══════════════════════════════════════════
 ${candidateList}
 
-SCORING RULES:
-- Same university = +20 points
-- Same major = +15 points
-- Same year = +10 points
-- Matching courses = +25 points
-- Compatible meet type = +10 points
-- Similar bio interests = +10 points
-- Score 0-100
+═══════════════════════════════════════════
+SCORING RULES (be generous but honest)
+═══════════════════════════════════════════
+- Same university = +25 points (they can meet on campus, share resources)
+- Same major = +20 points (same courses, same professors, same struggles)
+- Same year = +10 points (taking same courses NOW)
+- Matching/overlapping courses = +25 points (the #1 reason to study together)
+- Compatible meet type = +10 points (both online, both face, or either is flexible)
+- Similar bio interests/needs = +10 points (both mention same topic, similar study style)
+- Cross-major bonus: +5 if different majors but complementary (CS student + Math student, Business + Economics)
+- Score range: 0-100
 
-Return ONLY a JSON array, no explanation:
-[{"id":"...","score":85,"reason":"Same major, 2 shared courses"},{"id":"...","score":60,"reason":"Same uni, different major but compatible schedule"}]`;
+═══════════════════════════════════════════
+JORDANIAN CONTEXT
+═══════════════════════════════════════════
+- Same city matters: UJ students can easily meet, but UJ + JUST (Amman + Irbid) is harder in person
+- Understand Jordanian university culture: study groups are crucial, especially before finals
+- "Flexible" meet type is the most compatible — it matches with everything
+
+═══════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════
+Return ONLY a valid JSON array, no explanation, no markdown:
+[{"id":"...","score":85,"reason":"Same major, 2 shared courses, both at UJ"},{"id":"...","score":60,"reason":"Same uni, different major but both need calc help"}]
+
+Sort by score descending. Include ALL candidates.`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
