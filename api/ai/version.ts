@@ -5,7 +5,7 @@ export default function handler() {
     version: "v2.0",
     model: "Claude Sonnet",
     features: ["tutor", "wellbeing", "match", "study-plan"],
-    updated: "2026-04-08",
+    updated: "2026-04-09",
   }), {
     headers: { "Content-Type": "application/json" },
   });
