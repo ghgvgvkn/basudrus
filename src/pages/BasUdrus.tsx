@@ -609,6 +609,7 @@ export default function BasUdrus() {
   const [adminAnalytics, setAdminAnalytics] = useState<any>(null);
 
   const [aiTab, setAiTab] = useState<"wellbeing"|"tutor"|"match"|"plan">("wellbeing");
+  const [aiLang, setAiLang] = useState<"auto"|"en"|"ar">("auto");
   const [tutorMsgs, setTutorMsgs] = useState<{role:"user"|"assistant";content:string}[]>([]);
   const [tutorInput, setTutorInput] = useState("");
   const [tutorLoading, setTutorLoading] = useState(false);
@@ -1829,7 +1830,7 @@ export default function BasUdrus() {
       const res = await fetch("/api/ai/tutor", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", userId:user?.id||"" }),
+        body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
       });
       if (!res.ok || !res.body) throw new Error("AI error");
       const reader = res.body.getReader();
@@ -1874,7 +1875,7 @@ export default function BasUdrus() {
       const res = await fetch("/api/ai/wellbeing", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"" }),
+        body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
       });
       if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
       const reader = res.body.getReader();
@@ -1933,7 +1934,7 @@ export default function BasUdrus() {
       const res = await fetch("/api/ai/study-plan", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ subjects:planSubjects, major:profile.major, year:profile.year, examDates:planExamDates, userId:user?.id||"" }),
+        body:JSON.stringify({ subjects:planSubjects, major:profile.major, year:profile.year, examDates:planExamDates, userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
       });
       const data = await res.json();
       setPlanResult(data.plan||"");
@@ -3846,27 +3847,82 @@ export default function BasUdrus() {
             )}
 
 
+            {/* ── Language Toggle ── */}
+            <div style={{marginTop:20,padding:"14px 18px",borderRadius:16,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+              <span style={{fontSize:12,fontWeight:600,color:T.muted,marginRight:8}}>🌐 AI Language:</span>
+              {([["auto","Auto","🔄"],["en","English","🇬🇧"],["ar","عربي","🇯🇴"]] as const).map(([val,label,flag])=>(
+                <button key={val} onClick={()=>setAiLang(val)}
+                  style={{padding:"7px 16px",borderRadius:99,fontSize:12,fontWeight:aiLang===val?700:500,
+                    border:`1.5px solid ${aiLang===val?T.accent:T.border}`,
+                    background:aiLang===val?T.accentSoft:"transparent",
+                    color:aiLang===val?T.accent:T.textSoft,
+                    cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",gap:5}}>
+                  <span>{flag}</span> {label}
+                </button>
+              ))}
+            </div>
+
             {/* ── AI Hub Footer ── */}
-            <div style={{marginTop:24,padding:"20px 18px",borderRadius:20,background:`linear-gradient(135deg,${T.accentSoft},${T.surface})`,border:`1px solid ${T.border}`,textAlign:"center"}}>
+            <div style={{marginTop:14,padding:"20px 18px",borderRadius:20,background:`linear-gradient(135deg,${T.accentSoft},${T.surface})`,border:`1px solid ${T.border}`,textAlign:"center"}}>
               <div style={{fontSize:22,marginBottom:8}}>🤖</div>
-              <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}}>Your AI Study Companion</div>
-              <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}}>
-                Wellbeing · Tutor · Smart Match · Study Planner
-              </div>
-              <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}} dir="rtl">
-                «العلم نور والجهل ظلام»
-              </div>
-              <div style={{fontSize:11,color:T.muted,lineHeight:1.6}}>
-                Knowledge is light, and ignorance is darkness — Arabic proverb
-              </div>
-              <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>Arabic & English</span>
-                <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>Privacy First</span>
-                <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>Built for Jordan</span>
-              </div>
-              <div style={{marginTop:12,fontSize:10,color:T.muted}}>
-                Bas Udrus AI · {aiVersion} · Conversations are private & never stored on our servers
-              </div>
+              {aiLang==="ar"?(
+                <>
+                  <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}} dir="rtl">رفيقك الذكي للدراسة</div>
+                  <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}} dir="rtl">
+                    الصحة النفسية · المدرّس · التوافق الذكي · جدول الدراسة
+                  </div>
+                  <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}} dir="rtl">
+                    «العلم نور والجهل ظلام»
+                  </div>
+                  <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>عربي بالكامل</span>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>خصوصية تامة</span>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>صنع في الأردن 🇯🇴</span>
+                  </div>
+                  <div style={{marginTop:12,fontSize:10,color:T.muted}} dir="rtl">
+                    Bas Udrus AI · {aiVersion} · المحادثات خاصة ولا يتم تخزينها على خوادمنا
+                  </div>
+                </>
+              ):aiLang==="en"?(
+                <>
+                  <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}}>Your AI Study Companion</div>
+                  <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}}>
+                    Wellbeing · Tutor · Smart Match · Study Planner
+                  </div>
+                  <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}}>
+                    "Knowledge is light, and ignorance is darkness"
+                  </div>
+                  <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>English Only</span>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>Privacy First</span>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>Built for Jordan</span>
+                  </div>
+                  <div style={{marginTop:12,fontSize:10,color:T.muted}}>
+                    Bas Udrus AI · {aiVersion} · Conversations are private & never stored on our servers
+                  </div>
+                </>
+              ):(
+                <>
+                  <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}}>Your AI Study Companion</div>
+                  <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}}>
+                    Wellbeing · Tutor · Smart Match · Study Planner
+                  </div>
+                  <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}} dir="rtl">
+                    «العلم نور والجهل ظلام»
+                  </div>
+                  <div style={{fontSize:11,color:T.muted,lineHeight:1.6}}>
+                    Knowledge is light, and ignorance is darkness — Arabic proverb
+                  </div>
+                  <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>Arabic & English</span>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>Privacy First</span>
+                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>Built for Jordan</span>
+                  </div>
+                  <div style={{marginTop:12,fontSize:10,color:T.muted}}>
+                    Bas Udrus AI · {aiVersion} · Conversations are private & never stored on our servers
+                  </div>
+                </>
+              )}
             </div>
 
           </div>
