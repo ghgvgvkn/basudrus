@@ -190,8 +190,14 @@ function getUniCards(): {uni: string; full: string; emoji: string}[] {
 
 const makeCSS = (T: Theme) => `
   *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
-  html { scroll-behavior:smooth; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
-  body { font-family:'Plus Jakarta Sans',sans-serif; background:${T.bg}; color:${T.text}; -webkit-font-smoothing:antialiased; transition:background-color 0.3s,color 0.3s; overflow-x:hidden; }
+  html { scroll-behavior:smooth; -webkit-text-size-adjust:100%; text-size-adjust:100%; touch-action:manipulation; }
+  body { font-family:'Plus Jakarta Sans',sans-serif; background:${T.bg}; color:${T.text}; -webkit-font-smoothing:antialiased; transition:background-color 0.3s,color 0.3s; overflow-x:hidden; touch-action:manipulation; }
+  /* Kill iOS auto-zoom on input focus — forces all inputs to 16px minimum on mobile */
+  @media (max-width: 768px) {
+    input, textarea, select { font-size:16px !important; }
+  }
+  /* Disable double-tap-to-zoom everywhere */
+  * { touch-action:manipulation; }
   /* Performance: GPU compositing for animated elements */
   .s-card,.card,.request-card,.modal,.notif { will-change:auto; contain:layout style; }
   /* Prevent iOS zoom on input focus */
@@ -752,9 +758,11 @@ export default function BasUdrus() {
     return [...startsWith, ...wordStarts, ...contains].slice(0, 80);
   }, [editAllCourseOptions, editCourseSearch, editCoursesList]);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [activeChat, messages]);
-  useEffect(() => { tutorEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [tutorMsgs]);
-  useEffect(() => { wellbeingEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [wellbeingMsgs]);
+  // Scroll only within the nearest scrollable container (not the whole page)
+  // This prevents the page from jumping to the bottom when typing
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [activeChat, messages]);
+  useEffect(() => { tutorEndRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [tutorMsgs]);
+  useEffect(() => { wellbeingEndRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [wellbeingMsgs]);
 
   useEffect(() => {
     fetch("/api/ai/version").then(r=>r.json()).then(d=>{ if(d.version) setAiVersion(d.version); }).catch(()=>{});
