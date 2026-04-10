@@ -1938,11 +1938,15 @@ export default function BasUdrus() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const lines = decoder.decode(value).split("\n").filter(l=>l.startsWith("data: "));
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
         for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
             if (data.content) {
@@ -1990,11 +1994,14 @@ export default function BasUdrus() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const text = decoder.decode(value);
-        for (const line of text.split("\n")) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
           if (!line.startsWith("data:")) continue;
           try {
             const json = JSON.parse(line.slice(5).trim());
