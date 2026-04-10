@@ -410,7 +410,7 @@ const makeCSS = (T: Theme) => `
     .modal     { padding:22px 18px; border-radius:20px; }
     .btn-primary,.btn-ghost,.btn-accent { font-size:13px!important; padding:11px 20px!important; }
     .field label { font-size:11px!important; }
-    .field input,.field select,.field textarea { font-size:13px!important; padding:11px 13px!important; }
+    .field input,.field select,.field textarea { font-size:16px!important; padding:11px 13px!important; }
     .admin-kpi { grid-template-columns:repeat(2,1fr)!important; }
     .admin-grid2 { grid-template-columns:1fr!important; }
 
@@ -758,11 +758,22 @@ export default function BasUdrus() {
     return [...startsWith, ...wordStarts, ...contains].slice(0, 80);
   }, [editAllCourseOptions, editCourseSearch, editCoursesList]);
 
-  // Scroll only within the nearest scrollable container (not the whole page)
-  // This prevents the page from jumping to the bottom when typing
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [activeChat, messages]);
-  useEffect(() => { tutorEndRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [tutorMsgs]);
-  useEffect(() => { wellbeingEndRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [wellbeingMsgs]);
+  // Smart auto-scroll: only scroll to bottom if user is already near the bottom.
+  // This keeps the user's reading position when the AI replies with a long answer.
+  const smartScroll = (endRef: React.RefObject<HTMLDivElement>) => {
+    const el = endRef.current;
+    if (!el) return;
+    const scroller = el.closest(".chat-scroll, .page-scroll, .scroll-col") as HTMLElement | null;
+    if (scroller) {
+      const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      // Only auto-scroll if the user is within 120px of the bottom
+      if (distanceFromBottom > 120) return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+  useEffect(() => { smartScroll(chatEndRef); }, [activeChat, messages]);
+  useEffect(() => { smartScroll(tutorEndRef); }, [tutorMsgs]);
+  useEffect(() => { smartScroll(wellbeingEndRef); }, [wellbeingMsgs]);
 
   useEffect(() => {
     fetch("/api/ai/version").then(r=>r.json()).then(d=>{ if(d.version) setAiVersion(d.version); }).catch(()=>{});
@@ -1638,35 +1649,55 @@ export default function BasUdrus() {
 
   // ── Profile update ────────────────────────────────────────────────────
   const saveProfile = async () => {
-    if (!user || !editProfile || actionLoading) return;
+    if (!user) { showNotif("Not signed in", "err"); return; }
+    if (!editProfile) { showNotif("Nothing to save", "err"); return; }
     setActionLoading(true);
     try {
+      // Verify session is still valid (RLS needs a live auth.uid())
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
+
       const merged = { ...profile, ...editProfile };
-      const updatePayload = {
-        name: merged.name || "",
+      const updatePayload: Record<string, unknown> = {
+        name: (merged.name || "").trim(),
         uni: merged.uni || "",
         major: merged.major || "",
         year: merged.year || "",
         course: merged.course || "",
         meet_type: merged.meet_type || "flexible",
-        bio: merged.bio || "",
+        bio: (merged.bio || "").trim(),
         avatar_emoji: merged.avatar_emoji || "🫶",
         avatar_color: merged.avatar_color || "#6C8EF5",
         photo_mode: merged.photo_mode || "initials",
         photo_url: merged.photo_url || null,
         subjects: Array.isArray(merged.subjects) ? merged.subjects : [],
       };
-      const { error } = await supabase.from("profiles").update(updatePayload).eq("id", user.id);
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(updatePayload)
+        .eq("id", user.id)
+        .select()
+        .single();
+
       if (error) {
         logError("saveProfile", error);
-        showNotif("Error saving: " + (error.message || "please try again"), "err");
-      } else {
-        setProfile(prev => ({ ...prev, ...editProfile }));
-        setEditProfile(null);
-        showNotif("Profile saved! ✅");
+        showNotif("Save failed: " + (error.message || "unknown error"), "err");
+        return;
       }
-    } catch (e) { logError("saveProfile", e); showNotif("Error saving profile — please try again", "err"); }
-    setActionLoading(false);
+      if (!data) {
+        showNotif("Save failed: no rows updated (permission issue)", "err");
+        return;
+      }
+      setProfile(prev => ({ ...prev, ...updatePayload } as Profile));
+      setEditProfile(null);
+      showNotif("Profile saved ✅");
+    } catch (e) {
+      logError("saveProfile", e);
+      showNotif("Save failed — please try again", "err");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const submitReport = async () => {
