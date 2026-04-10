@@ -8,7 +8,7 @@ export default async function handler(req: Request) {
   }
 
   try {
-    const { subjects, major, year, examDates, lang } = await req.json();
+    const { subjects, major, year, examDates, lang, uni } = await req.json();
 
     if (!subjects) {
       return new Response(JSON.stringify({ plan: "" }), { status: 200 });
@@ -23,10 +23,20 @@ export default async function handler(req: Request) {
     const prompt = `You are the study planner inside Bas Udrus — a study app built for Jordanian university students. Create a plan that fits REAL Jordanian student life.
 
 STUDENT INFO:
+- University: ${uni || "Not specified"}
 - Major: ${major || "Not specified"}
 - Year: ${year || "Not specified"}
 - Subjects to study: ${subjects}
 - Upcoming exams/deadlines: ${examDates || "None specified"}
+
+UNIVERSITY-SPECIFIC TIPS (adapt plan to the student's uni):
+- PSUT: project-based, application-heavy exams. Tell them to solve problems from psutarchive.com (past papers archive).
+- UJ (الجامعة الأردنية): memorization-heavy in humanities/medicine. Suggest joining course WhatsApp groups for past question banks (بنك أسئلة).
+- JUST: rigorous, comprehensive exams. Heavy detail focus, especially medical/science students.
+- GJU: German methodology — prioritize understanding concepts over memorizing past papers. Practice applied problems.
+- Yarmouk: traditional essay-style exams. Emphasize structured outlines and memorization.
+- Hashemite / Mutah / others: standard mix of MCQs + short answers — balance practice and review.
+If the student's university matches one of these, weave specific advice into the plan (e.g., "Check psutarchive.com on Thursday evenings" for PSUT, or "Join the course WhatsApp for past papers" for UJ).
 
 ${langInstruction}
 

@@ -2011,7 +2011,7 @@ export default function BasUdrus() {
       const res = await fetch("/api/ai/study-plan", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ subjects:planSubjects, major:profile.major, year:profile.year, examDates:planExamDates, userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
+        body:JSON.stringify({ subjects:planSubjects, major:profile.major, year:profile.year, uni:profile.uni||"", examDates:planExamDates, userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
       });
       if (!res.ok || !res.body) { showNotif("Failed to generate plan.", "err"); setPlanLoading(false); return; }
       const reader = res.body.getReader();
