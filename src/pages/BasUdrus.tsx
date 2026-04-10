@@ -1646,17 +1646,18 @@ export default function BasUdrus() {
         avatar_color: merged.avatar_color || "#6C8EF5",
         photo_mode: merged.photo_mode || "initials",
         photo_url: merged.photo_url || null,
+        subjects: Array.isArray(merged.subjects) ? merged.subjects : [],
       };
       const { error } = await supabase.from("profiles").update(updatePayload).eq("id", user.id);
       if (error) {
-
+        logError("saveProfile", error);
         showNotif("Error saving: " + (error.message || "please try again"), "err");
       } else {
         setProfile(prev => ({ ...prev, ...editProfile }));
         setEditProfile(null);
         showNotif("Profile saved! ✅");
       }
-    } catch { showNotif("Error saving profile — please try again", "err"); }
+    } catch (e) { logError("saveProfile", e); showNotif("Error saving profile — please try again", "err"); }
     setActionLoading(false);
   };
 
