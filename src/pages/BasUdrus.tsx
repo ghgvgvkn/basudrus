@@ -1331,6 +1331,7 @@ export default function BasUdrus() {
         sender_id: user.id,
         receiver_id: partnerId,
         text,
+        message_type: "text",
       }).select().single();
       if (error || !data) {
         logError("sendMessage", error);
@@ -1487,6 +1488,7 @@ export default function BasUdrus() {
         sender_id: user.id,
         receiver_id: schedModal.id,
         text,
+        message_type: "text",
       });
       if (error) { showNotif("Failed to schedule — try again", "err"); return; }
       if (schedModal.email) {
@@ -3544,15 +3546,15 @@ export default function BasUdrus() {
                   )}
                   {(messages[activeChat.id]||[]).map(m=>(
                     <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:m.sender_id===user?.id?"flex-end":"flex-start"}}>
-                      <div className={m.sender_id===user?.id?"msg-mine":"msg-theirs"} style={{maxWidth:"76%",padding:m.message_type==="image"?"4px":"10px 14px",borderRadius:16,fontSize:13,lineHeight:1.56,overflow:"hidden"}}>
-                        {m.message_type==="voice"&&m.file_url?(
+                      <div className={m.sender_id===user?.id?"msg-mine":"msg-theirs"} style={{maxWidth:"76%",padding:(m.message_type||"text")==="image"?"4px":"10px 14px",borderRadius:16,fontSize:13,lineHeight:1.56,overflow:"hidden"}}>
+                        {(m.message_type||"text")==="voice"&&m.file_url?(
                           <div style={{display:"flex",alignItems:"center",gap:8,padding:m.message_type==="image"?"8px 10px":0}}>
                             <span style={{fontSize:18}}>🎤</span>
                             <audio controls preload="metadata" style={{height:36,maxWidth:220}} src={m.file_url}/>
                           </div>
-                        ):m.message_type==="image"&&m.file_url?(
+                        ):(m.message_type||"text")==="image"&&m.file_url?(
                           <img src={m.file_url} alt={m.file_name||"Image"} loading="lazy" style={{maxWidth:"100%",maxHeight:280,borderRadius:12,display:"block",cursor:"pointer"}} onClick={()=>window.open(m.file_url!,"_blank")}/>
-                        ):m.message_type==="file"&&m.file_url?(
+                        ):(m.message_type||"text")==="file"&&m.file_url?(
                           <a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:8,color:"inherit",textDecoration:"none"}}>
                             <span style={{fontSize:22}}>📄</span>
                             <div>
@@ -3665,27 +3667,112 @@ export default function BasUdrus() {
         </div>
       )}
 
-      {/* ══════════════ AI HUB ══════════════ */}
+      {/* ══════════════ AI HUB — Smart Study Companion ══════════════ */}
       {curTab==="ai"&&(
-        <div className="page-scroll">
-          <div style={{maxWidth:700,margin:"0 auto",padding:"0 16px 20px"}}>
-            {/* ── AI Section Title ── */}
+        <div className="page-scroll" style={{background:"linear-gradient(180deg,#0f172a 0%,#1e1b4b 8%,#1e1b4b 15%,#f8fafc 15.1%,#f8fafc 100%)"}}>
 
-            {/* ── Tab Selector — Clean pill strip ── */}
-            <div className="ai-tab-row" style={{display:"flex",gap:6,marginBottom:24,marginTop:8,padding:"6px",background:T.bg,borderRadius:16,border:`1px solid ${T.border}`}}>
-              {([["wellbeing","🌿","Wellbeing","#10b981"],["tutor","🎓","Tutor","#6366f1"],["match","🎯","Match","#8b5cf6"],["plan","📅","Planner","#ef4444"]] as const).map(([tab,icon,lbl,color])=>(
-                <button key={tab} onClick={()=>setAiTab(tab)} style={{
-                  flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"13px 8px",
-                  borderRadius:12,border:"none",
-                  background:aiTab===tab?T.surface:"transparent",
-                  boxShadow:aiTab===tab?"0 2px 12px rgba(0,0,0,0.08)":"none",
-                  cursor:"pointer",transition:"all 0.2s",
-                }}>
-                  <span style={{fontSize:18}}>{icon}</span>
-                  <span style={{fontSize:14,fontWeight:aiTab===tab?700:500,color:aiTab===tab?color:T.muted,transition:"color 0.2s"}}>{lbl}</span>
-                </button>
-              ))}
+          {/* ── Hero Section — Dark immersive header ── */}
+          <div style={{padding:"28px 20px 0",maxWidth:720,margin:"0 auto"}}>
+            <div style={{textAlign:"center",paddingBottom:aiTab?0:20}}>
+              {/* Orb — AI's living face */}
+              {!aiTab&&(
+                <div className="fade-in" style={{marginBottom:20}}>
+                  <div style={{
+                    width:80,height:80,borderRadius:"50%",margin:"0 auto 16px",
+                    background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
+                    boxShadow:"0 0 60px rgba(251,146,60,0.3),0 0 120px rgba(139,92,246,0.15),0 8px 32px rgba(0,0,0,0.3)",
+                    animation:"orbPulse 4s ease-in-out infinite",
+                  }}/>
+                  <h2 style={{fontSize:26,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:6}}>
+                    {(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; })()}{profile.name ? `, ${profile.name.split(" ")[0]}` : ""} ✨
+                  </h2>
+                  <p style={{fontSize:15,color:"rgba(255,255,255,0.6)",maxWidth:360,margin:"0 auto",lineHeight:1.6}}>
+                    Your AI-powered study companion. What would you like to do?
+                  </p>
+                </div>
+              )}
+              {aiTab&&(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:12}}>
+                  <button onClick={()=>setAiTab("")} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.1)",border:"none",borderRadius:99,padding:"8px 16px",color:"rgba(255,255,255,0.8)",fontSize:13,fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)",transition:"all 0.15s"}}
+                    onMouseEnter={e=>{(e.currentTarget).style.background="rgba(255,255,255,0.2)";}}
+                    onMouseLeave={e=>{(e.currentTarget).style.background="rgba(255,255,255,0.1)";}}>
+                    ← Back
+                  </button>
+                  <div style={{display:"flex",gap:4}}>
+                    {([["auto","🔄"],["en","🇬🇧"],["ar","🇯🇴"]] as const).map(([val,flag])=>(
+                      <button key={val} onClick={()=>setAiLang(val)}
+                        style={{padding:"6px 12px",borderRadius:99,fontSize:12,fontWeight:aiLang===val?700:400,
+                          background:aiLang===val?"rgba(255,255,255,0.2)":"transparent",
+                          border:"1px solid rgba(255,255,255,0.15)",
+                          color:aiLang===val?"#fff":"rgba(255,255,255,0.5)",
+                          cursor:"pointer",transition:"all 0.15s",backdropFilter:"blur(8px)"}}>
+                        {flag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* ── Action Cards — Glassmorphism floating cards ── */}
+          {!aiTab&&(
+            <div style={{maxWidth:720,margin:"0 auto",padding:"0 20px 24px",marginTop:-8}}>
+              <div className="ai-tab-row fade-in" style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>
+                {([
+                  ["wellbeing","🌿","I need to talk","Wellbeing companion","linear-gradient(135deg,#059669,#10b981)","rgba(16,185,129,0.12)"],
+                  ["tutor","🎓","Help me study","AI tutor for any subject","linear-gradient(135deg,#4f46e5,#6366f1)","rgba(99,102,241,0.12)"],
+                  ["match","🎯","Find a partner","Smart study matching","linear-gradient(135deg,#7c3aed,#8b5cf6)","rgba(139,92,246,0.12)"],
+                  ["plan","📅","Plan my week","AI study scheduler","linear-gradient(135deg,#dc2626,#ef4444)","rgba(239,68,68,0.12)"],
+                ] as const).map(([tab,icon,title,desc,grad,bgTint])=>(
+                  <button key={tab} onClick={()=>setAiTab(tab)} className="slide-in" style={{
+                    display:"flex",flexDirection:"column",alignItems:"flex-start",gap:10,padding:"22px 20px",
+                    borderRadius:20,border:"1px solid rgba(255,255,255,0.08)",
+                    background:bgTint,
+                    backdropFilter:"blur(20px)",
+                    boxShadow:"0 4px 24px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.04)",
+                    cursor:"pointer",transition:"all 0.25s",textAlign:"left",
+                  }}
+                  onMouseEnter={e=>{(e.currentTarget).style.transform="translateY(-4px)";(e.currentTarget).style.boxShadow="0 8px 32px rgba(0,0,0,0.1),0 2px 6px rgba(0,0,0,0.06)";}}
+                  onMouseLeave={e=>{(e.currentTarget).style.transform="translateY(0)";(e.currentTarget).style.boxShadow="0 4px 24px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.04)";}}>
+                    <div style={{width:48,height:48,borderRadius:14,background:grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,boxShadow:"0 4px 16px rgba(0,0,0,0.15)"}}>
+                      {icon}
+                    </div>
+                    <div>
+                      <div style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:3}}>{title}</div>
+                      <div style={{fontSize:12,color:T.muted,lineHeight:1.4}}>{desc}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Quick suggestions */}
+              <div style={{marginTop:20,textAlign:"center"}}>
+                <div style={{fontSize:11,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quick Start</div>
+                <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                  {["I'm stressed about exams","Explain recursion","Find a Calculus partner","Plan my study week"].map((q,i)=>(
+                    <button key={q} onClick={()=>{setAiTab(i===0?"wellbeing":i===1?"tutor":i===2?"match":"plan");if(i===0)setWellbeingInput(q);if(i===1)setTutorInput(q);}}
+                      style={{padding:"9px 16px",borderRadius:99,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:T.textSoft,cursor:"pointer",fontWeight:500,transition:"all 0.15s",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}
+                      onMouseEnter={e=>{(e.currentTarget).style.borderColor=T.accent;(e.currentTarget).style.color=T.accent;}}
+                      onMouseLeave={e=>{(e.currentTarget).style.borderColor="#e5e7eb";(e.currentTarget).style.color=T.textSoft;}}>
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{marginTop:28,textAlign:"center",padding:"0 10px"}}>
+                <div style={{fontSize:11,color:"rgba(0,0,0,0.3)",lineHeight:1.8}}>
+                  Powered by Claude Sonnet · Privacy first · Never stored · Built for Jordan 🇯🇴
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Feature Content ── */}
+          {aiTab&&(
+          <div style={{maxWidth:720,margin:"0 auto",padding:"0 16px 20px"}}>
 
             {/* ── MENTAL HEALTH AI ── */}
             {aiTab==="wellbeing"&&(
@@ -4255,85 +4342,13 @@ export default function BasUdrus() {
             )}
 
 
-            {/* ── Language Toggle ── */}
-            <div style={{marginTop:20,padding:"14px 18px",borderRadius:16,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-              <span style={{fontSize:12,fontWeight:600,color:T.muted,marginRight:8}}>🌐 AI Language:</span>
-              {([["auto","Auto","🔄"],["en","English","🇬🇧"],["ar","عربي","🇯🇴"]] as const).map(([val,label,flag])=>(
-                <button key={val} onClick={()=>setAiLang(val)}
-                  style={{padding:"7px 16px",borderRadius:99,fontSize:12,fontWeight:aiLang===val?700:500,
-                    border:`1.5px solid ${aiLang===val?T.accent:T.border}`,
-                    background:aiLang===val?T.accentSoft:"transparent",
-                    color:aiLang===val?T.accent:T.textSoft,
-                    cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",gap:5}}>
-                  <span>{flag}</span> {label}
-                </button>
-              ))}
-            </div>
-
-            {/* ── AI Hub Footer ── */}
-            <div style={{marginTop:14,padding:"20px 18px",borderRadius:20,background:`linear-gradient(135deg,${T.accentSoft},${T.surface})`,border:`1px solid ${T.border}`,textAlign:"center"}}>
-              <div style={{fontSize:22,marginBottom:8}}>🤖</div>
-              {aiLang==="ar"?(
-                <>
-                  <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}} dir="rtl">رفيقك الذكي للدراسة</div>
-                  <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}} dir="rtl">
-                    الصحة النفسية · المدرّس · التوافق الذكي · جدول الدراسة
-                  </div>
-                  <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}} dir="rtl">
-                    «العلم نور والجهل ظلام»
-                  </div>
-                  <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>عربي بالكامل</span>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>خصوصية تامة</span>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>صنع في الأردن 🇯🇴</span>
-                  </div>
-                  <div style={{marginTop:12,fontSize:10,color:T.muted}} dir="rtl">
-                    Bas Udrus AI · {aiVersion} · المحادثات خاصة ولا يتم تخزينها على خوادمنا
-                  </div>
-                </>
-              ):aiLang==="en"?(
-                <>
-                  <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}}>Your AI Study Companion</div>
-                  <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}}>
-                    Wellbeing · Tutor · Smart Match · Study Planner
-                  </div>
-                  <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}}>
-                    "Knowledge is light, and ignorance is darkness"
-                  </div>
-                  <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>English Only</span>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>Privacy First</span>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>Built for Jordan</span>
-                  </div>
-                  <div style={{marginTop:12,fontSize:10,color:T.muted}}>
-                    Bas Udrus AI · {aiVersion} · Conversations are private & never stored on our servers
-                  </div>
-                </>
-              ):(
-                <>
-                  <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:4}}>Your AI Study Companion</div>
-                  <div style={{fontSize:12,color:T.muted,lineHeight:1.7,marginBottom:8}}>
-                    Wellbeing · Tutor · Smart Match · Study Planner
-                  </div>
-                  <div style={{fontSize:13,color:T.textSoft,lineHeight:1.8,fontStyle:"italic",marginBottom:8}} dir="rtl">
-                    «العلم نور والجهل ظلام»
-                  </div>
-                  <div style={{fontSize:11,color:T.muted,lineHeight:1.6}}>
-                    Knowledge is light, and ignorance is darkness — Arabic proverb
-                  </div>
-                  <div style={{marginTop:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.greenSoft,color:T.green}}>Arabic & English</span>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:T.accentSoft,color:T.accent}}>Privacy First</span>
-                    <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:99,background:"#fef3c7",color:"#92400e"}}>Built for Jordan</span>
-                  </div>
-                  <div style={{marginTop:12,fontSize:10,color:T.muted}}>
-                    Bas Udrus AI · {aiVersion} · Conversations are private & never stored on our servers
-                  </div>
-                </>
-              )}
+            {/* ── Minimal footer inside feature view ── */}
+            <div style={{marginTop:20,textAlign:"center",padding:"10px 0"}}>
+              <div style={{fontSize:11,color:"rgba(0,0,0,0.3)"}}>Bas Udrus AI · {aiVersion} · Private & never stored</div>
             </div>
 
           </div>
+          )}
         </div>
       )}
 
