@@ -646,6 +646,22 @@ export default function BasUdrus() {
   const [aiVersion, setAiVersion] = useState("v1.0");
   const [aiUserTier, setAiUserTier] = useState<{tier:string;interactionCount:number;maxTokens:number}>({tier:"new",interactionCount:0,maxTokens:500});
 
+  // ── Voice & File sharing state ──
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder|null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval>|null>(null);
+  const chatFileRef = useRef<HTMLInputElement>(null);
+
+  // ── Pomodoro Timer state ──
+  const [pomodoroActive, setPomodoroActive] = useState(false);
+  const [pomodoroRunning, setPomodoroRunning] = useState(false);
+  const [pomodoroSeconds, setPomodoroSeconds] = useState(25 * 60);
+  const [pomodoroMode, setPomodoroMode] = useState<"work"|"break"|"longbreak">("work");
+  const [pomodoroCount, setPomodoroCount] = useState(0);
+  const pomodoroRef = useRef<ReturnType<typeof setInterval>|null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const tutorEndRef = useRef<HTMLDivElement>(null);
@@ -1345,6 +1361,122 @@ export default function BasUdrus() {
       }
     } catch { setNewMsg(text); showNotif("Couldn't send message — please try again.", "err"); }
   };
+
+  // ── Voice Recording ─────────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4" });
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+        const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
+        if (blob.size < 1000) { setIsRecording(false); setRecordingTime(0); return; }
+        await uploadAndSendFile(blob, `voice-${Date.now()}.webm`, "voice");
+        setIsRecording(false);
+        setRecordingTime(0);
+      };
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordTimerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
+    } catch (err) {
+      logError("startRecording", err);
+      showNotif("Microphone access denied. Check browser permissions.", "err");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  // ── File Upload in Chat ─────────────────────────────────────────────
+  const handleChatFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { showNotif("File too large — max 10MB", "err"); return; }
+    const isImage = file.type.startsWith("image/");
+    const msgType = isImage ? "image" : "file";
+    await uploadAndSendFile(file, file.name, msgType);
+    if (chatFileRef.current) chatFileRef.current.value = "";
+  };
+
+  const uploadAndSendFile = async (fileOrBlob: File | Blob, fileName: string, msgType: "voice" | "image" | "file") => {
+    if (!user || !activeChat) return;
+    try {
+      const ext = fileName.split(".").pop() || "bin";
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : "audio/webm" });
+      if (upErr) { logError("uploadChatFile", upErr); showNotif("Upload failed — try again", "err"); return; }
+      const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
+      const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
+      const { data, error } = await supabase.from("messages").insert({
+        sender_id: user.id,
+        receiver_id: activeChat.id,
+        text: displayText,
+        message_type: msgType,
+        file_url: urlData.publicUrl,
+        file_name: fileName,
+      }).select().single();
+      if (error || !data) { logError("sendFileMsg", error); showNotif("Couldn't send — try again", "err"); return; }
+      setMessages(prev => ({ ...prev, [activeChat.id]: [...(prev[activeChat.id] || []), data] }));
+    } catch (err) { logError("uploadAndSendFile", err); showNotif("Upload failed", "err"); }
+  };
+
+  // ── Pomodoro Timer ──────────────────────────────────────────────────
+  const pomodoroConfig = { work: 25 * 60, break: 5 * 60, longbreak: 15 * 60 };
+
+  const startPomodoro = () => {
+    setPomodoroRunning(true);
+    pomodoroRef.current = setInterval(() => {
+      setPomodoroSeconds(prev => {
+        if (prev <= 1) {
+          // Timer done
+          if (pomodoroRef.current) clearInterval(pomodoroRef.current);
+          setPomodoroRunning(false);
+          try { new Audio("data:audio/wav;base64,UklGRiQDAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQADAAB/f39/f39/f4B/gH+Af4F/gn+Df4R/hn+If4p/jH+Pf5J/ln+af55/on+mf6p/rn+yf7Z/un++f8J/xn/Jf8x/z3/Sf9V/13/Zf9t/3X/ef99/4H/hf+J/43/kf+V/5n/nf+h/6X/qf+t/7H/tf+5/73/wf/F/8n/zf/R/9X/2f/d/+H/5f/p/+3/8f/1//n//fwCAA").play(); } catch {}
+          showNotif(pomodoroMode === "work" ? "⏰ Break time! Great focus session." : "💪 Break over — back to studying!", "ok");
+          setPomodoroCount(prev => {
+            const next = pomodoroMode === "work" ? prev + 1 : prev;
+            // Auto-switch mode
+            if (pomodoroMode === "work") {
+              if ((next) % 4 === 0) { setPomodoroMode("longbreak"); setPomodoroSeconds(pomodoroConfig.longbreak); }
+              else { setPomodoroMode("break"); setPomodoroSeconds(pomodoroConfig.break); }
+            } else {
+              setPomodoroMode("work"); setPomodoroSeconds(pomodoroConfig.work);
+            }
+            return next;
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const pausePomodoro = () => {
+    setPomodoroRunning(false);
+    if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
+  };
+
+  const resetPomodoro = () => {
+    pausePomodoro();
+    setPomodoroMode("work");
+    setPomodoroSeconds(pomodoroConfig.work);
+    setPomodoroCount(0);
+    setPomodoroActive(false);
+  };
+
+  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+  const pomodoroProgress = (() => {
+    const total = pomodoroConfig[pomodoroMode];
+    return ((total - pomodoroSeconds) / total) * 100;
+  })();
 
   // ── Schedule session ──────────────────────────────────────────────────
   const submitSchedule = async () => {
@@ -3412,18 +3544,63 @@ export default function BasUdrus() {
                   )}
                   {(messages[activeChat.id]||[]).map(m=>(
                     <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:m.sender_id===user?.id?"flex-end":"flex-start"}}>
-                      <div className={m.sender_id===user?.id?"msg-mine":"msg-theirs"} style={{maxWidth:"76%",padding:"10px 14px",borderRadius:16,fontSize:13,lineHeight:1.56}}>{m.text}</div>
+                      <div className={m.sender_id===user?.id?"msg-mine":"msg-theirs"} style={{maxWidth:"76%",padding:m.message_type==="image"?"4px":"10px 14px",borderRadius:16,fontSize:13,lineHeight:1.56,overflow:"hidden"}}>
+                        {m.message_type==="voice"&&m.file_url?(
+                          <div style={{display:"flex",alignItems:"center",gap:8,padding:m.message_type==="image"?"8px 10px":0}}>
+                            <span style={{fontSize:18}}>🎤</span>
+                            <audio controls preload="metadata" style={{height:36,maxWidth:220}} src={m.file_url}/>
+                          </div>
+                        ):m.message_type==="image"&&m.file_url?(
+                          <img src={m.file_url} alt={m.file_name||"Image"} loading="lazy" style={{maxWidth:"100%",maxHeight:280,borderRadius:12,display:"block",cursor:"pointer"}} onClick={()=>window.open(m.file_url!,"_blank")}/>
+                        ):m.message_type==="file"&&m.file_url?(
+                          <a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:8,color:"inherit",textDecoration:"none"}}>
+                            <span style={{fontSize:22}}>📄</span>
+                            <div>
+                              <div style={{fontWeight:600,fontSize:13,wordBreak:"break-word"}}>{m.file_name||"File"}</div>
+                              <div style={{fontSize:11,opacity:0.7}}>Tap to open</div>
+                            </div>
+                          </a>
+                        ):(
+                          <>{m.text}</>
+                        )}
+                      </div>
                       <div style={{fontSize:10,color:T.muted,marginTop:3}}>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
                     </div>
                   ))}
                   <div ref={chatEndRef}/>
                 </div>
-                <div className="chat-msg-input" style={{padding:"12px 16px",background:T.navBg,borderTop:`1px solid ${T.border}`,display:"flex",gap:8,alignItems:"center"}}>
-                  <input style={{flex:1,padding:"12px 17px",border:`1.5px solid ${T.border}`,borderRadius:99,fontSize:16,outline:"none",color:T.text,background:T.bg,transition:"border-color 0.2s,box-shadow 0.2s"}}
-                    placeholder={`Message ${activeChat.name.split(" ")[0]}...`} value={newMsg} onChange={e=>setNewMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage(activeChat.id)} maxLength={2000}
-                    onFocus={e=>{(e.target as HTMLInputElement).style.borderColor=T.accent;(e.target as HTMLInputElement).style.boxShadow=`0 0 0 3px ${T.accentSoft}`;}}
-                    onBlur={e=>{(e.target as HTMLInputElement).style.borderColor=T.border;(e.target as HTMLInputElement).style.boxShadow="none";}}/>
-                  <button className="btn-primary" style={{padding:"12px 20px",borderRadius:99,flexShrink:0}} onClick={()=>sendMessage(activeChat.id)}>Send →</button>
+                <input ref={chatFileRef} type="file" accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.txt" style={{display:"none"}} onChange={handleChatFileSelect}/>
+                <div className="chat-msg-input" style={{padding:"12px 16px",background:T.navBg,borderTop:`1px solid ${T.border}`,display:"flex",gap:6,alignItems:"center"}}>
+                  {isRecording?(
+                    <div style={{flex:1,display:"flex",alignItems:"center",gap:10,padding:"8px 14px",background:T.redSoft,borderRadius:99,border:`1.5px solid ${T.red}33`}}>
+                      <div style={{width:10,height:10,borderRadius:"50%",background:T.red,animation:"orbPulse 1s infinite"}}/>
+                      <span style={{fontSize:14,fontWeight:600,color:T.red,flex:1}}>Recording... {formatTime(recordingTime)}</span>
+                      <button onClick={stopRecording} style={{padding:"8px 18px",borderRadius:99,background:T.red,color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer"}}>Send 🎤</button>
+                    </div>
+                  ):(
+                    <>
+                      <button onClick={()=>chatFileRef.current?.click()} title="Attach file"
+                        style={{width:42,height:42,borderRadius:"50%",border:`1.5px solid ${T.border}`,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,cursor:"pointer",flexShrink:0,color:T.textSoft,transition:"all 0.15s"}}
+                        onMouseEnter={e=>{(e.currentTarget).style.background=T.accentSoft;(e.currentTarget).style.borderColor=T.accent;}}
+                        onMouseLeave={e=>{(e.currentTarget).style.background="transparent";(e.currentTarget).style.borderColor=T.border;}}>
+                        📎
+                      </button>
+                      <input style={{flex:1,padding:"12px 17px",border:`1.5px solid ${T.border}`,borderRadius:99,fontSize:16,outline:"none",color:T.text,background:T.bg,transition:"border-color 0.2s,box-shadow 0.2s"}}
+                        placeholder={`Message ${activeChat.name.split(" ")[0]}...`} value={newMsg} onChange={e=>setNewMsg(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage(activeChat.id)} maxLength={2000}
+                        onFocus={e=>{(e.target as HTMLInputElement).style.borderColor=T.accent;(e.target as HTMLInputElement).style.boxShadow=`0 0 0 3px ${T.accentSoft}`;}}
+                        onBlur={e=>{(e.target as HTMLInputElement).style.borderColor=T.border;(e.target as HTMLInputElement).style.boxShadow="none";}}/>
+                      {newMsg.trim()?(
+                        <button className="btn-primary" style={{padding:"12px 20px",borderRadius:99,flexShrink:0}} onClick={()=>sendMessage(activeChat.id)}>Send →</button>
+                      ):(
+                        <button onClick={startRecording} title="Record voice message"
+                          style={{width:42,height:42,borderRadius:"50%",border:"none",background:"linear-gradient(135deg,#ef4444,#f97316)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,cursor:"pointer",flexShrink:0,boxShadow:"0 2px 10px rgba(239,68,68,0.3)",transition:"all 0.15s"}}
+                          onMouseEnter={e=>{(e.currentTarget).style.transform="scale(1.08)";}}
+                          onMouseLeave={e=>{(e.currentTarget).style.transform="scale(1)";}}>
+                          🎤
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </>
             )}
@@ -3983,6 +4160,63 @@ export default function BasUdrus() {
                     className="btn-primary" style={{width:"100%",padding:14,borderRadius:16,background:planLoading||!planSubjects.trim()?undefined:"linear-gradient(135deg,#8b5cf6,#6366f1,#4f46e5)",boxShadow:planLoading||!planSubjects.trim()?"none":"0 4px 20px rgba(99,102,241,0.3)",fontSize:15,fontWeight:700,letterSpacing:"-0.01em"}}>
                     {planLoading?"🔄 Generating your plan...":"✨ Generate My Study Plan"}
                   </button>
+                </div>
+
+                {/* ── Pomodoro Study Timer ── */}
+                <div style={{background:T.surface,borderRadius:24,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:pomodoroActive?18:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#f97316)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>⏱️</div>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:15,color:T.navy}}>Study Timer</div>
+                        <div style={{fontSize:12,color:T.muted}}>Pomodoro technique — focus in {"\u00B7"} 25 min blocks</div>
+                      </div>
+                    </div>
+                    {!pomodoroActive&&(
+                      <button onClick={()=>{setPomodoroActive(true);setPomodoroMode("work");setPomodoroSeconds(25*60);setPomodoroCount(0);}}
+                        className="btn-primary" style={{padding:"10px 20px",borderRadius:99,fontSize:13,background:"linear-gradient(135deg,#ef4444,#f97316)",boxShadow:"0 3px 14px rgba(239,68,68,0.25)"}}>
+                        Start Session ▶
+                      </button>
+                    )}
+                  </div>
+                  {pomodoroActive&&(
+                    <div className="fade-in" style={{textAlign:"center"}}>
+                      {/* Circular Progress */}
+                      <div style={{position:"relative",width:180,height:180,margin:"0 auto 16px"}}>
+                        <svg width="180" height="180" viewBox="0 0 180 180" style={{transform:"rotate(-90deg)"}}>
+                          <circle cx="90" cy="90" r="80" stroke={T.border} strokeWidth="8" fill="none"/>
+                          <circle cx="90" cy="90" r="80" stroke={pomodoroMode==="work"?"#ef4444":pomodoroMode==="break"?"#22c55e":"#6366f1"} strokeWidth="8" fill="none"
+                            strokeDasharray={2*Math.PI*80} strokeDashoffset={2*Math.PI*80*(1-pomodoroProgress/100)} strokeLinecap="round"
+                            style={{transition:"stroke-dashoffset 1s linear"}}/>
+                        </svg>
+                        <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>
+                          <div style={{fontSize:38,fontWeight:800,color:T.navy,fontVariantNumeric:"tabular-nums",letterSpacing:"-0.02em"}}>{formatTime(pomodoroSeconds)}</div>
+                          <div style={{fontSize:12,fontWeight:700,color:pomodoroMode==="work"?"#ef4444":pomodoroMode==="break"?"#22c55e":"#6366f1",textTransform:"uppercase",letterSpacing:"0.05em",marginTop:2}}>
+                            {pomodoroMode==="work"?"Focus Time":pomodoroMode==="break"?"Short Break":"Long Break"}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Controls */}
+                      <div style={{display:"flex",justifyContent:"center",gap:10,marginBottom:14}}>
+                        {pomodoroRunning?(
+                          <button onClick={pausePomodoro} style={{padding:"12px 28px",borderRadius:99,background:T.surface,border:`1.5px solid ${T.border}`,color:T.navy,fontSize:14,fontWeight:700,cursor:"pointer"}}>⏸ Pause</button>
+                        ):(
+                          <button onClick={startPomodoro} style={{padding:"12px 28px",borderRadius:99,border:"none",background:"linear-gradient(135deg,#ef4444,#f97316)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",boxShadow:"0 3px 14px rgba(239,68,68,0.25)"}}>▶ {pomodoroSeconds===pomodoroConfig[pomodoroMode]?"Start":"Resume"}</button>
+                        )}
+                        <button onClick={resetPomodoro} style={{padding:"12px 20px",borderRadius:99,border:`1.5px solid ${T.border}`,background:"transparent",color:T.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>Reset ✕</button>
+                      </div>
+                      {/* Session counter */}
+                      <div style={{display:"flex",justifyContent:"center",gap:6,alignItems:"center"}}>
+                        {[0,1,2,3].map(i=>(
+                          <div key={i} style={{width:12,height:12,borderRadius:"50%",background:i<pomodoroCount%4?"#ef4444":T.border,transition:"background 0.3s"}}/>
+                        ))}
+                        <span style={{fontSize:12,color:T.muted,marginLeft:6}}>{pomodoroCount} session{pomodoroCount!==1?"s":""} done</span>
+                      </div>
+                      <div style={{marginTop:12,fontSize:11,color:T.textSoft}}>
+                        25 min focus → 5 min break → repeat → long break after 4 sessions
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {planResult&&(

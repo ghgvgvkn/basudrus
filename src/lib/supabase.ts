@@ -60,6 +60,9 @@ export type Message = {
   sender_id: string;
   receiver_id: string;
   text: string;
+  message_type: "text" | "voice" | "image" | "file";
+  file_url: string | null;
+  file_name: string | null;
   created_at: string;
 };
 
