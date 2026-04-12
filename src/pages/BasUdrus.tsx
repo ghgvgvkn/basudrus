@@ -3678,9 +3678,10 @@ export default function BasUdrus() {
 
       {/* ══════════════ AI HUB — Smart Study Companion ══════════════ */}
       {curTab==="ai"&&(
-        <div className="page-scroll" style={{background:"linear-gradient(180deg,#0f172a 0%,#1e1b4b 8%,#1e1b4b 15%,#f8fafc 15.1%,#f8fafc 100%)"}}>
+        <div className="page-scroll" style={{background:T.bg}}>
 
           {/* ── Hero Section — Dark immersive header ── */}
+          <div style={{background:"linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)",paddingBottom:aiTab?12:24}}>
           <div style={{padding:"28px 20px 0",maxWidth:720,margin:"0 auto"}}>
             <div style={{textAlign:"center",paddingBottom:aiTab?0:20}}>
               {/* Orb — AI's living face */}
@@ -3723,10 +3724,11 @@ export default function BasUdrus() {
               )}
             </div>
           </div>
+          </div>
 
           {/* ── Action Cards — Glassmorphism floating cards ── */}
           {!aiTab&&(
-            <div style={{maxWidth:720,margin:"0 auto",padding:"0 20px 24px",marginTop:-8}}>
+            <div style={{maxWidth:720,margin:"0 auto",padding:"20px 20px 24px"}}>
               <div className="ai-tab-row fade-in" style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>
                 {([
                   ["wellbeing","🌿","I need to talk","Wellbeing companion","linear-gradient(135deg,#059669,#10b981)","rgba(16,185,129,0.12)"],
