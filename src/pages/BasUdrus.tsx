@@ -3671,19 +3671,18 @@ export default function BasUdrus() {
           <div style={{maxWidth:700,margin:"0 auto",padding:"0 16px 20px"}}>
             {/* ── AI Section Title ── */}
 
-            {/* ── Tab Selector ── */}
-            <div className="ai-tab-row" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20,marginTop:8}}>
-              {([["wellbeing","🌿","Wellbeing","Mental health support"],["tutor","🎓","Tutor","Ask anything academic"],["match","🎯","Match","Find study partners"],["plan","📅","Planner","Organize your schedule"]] as const).map(([tab,icon,lbl,desc])=>(
+            {/* ── Tab Selector — Clean pill strip ── */}
+            <div className="ai-tab-row" style={{display:"flex",gap:6,marginBottom:24,marginTop:8,padding:"6px",background:T.bg,borderRadius:16,border:`1px solid ${T.border}`}}>
+              {([["wellbeing","🌿","Wellbeing","#10b981"],["tutor","🎓","Tutor","#6366f1"],["match","🎯","Match","#8b5cf6"],["plan","📅","Planner","#ef4444"]] as const).map(([tab,icon,lbl,color])=>(
                 <button key={tab} onClick={()=>setAiTab(tab)} style={{
-                  display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"16px 8px 14px",
-                  borderRadius:18,border:`2px solid ${aiTab===tab?"#6366f1":"transparent"}`,
-                  background:aiTab===tab?"linear-gradient(135deg,#eef2ff,#e0e7ff)":T.surface,
-                  boxShadow:aiTab===tab?"0 4px 20px rgba(99,102,241,0.15)":"0 2px 8px rgba(0,0,0,0.04)",
+                  flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"13px 8px",
+                  borderRadius:12,border:"none",
+                  background:aiTab===tab?T.surface:"transparent",
+                  boxShadow:aiTab===tab?"0 2px 12px rgba(0,0,0,0.08)":"none",
                   cursor:"pointer",transition:"all 0.2s",
                 }}>
-                  <span style={{fontSize:24}}>{icon}</span>
-                  <span style={{fontSize:13,fontWeight:aiTab===tab?800:600,color:aiTab===tab?"#4338ca":T.navy}}>{lbl}</span>
-                  <span style={{fontSize:9,color:aiTab===tab?"#6366f1":T.muted,fontWeight:500,lineHeight:1.2,textAlign:"center"}}>{desc}</span>
+                  <span style={{fontSize:18}}>{icon}</span>
+                  <span style={{fontSize:14,fontWeight:aiTab===tab?700:500,color:aiTab===tab?color:T.muted,transition:"color 0.2s"}}>{lbl}</span>
                 </button>
               ))}
             </div>
@@ -3692,29 +3691,24 @@ export default function BasUdrus() {
             {aiTab==="wellbeing"&&(
               <div className="slide-in">
                 {/* Compact intro */}
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"0 2px"}}>
-                  <div style={{width:36,height:36,borderRadius:12,background:"linear-gradient(135deg,#10b981,#34d399)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0,boxShadow:"0 4px 12px #10b98133"}}>🌿</div>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:14,color:T.navy}}>Mental Health AI</div>
-                    <div style={{fontSize:11,color:T.muted}}>Bilingual support · Arabic & English</div>
-                  </div>
-                  <div style={{marginLeft:"auto",display:"flex",gap:4}}>
-                    {["CBT","MI","DBT","ACT"].map(t=>(
-                      <span key={t} style={{fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:99,background:"#d1fae5",color:"#065f46"}}>{t}</span>
-                    ))}
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"0 2px"}}>
+                  <div style={{width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#10b981,#059669)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:"0 4px 14px rgba(16,185,129,0.25)"}}>🌿</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:15,color:T.navy}}>Noor — Wellbeing Companion</div>
+                    <div style={{fontSize:12,color:T.muted}}>Bilingual · Arabic & English</div>
                   </div>
                 </div>
 
-                {/* ── CHAT AREA (moved to top for immediate engagement) ── */}
-                <div style={{background:T.surface,borderRadius:28,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)",marginBottom:14}}>
-                  {wellbeingMsgs.length===0&&(
-                    <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,background:"linear-gradient(135deg,#f0fdf4,#ecfdf5)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                {/* ── CHAT AREA ── */}
+                <div style={{background:T.surface,borderRadius:24,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(16,185,129,0.06)",marginBottom:14}}>
+                  {wellbeingMsgs.length===0&&(wellbeingMood||wellbeingMode)&&(
+                    <div style={{padding:"12px 20px",background:"linear-gradient(135deg,#f0fdf4,#ecfdf5)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                       {wellbeingMood&&<span style={{padding:"4px 12px",borderRadius:99,background:"#d1fae5",fontSize:12,fontWeight:700,color:"#065f46"}}>Feeling: {wellbeingMood}</span>}
                       {wellbeingMode&&<span style={{padding:"4px 12px",borderRadius:99,background:"#a7f3d0",fontSize:12,fontWeight:700,color:"#064e3b"}}>{wellbeingMode}</span>}
-                      <span style={{fontSize:12,color:"#047857",fontWeight:500}}>{wellbeingMood||wellbeingMode?"Ready when you are — type below 💚":"اكتب / Type — Arabic, English, or both. Start whenever you are ready."}</span>
+                      <span style={{fontSize:12,color:"#047857",fontWeight:500}}>Ready when you are — type below 💚</span>
                     </div>
                   )}
-                  <div style={{minHeight:340,maxHeight:"60vh",overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:12,background:wellbeingMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
+                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:wellbeingMsgs.length===0?"#fafbfc":T.bg,position:"relative"}}>
                     {wellbeingMsgs.length===0&&(()=>{
                       const quotes=[
                         {q:"\"الصبر مفتاح الفرج\"",t:"Patience is the key to relief — Arabic proverb"},
@@ -3726,23 +3720,22 @@ export default function BasUdrus() {
                       ];
                       const q=quotes[Math.floor(Date.now()/86400000)%quotes.length];
                       return (
-                        <div style={{textAlign:"center",padding:"20px 16px",color:T.muted,position:"relative",zIndex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
-                          {/* Ambient glows */}
-                          <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",background:"radial-gradient(circle,rgba(168,85,247,0.1),rgba(139,92,246,0.04),transparent 70%)",filter:"blur(50px)",zIndex:0}}/>
-                          <div style={{position:"absolute",top:"-10%",right:"-5%",width:160,height:160,borderRadius:"50%",background:"radial-gradient(circle,rgba(251,146,60,0.08),transparent 70%)",filter:"blur(30px)",zIndex:0}}/>
+                        <div style={{textAlign:"center",padding:"30px 20px",color:T.muted,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
                           {/* Orb */}
                           <div style={{
-                            width:90,height:90,borderRadius:"50%",marginBottom:24,position:"relative",zIndex:1,
-                            background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
-                            boxShadow:"0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
+                            width:72,height:72,borderRadius:"50%",marginBottom:20,
+                            background:"radial-gradient(circle at 35% 30%,#34d399 0%,#10b981 30%,#059669 60%,#047857 100%)",
+                            boxShadow:"0 0 40px rgba(16,185,129,0.2),0 8px 24px rgba(16,185,129,0.15)",
                             animation:"orbPulse 4s ease-in-out infinite",
                           }}/>
-                          <div style={{fontSize:16,fontWeight:700,color:"#1e1b4b",position:"relative",zIndex:1}}>How are you feeling today?</div>
-                          <div style={{fontSize:12,color:"#6b7280",marginTop:8,position:"relative",zIndex:1}}>Tell me what's on your mind — I'm here to listen</div>
-                          <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center",marginTop:14,position:"relative",zIndex:1}}>
+                          <div style={{fontSize:20,fontWeight:800,color:T.navy,letterSpacing:"-0.02em"}}>How are you feeling?</div>
+                          <div style={{fontSize:14,color:T.muted,marginTop:8,maxWidth:300,lineHeight:1.6}}>I'm Noor — your wellbeing companion. Type anything, in Arabic or English.</div>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
                             {["I'm stressed","Feeling anxious","Need to vent","Help me relax"].map(q=>(
                               <button key={q} onClick={()=>setWellbeingInput(q)}
-                                style={{padding:"8px 14px",borderRadius:99,border:"1.5px solid rgba(16,185,129,0.2)",background:"rgba(255,255,255,0.7)",backdropFilter:"blur(8px)",fontSize:12,color:"#065f46",cursor:"pointer",fontWeight:600,transition:"border-color 0.15s"}}>
+                                style={{padding:"10px 18px",borderRadius:99,border:"none",background:"#ecfdf5",fontSize:13,color:"#065f46",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
+                                onMouseEnter={e=>{(e.currentTarget).style.background="#d1fae5";}}
+                                onMouseLeave={e=>{(e.currentTarget).style.background="#ecfdf5";}}>
                                 {q}
                               </button>
                             ))}
@@ -3755,7 +3748,7 @@ export default function BasUdrus() {
                         {m.role==="assistant"&&(
                           <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginBottom:2}}>🌿</div>
                         )}
-                        <div style={{maxWidth:"80%",padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",background:m.role==="user"?"linear-gradient(135deg,#059669,#10b981)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid #6ee7b733`:"none",fontSize:14,lineHeight:1.7,boxShadow:"0 1px 6px rgba(0,0,0,0.06)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
+                        <div style={{maxWidth:"78%",padding:"14px 18px",borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",background:m.role==="user"?"linear-gradient(135deg,#059669,#10b981)":"#fff",color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?"1px solid #e5e7eb":"none",fontSize:15,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 4px rgba(0,0,0,0.04)":"0 2px 8px rgba(5,150,105,0.15)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
                           {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.4}}>▌</span>}
                         </div>
                       </div>
@@ -3770,15 +3763,18 @@ export default function BasUdrus() {
                     )}
                     <div ref={wellbeingEndRef}/>
                   </div>
-                  <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",gap:8,alignItems:"flex-end"}}>
+                  <div style={{padding:"16px 20px",borderTop:"1px solid #f0f0f0",background:"#fff",display:"flex",gap:10,alignItems:"flex-end"}}>
                     <textarea value={wellbeingInput} onChange={e=>setWellbeingInput(e.target.value)}
                       onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendWellbeingMessage())}
                       placeholder={wellbeingMode==="Coping tool"?"خبرني شو حاسس — guide me through a calming technique...":wellbeingMode==="I want to vent"?"بحكيلك — this is your space. Start wherever.":"اكتب / Type — Arabic, English, or both."}
                       rows={2}
-                      style={{flex:1,padding:"11px 15px",border:`1.5px solid #6ee7b766`,borderRadius:12,fontSize:16,color:T.text,background:T.bg,outline:"none",resize:"none",lineHeight:1.5,fontFamily:"inherit"}} maxLength={2000}/>
+                      style={{flex:1,padding:"14px 18px",border:"1.5px solid #e5e7eb",borderRadius:16,fontSize:16,color:T.text,background:"#fafbfc",outline:"none",resize:"none",lineHeight:1.6,fontFamily:"inherit",transition:"border-color 0.2s,box-shadow 0.2s"}}
+                      onFocus={e=>{(e.target as HTMLTextAreaElement).style.borderColor="#10b981";(e.target as HTMLTextAreaElement).style.boxShadow="0 0 0 3px rgba(16,185,129,0.1)";}}
+                      onBlur={e=>{(e.target as HTMLTextAreaElement).style.borderColor="#e5e7eb";(e.target as HTMLTextAreaElement).style.boxShadow="none";}}
+                      maxLength={2000}/>
                     <button type="button" onClick={sendWellbeingMessage} disabled={wellbeingLoading||!wellbeingInput.trim()}
-                      style={{padding:"12px 18px",borderRadius:12,background:wellbeingLoading||!wellbeingInput.trim()?T.border:"linear-gradient(135deg,#059669,#10b981)",color:wellbeingLoading||!wellbeingInput.trim()?T.muted:"#fff",border:"none",cursor:wellbeingLoading||!wellbeingInput.trim()?"not-allowed":"pointer",fontSize:14,fontWeight:700,transition:"background-color 0.2s,color 0.2s",flexShrink:0}}>
-                      {wellbeingLoading?"...":"→"}
+                      style={{width:46,height:46,borderRadius:14,background:wellbeingLoading||!wellbeingInput.trim()?"#e5e7eb":"linear-gradient(135deg,#059669,#10b981)",color:wellbeingLoading||!wellbeingInput.trim()?T.muted:"#fff",border:"none",cursor:wellbeingLoading||!wellbeingInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:wellbeingLoading||!wellbeingInput.trim()?"none":"0 3px 12px rgba(16,185,129,0.25)"}}>
+                      {wellbeingLoading?"···":"↑"}
                     </button>
                   </div>
                 </div>
@@ -3924,43 +3920,40 @@ export default function BasUdrus() {
             {/* ── AI TUTOR ── */}
             {aiTab==="tutor"&&(
               <div className="slide-in">
-                <div style={{background:T.surface,borderRadius:28,border:`1px solid ${T.border}`,overflow:"hidden",boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)"}}>
-                  <div style={{padding:"14px 16px",borderBottom:`1px solid ${T.border}`,background:`linear-gradient(135deg,${T.accentSoft},#ede9fe,${T.surface})`}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                      <div style={{width:36,height:36,borderRadius:12,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:`0 4px 12px ${T.accent}33`}}>🎓</div>
-                      <div>
-                        <div style={{fontWeight:700,fontSize:14,color:T.navy}}>AI Study Tutor</div>
-                        <div style={{fontSize:11,color:T.muted}}>Ask anything — concepts, problems, explanations</div>
-                      </div>
+                <div style={{background:T.surface,borderRadius:24,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(99,102,241,0.06)"}}>
+                  <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,boxShadow:"0 4px 12px rgba(99,102,241,0.25)"}}>🎓</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:15,color:T.navy}}>AI Study Tutor</div>
+                      <div style={{fontSize:12,color:T.muted}}>Ask anything — concepts, problems, explanations</div>
                     </div>
                     <select value={tutorSubject} onChange={e=>setTutorSubject(e.target.value)}
-                      style={{width:"100%",padding:"9px 13px",border:`1.5px solid ${T.border}`,borderRadius:11,fontSize:13,fontWeight:600,color:T.text,background:T.surface,outline:"none"}}>
-                      <option value="">📚 General — no specific subject</option>
+                      style={{padding:"8px 12px",border:"1.5px solid #e5e7eb",borderRadius:10,fontSize:12,fontWeight:600,color:T.text,background:"#fafbfc",outline:"none",maxWidth:180}}>
+                      <option value="">📚 General</option>
                       {getCourseGroups().map(([cat,list])=>(
                         <optgroup key={cat} label={cat}>{list.map((c,i)=><option key={i} value={c}>{c}</option>)}</optgroup>
                       ))}
                     </select>
                   </div>
 
-                  <div style={{minHeight:370,maxHeight:"60vh",overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:10,background:tutorMsgs.length===0?"linear-gradient(160deg,#f5f0ff 0%,#ede9fe 25%,#e0e7ff 50%,#dbeafe 75%,#f0fdf4 100%)":T.bg,position:"relative"}}>
+                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:12,background:tutorMsgs.length===0?"#fafbfc":T.bg,position:"relative"}}>
                     {tutorMsgs.length===0&&(
-                      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"20px 10px",position:"relative",zIndex:1}}>
-                        {/* Ambient glows */}
-                        <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",background:"radial-gradient(circle,rgba(99,102,241,0.1),rgba(139,92,246,0.04),transparent 70%)",filter:"blur(50px)",zIndex:0}}/>
-                        <div style={{position:"absolute",bottom:"10%",right:"5%",width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(59,130,246,0.08),transparent 70%)",filter:"blur(30px)",zIndex:0}}/>
+                      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"30px 20px"}}>
                         {/* Orb */}
                         <div style={{
-                          width:90,height:90,borderRadius:"50%",marginBottom:24,position:"relative",zIndex:1,
-                          background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
-                          boxShadow:"0 0 50px rgba(99,102,241,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15),inset 0 -4px 12px rgba(0,0,0,0.08),inset 0 3px 10px rgba(255,255,255,0.1)",
+                          width:72,height:72,borderRadius:"50%",marginBottom:20,
+                          background:"radial-gradient(circle at 35% 30%,#818cf8 0%,#6366f1 40%,#4f46e5 80%)",
+                          boxShadow:"0 0 40px rgba(99,102,241,0.2),0 8px 24px rgba(99,102,241,0.15)",
                           animation:"orbPulse 4s ease-in-out infinite",
                         }}/>
-                        <div style={{fontSize:16,fontWeight:700,color:"#1e1b4b",textAlign:"center",position:"relative",zIndex:1}}>What do you need help with?</div>
-                        <div style={{fontSize:12,color:"#6b7280",textAlign:"center",maxWidth:280,marginTop:8,position:"relative",zIndex:1}}>Ask about any concept, problem, or course material</div>
-                        <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center",marginTop:14,position:"relative",zIndex:1}}>
+                        <div style={{fontSize:20,fontWeight:800,color:T.navy,letterSpacing:"-0.02em"}}>What do you need help with?</div>
+                        <div style={{fontSize:14,color:T.muted,textAlign:"center",maxWidth:320,marginTop:8,lineHeight:1.6}}>I'm Ustaz — your AI tutor. Ask about any concept, problem, or course material.</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
                           {["Explain recursion","Solve integrals","Newton's 2nd law","Ohm's Law"].map(q=>(
                             <button key={q} onClick={()=>setTutorInput(q)}
-                              style={{padding:"8px 14px",borderRadius:99,border:"1.5px solid rgba(99,102,241,0.2)",background:"rgba(255,255,255,0.7)",backdropFilter:"blur(8px)",fontSize:12,color:"#4338ca",cursor:"pointer",fontWeight:600,transition:"border-color 0.15s"}}>
+                              style={{padding:"10px 18px",borderRadius:99,border:"none",background:"#eef2ff",fontSize:13,color:"#4338ca",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
+                              onMouseEnter={e=>{(e.currentTarget).style.background="#e0e7ff";}}
+                              onMouseLeave={e=>{(e.currentTarget).style.background="#eef2ff";}}>
                               {q}
                             </button>
                           ))}
@@ -3970,9 +3963,9 @@ export default function BasUdrus() {
                     {tutorMsgs.map((m,i)=>(
                       <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
                         {m.role==="assistant"&&(
-                          <div style={{width:28,height:28,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,marginRight:8,flexShrink:0,alignSelf:"flex-end",marginBottom:2}}>🤖</div>
+                          <div style={{width:32,height:32,borderRadius:10,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,marginRight:8,flexShrink:0,alignSelf:"flex-end",marginBottom:2,boxShadow:"0 2px 8px rgba(99,102,241,0.2)"}}>🎓</div>
                         )}
-                        <div className="ai-msg" style={{background:m.role==="user"?T.accent:T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",...(m.role==="user"?{}:{whiteSpace:"normal" as const})}}>
+                        <div className="ai-msg" style={{background:m.role==="user"?"linear-gradient(135deg,#6366f1,#4f46e5)":"#fff",color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?"1px solid #e5e7eb":"none",boxShadow:m.role==="user"?"0 2px 8px rgba(99,102,241,0.15)":"0 1px 4px rgba(0,0,0,0.04)",fontSize:15,...(m.role==="user"?{}:{whiteSpace:"normal" as const})}}>
                           {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.5}}>▌</span>}
                         </div>
                       </div>
@@ -3996,7 +3989,7 @@ export default function BasUdrus() {
                       <button onClick={()=>setTutorFile(null)} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:16,padding:2}} aria-label="Remove file">×</button>
                     </div>
                   )}
-                  <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",gap:8,alignItems:"center"}}>
+                  <div style={{padding:"16px 20px",borderTop:"1px solid #f0f0f0",background:"#fff",display:"flex",gap:10,alignItems:"flex-end"}}>
                     <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css" style={{display:"none"}}
                       onChange={e=>{
                         const f=e.target.files?.[0];if(!f)return;
@@ -4007,16 +4000,18 @@ export default function BasUdrus() {
                         e.target.value="";
                       }}/>
                     <button onClick={()=>tutorFileRef.current?.click()} title="Upload course material"
-                      style={{width:38,height:38,borderRadius:10,border:`1.5px solid ${T.border}`,background:tutorFile?T.accentSoft:T.bg,color:tutorFile?T.accent:T.muted,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      style={{width:46,height:46,borderRadius:14,border:"1.5px solid #e5e7eb",background:tutorFile?"#eef2ff":"#fafbfc",color:tutorFile?"#6366f1":T.muted,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
                       📎
                     </button>
                     <input value={tutorInput} onChange={e=>setTutorInput(e.target.value)}
                       onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendTutorMessage()}
                       placeholder={tutorFile?"Ask about the uploaded file...":"Ask your AI tutor anything..."} maxLength={2000}
-                      style={{flex:1,padding:"11px 15px",border:`1.5px solid ${T.border}`,borderRadius:12,fontSize:16,color:T.text,background:T.bg,outline:"none"}}/>
+                      style={{flex:1,padding:"14px 18px",border:"1.5px solid #e5e7eb",borderRadius:16,fontSize:16,color:T.text,background:"#fafbfc",outline:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}
+                      onFocus={e=>{(e.target as HTMLInputElement).style.borderColor="#6366f1";(e.target as HTMLInputElement).style.boxShadow="0 0 0 3px rgba(99,102,241,0.1)";}}
+                      onBlur={e=>{(e.target as HTMLInputElement).style.borderColor="#e5e7eb";(e.target as HTMLInputElement).style.boxShadow="none";}}/>
                     <button type="button" onClick={sendTutorMessage} disabled={tutorLoading||!tutorInput.trim()}
-                      style={{padding:"11px 18px",borderRadius:12,background:tutorLoading||!tutorInput.trim()?T.border:T.accent,color:tutorLoading||!tutorInput.trim()?T.muted:"#fff",border:"none",cursor:tutorLoading||!tutorInput.trim()?"not-allowed":"pointer",fontSize:14,fontWeight:700,transition:"background-color 0.2s,color 0.2s"}}>
-                      {tutorLoading?"...":"→"}
+                      style={{width:46,height:46,borderRadius:14,background:tutorLoading||!tutorInput.trim()?"#e5e7eb":"linear-gradient(135deg,#6366f1,#4f46e5)",color:tutorLoading||!tutorInput.trim()?T.muted:"#fff",border:"none",cursor:tutorLoading||!tutorInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:tutorLoading||!tutorInput.trim()?"none":"0 3px 12px rgba(99,102,241,0.25)"}}>
+                      {tutorLoading?"···":"↑"}
                     </button>
                   </div>
                 </div>
@@ -4030,9 +4025,9 @@ export default function BasUdrus() {
             {aiTab==="match"&&(
               <div className="slide-in">
                 {/* ── Study Partner Questionnaire ── */}
-                <div style={{background:T.surface,borderRadius:20,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 2px 20px rgba(0,0,0,0.05)"}}>
+                <div style={{background:T.surface,borderRadius:24,padding:24,marginBottom:16,boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(139,92,246,0.06)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
-                    <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🧠</div>
+                    <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,boxShadow:"0 4px 14px rgba(139,92,246,0.25)"}}>🧠</div>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:15,color:T.navy}}>Study Partner Questionnaire</div>
                       <div style={{fontSize:12,color:T.muted}}>Help us find your ideal study partner based on psychology-backed compatibility</div>
@@ -4135,9 +4130,9 @@ export default function BasUdrus() {
             {/* ── STUDY PLAN ── */}
             {aiTab==="plan"&&(
               <div className="slide-in">
-                <div style={{background:T.surface,borderRadius:24,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)"}}>
+                <div style={{background:T.surface,borderRadius:24,padding:24,marginBottom:16,boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(99,102,241,0.06)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}>
-                    <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#B87CF5,#6C8EF5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>📅</div>
+                    <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#8b5cf6,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,boxShadow:"0 4px 14px rgba(99,102,241,0.25)"}}>📅</div>
                     <div>
                       <div style={{fontWeight:700,fontSize:15,color:T.navy}}>AI Study Plan Generator</div>
                       <div style={{fontSize:12,color:T.muted}}>Get a personalized weekly study schedule</div>
@@ -4163,10 +4158,10 @@ export default function BasUdrus() {
                 </div>
 
                 {/* ── Pomodoro Study Timer ── */}
-                <div style={{background:T.surface,borderRadius:24,border:`1px solid ${T.border}`,padding:22,marginBottom:16,boxShadow:"0 4px 32px rgba(0,0,0,0.08),0 1px 3px rgba(0,0,0,0.04)"}}>
+                <div style={{background:T.surface,borderRadius:24,padding:24,marginBottom:16,boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(239,68,68,0.06)"}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:pomodoroActive?18:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:12}}>
-                      <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#f97316)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>⏱️</div>
+                      <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#f97316)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,boxShadow:"0 4px 14px rgba(239,68,68,0.25)"}}>⏱️</div>
                       <div>
                         <div style={{fontWeight:700,fontSize:15,color:T.navy}}>Study Timer</div>
                         <div style={{fontSize:12,color:T.muted}}>Pomodoro technique — focus in {"\u00B7"} 25 min blocks</div>
