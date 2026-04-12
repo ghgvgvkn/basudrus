@@ -44,7 +44,7 @@ function renderMarkdown(text: string) {
       if (match[2] || match[3]) {
         parts.push(<strong key={pKey++}>{match[2] || match[3]}</strong>);
       } else if (match[4]) {
-        parts.push(<code key={pKey++} style={{background:"rgba(0,0,0,0.06)",padding:"1px 5px",borderRadius:4,fontSize:"0.9em",fontFamily:"monospace"}}>{match[4]}</code>);
+        parts.push(<code key={pKey++} style={{background:"rgba(128,128,128,0.15)",padding:"1px 5px",borderRadius:4,fontSize:"0.9em",fontFamily:"monospace"}}>{match[4]}</code>);
       } else if (match[5] || match[6]) {
         parts.push(<em key={pKey++}>{match[5] || match[6]}</em>);
       }
@@ -521,8 +521,11 @@ const makeCSS = (T: Theme) => `
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function BasUdrus() {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem("bas-udrus-dark") === "true"; } catch { return false; }
+  });
   const T = darkMode ? DARK : LIGHT;
+  useEffect(() => { try { localStorage.setItem("bas-udrus-dark", String(darkMode)); } catch {} }, [darkMode]);
 
   const [screen, setScreen] = useState<string>("landing");
   const [authMode, setAuthMode] = useState<"signup"|"login"|"reset"|"reset-sent"|"new-password">("signup");
@@ -536,7 +539,7 @@ export default function BasUdrus() {
   const [profile, setProfile] = useState<Partial<Profile>>({
     name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible",
     bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials",
-    photo_url:null, streak:4, xp:340, badges:[], sessions:0, rating:0, subjects:[], online:true
+    photo_url:null, streak:0, xp:0, badges:[], sessions:0, rating:0, subjects:[], online:true
   });
   const [editProfile, setEditProfile] = useState<Partial<Profile> | null>(null);
   const [editCourseSearch, setEditCourseSearch] = useState("");
@@ -853,6 +856,16 @@ export default function BasUdrus() {
         }
       } else if (event === "SIGNED_OUT") {
         setUser(null);
+        setProfile({ name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible", bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials", photo_url:null, streak:0, xp:0, badges:[], sessions:0, rating:0, subjects:[] });
+        setConnections([]);
+        setMessages({});
+        setAllStudents([]);
+        setSubjectHistory([]);
+        setHelpRequests([]);
+        setGroups([]);
+        setNotifications([]);
+        setCanPost(false);
+        setActiveChat(null);
         setScreen("landing");
       }
     });
@@ -907,6 +920,14 @@ export default function BasUdrus() {
     ]).catch((e) => logError("initialDataLoad", e));
   }, [user?.id]);
 
+  // Cleanup timers on unmount (prevents memory leaks)
+  useEffect(() => {
+    return () => {
+      if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
+      if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+    };
+  }, []);
+
   // Real-time messages — load when chat opens
   useEffect(() => {
     if (!user || !activeChat) return;
@@ -942,7 +963,7 @@ export default function BasUdrus() {
       const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
       if (error) { logError("loadProfile", error); return null; }
       if (!data) return null;
-      if (data) setProfile(data);
+      setProfile(data);
       return data;
     } catch (e) { logError("loadProfile", e); return null; }
   };
@@ -1270,9 +1291,9 @@ export default function BasUdrus() {
     if (!b) return;
     try {
       const newBadges = [...earnedBadges, id];
-      const newXp = (profile.xp || 0) + b.xp;
-      setProfile(p => ({ ...p, badges: newBadges, xp: newXp }));
-      const { error } = await supabase.from("profiles").update({ badges: newBadges, xp: newXp }).eq("id", user.id);
+      const latestXp = (profile.xp || 0) + b.xp;
+      setProfile(p => ({ ...p, badges: newBadges, xp: (p.xp || 0) + b.xp }));
+      const { error } = await supabase.from("profiles").update({ badges: newBadges, xp: latestXp }).eq("id", user.id);
       if (!error) setNewBadge(b);
     } catch { }
   };
@@ -1294,9 +1315,8 @@ export default function BasUdrus() {
         setConnections(prev => prev.find(c=>c.id===s.id) ? prev : [...prev, s]);
         setDismissed(prev=>({...prev,[key]:true}));
         setFlyCard(null);
-        const newXp = (profile.xp || 0) + 20;
-        setProfile(p => ({ ...p, xp: newXp }));
-        supabase.from("profiles").update({ xp: newXp }).eq("id", user.id).then(() => {});
+        setProfile(p => ({ ...p, xp: (p.xp || 0) + 20 }));
+        supabase.from("profiles").update({ xp: (profile.xp || 0) + 20 }).eq("id", user.id).then(() => {});
         showNotif(`You matched with ${s.name}! 🎉`);
         setActiveChat(s);
         setScreen("connect");
@@ -1443,6 +1463,7 @@ export default function BasUdrus() {
   const pomodoroConfig = { work: 25 * 60, break: 5 * 60, longbreak: 15 * 60 };
 
   const startPomodoro = () => {
+    if (pomodoroRef.current) clearInterval(pomodoroRef.current);
     setPomodoroRunning(true);
     pomodoroRef.current = setInterval(() => {
       setPomodoroSeconds(prev => {
@@ -1839,7 +1860,7 @@ export default function BasUdrus() {
         showNotif("Save failed: no rows updated (permission issue)", "err");
         return;
       }
-      setProfile(prev => ({ ...prev, ...updatePayload } as Profile));
+      setProfile(prev => ({ ...prev, ...data } as Profile));
       setEditProfile(null);
       showNotif("Profile saved ✅");
     } catch (e) {
@@ -2031,20 +2052,24 @@ export default function BasUdrus() {
   };
 
   const handleSignOut = async () => {
-    // 1. Clear ALL Supabase storage FIRST — prevents stale session on reload
+    // 1. Set user offline in DB (while session is still valid for RLS)
+    if (user) {
+      try { await supabase.from("profiles").update({ online: false }).eq("id", user.id); } catch {}
+    }
+    // 2. Tell Supabase to sign out FIRST (needs session token to revoke server-side)
+    try { await supabase.auth.signOut({ scope: "global" }); } catch (_) { /* session may already be gone */ }
+    // 3. Clear ALL Supabase storage AFTER signOut — prevents stale session on reload
     Object.keys(localStorage).forEach(k => {
       if (k.startsWith("sb-") || k.includes("supabase") || k.includes("auth")) localStorage.removeItem(k);
     });
     Object.keys(sessionStorage).forEach(k => {
       if (k.startsWith("sb-") || k.includes("supabase") || k.includes("auth")) sessionStorage.removeItem(k);
     });
-    // 2. Clear AI memory
+    // 4. Clear AI memory
     try { clearAllMemory(); } catch (_) {}
-    // 3. Tell Supabase to sign out (global scope revokes token server-side too)
-    try { await supabase.auth.signOut({ scope: "global" }); } catch (_) { /* session may already be gone */ }
-    // 4. Reset ALL app state
+    // 5. Reset ALL app state
     setUser(null);
-    setProfile({ name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible", bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials", photo_url:null, streak:4, xp:0, badges:[], sessions:0, rating:0, subjects:[] });
+    setProfile({ name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible", bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials", photo_url:null, streak:0, xp:0, badges:[], sessions:0, rating:0, subjects:[] });
     setConnections([]);
     setMessages({});
     setAllStudents([]);
@@ -2152,9 +2177,9 @@ export default function BasUdrus() {
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
+          if (!line.startsWith("data: ")) continue;
           try {
-            const json = JSON.parse(line.slice(5).trim());
+            const json = JSON.parse(line.slice(6));
             if (json.content) {
               assistantMsg += json.content;
               setWellbeingMsgs(prev => {
@@ -2910,7 +2935,7 @@ export default function BasUdrus() {
             <p style={{fontSize:12,color:T.muted,textAlign:"center",marginBottom:20}}>Drag to reposition · Pinch or slide to zoom</p>
 
             {/* Preview circle — 260px for better visibility */}
-            <div style={{width:260,height:260,margin:"0 auto 20px",borderRadius:"50%",overflow:"hidden",border:`3px solid ${T.accent}`,position:"relative",cursor:cropDragging.current?"grabbing":"grab",background:"#f0f0f0",touchAction:"none",boxShadow:`0 0 0 4px ${T.bg}, 0 0 0 5px ${T.border}, 0 8px 32px rgba(0,0,0,0.12)`}}
+            <div style={{width:260,height:260,margin:"0 auto 20px",borderRadius:"50%",overflow:"hidden",border:`3px solid ${T.accent}`,position:"relative",cursor:cropDragging.current?"grabbing":"grab",background:T.bg,touchAction:"none",boxShadow:`0 0 0 4px ${T.bg}, 0 0 0 5px ${T.border}, 0 8px 32px rgba(0,0,0,0.12)`}}
               onMouseDown={e=>{e.preventDefault();cropDragging.current=true;cropLastPos.current={x:e.clientX,y:e.clientY};}}
               onMouseMove={e=>{if(!cropDragging.current)return;const dx=e.clientX-cropLastPos.current.x;const dy=e.clientY-cropLastPos.current.y;setCropPos(p=>({x:p.x+dx,y:p.y+dy}));cropLastPos.current={x:e.clientX,y:e.clientY};}}
               onMouseUp={()=>{cropDragging.current=false;}}
@@ -3807,10 +3832,10 @@ export default function BasUdrus() {
                 {/* ── CHAT AREA ── */}
                 <div style={{background:T.surface,borderRadius:24,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(16,185,129,0.06)",marginBottom:14}}>
                   {wellbeingMsgs.length===0&&(wellbeingMood||wellbeingMode)&&(
-                    <div style={{padding:"12px 20px",background:"linear-gradient(135deg,#f0fdf4,#ecfdf5)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                      {wellbeingMood&&<span style={{padding:"4px 12px",borderRadius:99,background:"#d1fae5",fontSize:12,fontWeight:700,color:"#065f46"}}>Feeling: {wellbeingMood}</span>}
-                      {wellbeingMode&&<span style={{padding:"4px 12px",borderRadius:99,background:"#a7f3d0",fontSize:12,fontWeight:700,color:"#064e3b"}}>{wellbeingMode}</span>}
-                      <span style={{fontSize:12,color:"#047857",fontWeight:500}}>Ready when you are — type below 💚</span>
+                    <div style={{padding:"12px 20px",background:darkMode?"rgba(16,185,129,0.1)":"linear-gradient(135deg,#f0fdf4,#ecfdf5)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      {wellbeingMood&&<span style={{padding:"4px 12px",borderRadius:99,background:darkMode?"rgba(16,185,129,0.2)":"#d1fae5",fontSize:12,fontWeight:700,color:darkMode?"#6ee7b7":"#065f46"}}>Feeling: {wellbeingMood}</span>}
+                      {wellbeingMode&&<span style={{padding:"4px 12px",borderRadius:99,background:darkMode?"rgba(16,185,129,0.25)":"#a7f3d0",fontSize:12,fontWeight:700,color:darkMode?"#6ee7b7":"#064e3b"}}>{wellbeingMode}</span>}
+                      <span style={{fontSize:12,color:darkMode?"#6ee7b7":"#047857",fontWeight:500}}>Ready when you are — type below 💚</span>
                     </div>
                   )}
                   <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:T.bg,position:"relative"}}>
@@ -3838,9 +3863,9 @@ export default function BasUdrus() {
                           <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
                             {["I'm stressed","Feeling anxious","Need to vent","Help me relax"].map(q=>(
                               <button key={q} onClick={()=>setWellbeingInput(q)}
-                                style={{padding:"10px 18px",borderRadius:99,border:"none",background:"#ecfdf5",fontSize:13,color:"#065f46",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
-                                onMouseEnter={e=>{(e.currentTarget).style.background="#d1fae5";}}
-                                onMouseLeave={e=>{(e.currentTarget).style.background="#ecfdf5";}}>
+                                style={{padding:"10px 18px",borderRadius:99,border:"none",background:darkMode?"rgba(16,185,129,0.15)":"#ecfdf5",fontSize:13,color:darkMode?"#6ee7b7":"#065f46",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
+                                onMouseEnter={e=>{(e.currentTarget).style.background=darkMode?"rgba(16,185,129,0.25)":"#d1fae5";}}
+                                onMouseLeave={e=>{(e.currentTarget).style.background=darkMode?"rgba(16,185,129,0.15)":"#ecfdf5";}}>
                                 {q}
                               </button>
                             ))}
@@ -3889,7 +3914,7 @@ export default function BasUdrus() {
                     <button onClick={()=>{setWellbeingMsgs([]);setWellbeingMood("");setWellbeingMode("");}} style={{padding:"7px 16px",borderRadius:99,border:`1px solid ${T.border}`,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
                       ↺ New conversation
                     </button>
-                    <span style={{fontSize:11,color:T.muted}}>Cleared locally — never stored.</span>
+                    <span style={{fontSize:11,color:T.muted}}>Private — only you can see your conversations.</span>
                   </div>
                 )}
 
@@ -3901,9 +3926,9 @@ export default function BasUdrus() {
                       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                         {[["😊","Good"],["😐","Okay"],["😔","Down"],["😰","Anxious"],["😤","Frustrated"],["😩","Exhausted"],["😶","Numb"]].map(([emoji,label])=>(
                           <button key={label} onClick={()=>setWellbeingMood(wellbeingMood===label?"":label)}
-                            style={{padding:"8px 14px",borderRadius:12,border:`1.5px solid ${wellbeingMood===label?"#059669":"#6ee7b755"}`,background:wellbeingMood===label?"#d1fae5":"transparent",fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:58,transition:"border-color 0.15s,background-color 0.15s"}}>
+                            style={{padding:"8px 14px",borderRadius:12,border:`1.5px solid ${wellbeingMood===label?"#059669":"#6ee7b755"}`,background:wellbeingMood===label?(darkMode?"rgba(16,185,129,0.2)":"#d1fae5"):"transparent",fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:58,transition:"border-color 0.15s,background-color 0.15s"}}>
                             <span style={{fontSize:22}}>{emoji}</span>
-                            <span style={{fontSize:10,fontWeight:wellbeingMood===label?700:400,color:wellbeingMood===label?"#065f46":T.muted}}>{label}</span>
+                            <span style={{fontSize:10,fontWeight:wellbeingMood===label?700:400,color:wellbeingMood===label?(darkMode?"#6ee7b7":"#065f46"):T.muted}}>{label}</span>
                           </button>
                         ))}
                       </div>
@@ -3913,9 +3938,9 @@ export default function BasUdrus() {
                       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                         {[["💭","I want to vent","Just listen, I need to get this out"],["💡","I want advice","Help me think through a problem"],["🧘","Coping tool","Guide me through a calming exercise"]].map(([icon,label,desc])=>(
                           <button key={label} onClick={()=>setWellbeingMode(wellbeingMode===label?"":label)}
-                            style={{flex:1,minWidth:120,padding:"10px 12px",borderRadius:13,border:`1.5px solid ${wellbeingMode===label?"#059669":"#6ee7b755"}`,background:wellbeingMode===label?"#d1fae5":T.bg,cursor:"pointer",textAlign:"left",transition:"border-color 0.15s,background-color 0.15s"}}>
+                            style={{flex:1,minWidth:120,padding:"10px 12px",borderRadius:13,border:`1.5px solid ${wellbeingMode===label?"#059669":"#6ee7b755"}`,background:wellbeingMode===label?(darkMode?"rgba(16,185,129,0.2)":"#d1fae5"):T.bg,cursor:"pointer",textAlign:"left",transition:"border-color 0.15s,background-color 0.15s"}}>
                             <div style={{fontSize:18,marginBottom:3}}>{icon}</div>
-                            <div style={{fontSize:12,fontWeight:700,color:wellbeingMode===label?"#065f46":T.navy}}>{label}</div>
+                            <div style={{fontSize:12,fontWeight:700,color:wellbeingMode===label?(darkMode?"#6ee7b7":"#065f46"):T.navy}}>{label}</div>
                             <div style={{fontSize:10,color:T.muted,marginTop:2,lineHeight:1.4}}>{desc}</div>
                           </button>
                         ))}
@@ -3942,7 +3967,7 @@ export default function BasUdrus() {
                         ["💔 Comparison","Everyone around me seems to have it together and I keep wondering what's wrong with me"],
                       ].map(([label,msg])=>(
                         <button key={label} onClick={()=>setWellbeingInput(msg)}
-                          style={{padding:"7px 13px",borderRadius:99,border:"1.5px solid #6ee7b755",background:"#f0fdf4",fontSize:12,color:"#047857",cursor:"pointer",fontWeight:500,textAlign:"left",lineHeight:1.4}}>
+                          style={{padding:"7px 13px",borderRadius:99,border:"1.5px solid #6ee7b755",background:darkMode?"rgba(16,185,129,0.1)":"#f0fdf4",fontSize:12,color:darkMode?"#6ee7b7":"#047857",cursor:"pointer",fontWeight:500,textAlign:"left",lineHeight:1.4}}>
                           {label}
                         </button>
                       ))}
@@ -3955,12 +3980,12 @@ export default function BasUdrus() {
                   <summary style={{fontSize:13,fontWeight:700,color:T.navy,cursor:"pointer",padding:"10px 0",display:"flex",alignItems:"center",gap:8}}>
                     <span>🆘</span> Crisis Resources &amp; Self-Care Toolkit
                   </summary>
-                  <div style={{padding:"16px 18px",borderRadius:16,background:"linear-gradient(135deg,#fff7ed,#fffbf0)",border:"1.5px solid #fed7aa",marginTop:8}}>
+                  <div style={{padding:"16px 18px",borderRadius:16,background:darkMode?"rgba(251,146,60,0.08)":"linear-gradient(135deg,#fff7ed,#fffbf0)",border:darkMode?"1.5px solid rgba(251,146,60,0.3)":"1.5px solid #fed7aa",marginTop:8}}>
                     <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:14}}>
-                      <div style={{width:40,height:40,borderRadius:12,background:"#fed7aa",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🆘</div>
+                      <div style={{width:40,height:40,borderRadius:12,background:darkMode?"rgba(251,146,60,0.2)":"#fed7aa",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🆘</div>
                       <div>
-                        <div style={{fontSize:13,fontWeight:800,color:"#92400e",marginBottom:6}}>الدعم موجود — Help is always available</div>
-                        <div style={{fontSize:12,color:"#78350f",lineHeight:2}}>
+                        <div style={{fontSize:13,fontWeight:800,color:darkMode?"#fdba74":"#92400e",marginBottom:6}}>الدعم موجود — Help is always available</div>
+                        <div style={{fontSize:12,color:darkMode?"#fed7aa":"#78350f",lineHeight:2}}>
                           🇯🇴 Jordan Mental Health Hotline: <strong style={{fontFamily:"monospace"}}>06-550-8888</strong><br/>
                           🚨 Emergency: <strong>911</strong><br/>
                           📱 <strong>"Relax" App</strong> — free, anonymous, Arabic support<br/>
@@ -3968,8 +3993,8 @@ export default function BasUdrus() {
                         </div>
                       </div>
                     </div>
-                    <div style={{borderTop:"1px solid #fed7aa88",paddingTop:14}}>
-                      <div style={{fontSize:12,fontWeight:700,color:"#92400e",marginBottom:10}}>📚 Trusted Mental Health Resources</div>
+                    <div style={{borderTop:darkMode?"1px solid rgba(251,146,60,0.2)":"1px solid #fed7aa88",paddingTop:14}}>
+                      <div style={{fontSize:12,fontWeight:700,color:darkMode?"#fdba74":"#92400e",marginBottom:10}}>📚 Trusted Mental Health Resources</div>
                       <div style={{display:"flex",flexDirection:"column",gap:8}}>
                         {[
                           {icon:"🏛️",name:"PSUT Counseling Center",desc:"Free sessions for all PSUT students"},
@@ -3983,18 +4008,18 @@ export default function BasUdrus() {
                           {icon:"📖",name:"Harvard Health — Mental Wellness",desc:"Evidence-based guides for students"},
                           {icon:"🌱",name:"Stanford Wellbeing",desc:"Tips for academic stress & resilience"},
                         ].map(r=>(
-                          <div key={r.name} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:"rgba(255,255,255,0.6)"}}>
+                          <div key={r.name} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:darkMode?"rgba(251,146,60,0.06)":"rgba(255,255,255,0.6)"}}>
                             <span style={{fontSize:18,flexShrink:0}}>{r.icon}</span>
                             <div>
-                              <div style={{fontSize:12,fontWeight:700,color:"#78350f"}}>{r.name}</div>
-                              <div style={{fontSize:11,color:"#92400e"}}>{r.desc}</div>
+                              <div style={{fontSize:12,fontWeight:700,color:darkMode?"#fed7aa":"#78350f"}}>{r.name}</div>
+                              <div style={{fontSize:11,color:darkMode?"#fdba74":"#92400e"}}>{r.desc}</div>
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
-                    <div style={{borderTop:"1px solid #fed7aa88",paddingTop:14,marginTop:14}}>
-                      <div style={{fontSize:12,fontWeight:700,color:"#92400e",marginBottom:10}}>🧘 Self-Care Toolkit</div>
+                    <div style={{borderTop:darkMode?"1px solid rgba(251,146,60,0.2)":"1px solid #fed7aa88",paddingTop:14,marginTop:14}}>
+                      <div style={{fontSize:12,fontWeight:700,color:darkMode?"#fdba74":"#92400e",marginBottom:10}}>🧘 Self-Care Toolkit</div>
                       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                         {[
                           ["🫁","Breathing","4-7-8 technique"],
@@ -4004,10 +4029,10 @@ export default function BasUdrus() {
                           ["📝","Journaling","Express feelings"],
                           ["🚶","Movement","Walk & reset"],
                         ].map(([icon,title,desc])=>(
-                          <div key={title} style={{flex:"1 1 90px",padding:"10px 12px",borderRadius:10,background:"rgba(255,255,255,0.6)",textAlign:"center",minWidth:85}}>
+                          <div key={title} style={{flex:"1 1 90px",padding:"10px 12px",borderRadius:10,background:darkMode?"rgba(251,146,60,0.06)":"rgba(255,255,255,0.6)",textAlign:"center",minWidth:85}}>
                             <div style={{fontSize:20,marginBottom:3}}>{icon}</div>
-                            <div style={{fontSize:11,fontWeight:700,color:"#78350f"}}>{title}</div>
-                            <div style={{fontSize:10,color:"#92400e"}}>{desc}</div>
+                            <div style={{fontSize:11,fontWeight:700,color:darkMode?"#fed7aa":"#78350f"}}>{title}</div>
+                            <div style={{fontSize:10,color:darkMode?"#fdba74":"#92400e"}}>{desc}</div>
                           </div>
                         ))}
                       </div>
@@ -4033,7 +4058,7 @@ export default function BasUdrus() {
                       <div style={{fontSize:12,color:T.muted}}>Ask anything — concepts, problems, explanations</div>
                     </div>
                     <select value={tutorSubject} onChange={e=>setTutorSubject(e.target.value)}
-                      style={{padding:"8px 12px",border:"1.5px solid #e5e7eb",borderRadius:10,fontSize:12,fontWeight:600,color:T.text,background:"#fafbfc",outline:"none",maxWidth:180}}>
+                      style={{padding:"8px 12px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:T.text,background:T.bg,outline:"none",maxWidth:180}}>
                       <option value="">📚 General</option>
                       {getCourseGroups().map(([cat,list])=>(
                         <optgroup key={cat} label={cat}>{list.map((c,i)=><option key={i} value={c}>{c}</option>)}</optgroup>
@@ -4056,9 +4081,9 @@ export default function BasUdrus() {
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
                           {["Explain recursion","Solve integrals","Newton's 2nd law","Ohm's Law"].map(q=>(
                             <button key={q} onClick={()=>setTutorInput(q)}
-                              style={{padding:"10px 18px",borderRadius:99,border:"none",background:"#eef2ff",fontSize:13,color:"#4338ca",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
-                              onMouseEnter={e=>{(e.currentTarget).style.background="#e0e7ff";}}
-                              onMouseLeave={e=>{(e.currentTarget).style.background="#eef2ff";}}>
+                              style={{padding:"10px 18px",borderRadius:99,border:"none",background:darkMode?"rgba(99,102,241,0.15)":"#eef2ff",fontSize:13,color:darkMode?"#a5b4fc":"#4338ca",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
+                              onMouseEnter={e=>{(e.currentTarget).style.background=darkMode?"rgba(99,102,241,0.25)":"#e0e7ff";}}
+                              onMouseLeave={e=>{(e.currentTarget).style.background=darkMode?"rgba(99,102,241,0.15)":"#eef2ff";}}>
                               {q}
                             </button>
                           ))}
@@ -4362,7 +4387,7 @@ export default function BasUdrus() {
 
             {/* ── Minimal footer inside feature view ── */}
             <div style={{marginTop:20,textAlign:"center",padding:"10px 0"}}>
-              <div style={{fontSize:11,color:"rgba(0,0,0,0.3)"}}>Bas Udrus AI · {aiVersion} · Private & never stored</div>
+              <div style={{fontSize:11,color:T.muted,opacity:0.7}}>Bas Udrus AI · {aiVersion} · Private & secure</div>
             </div>
 
           </div>
@@ -4455,7 +4480,7 @@ export default function BasUdrus() {
                               showNotif("Photo removed");
                             }}>Remove</button>
                           )}
-                          <div style={{fontSize:11,color:T.muted,marginTop:4}}>JPG or PNG, max 2 MB</div>
+                          <div style={{fontSize:11,color:T.muted,marginTop:4}}>JPG or PNG, max 5 MB</div>
                         </div>
                       </div>
                     </div>
