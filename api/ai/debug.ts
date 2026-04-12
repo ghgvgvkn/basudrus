@@ -24,7 +24,7 @@ export default async function handler() {
         headers: {
           "Content-Type": "application/json",
           "x-api-key": key,
-          "anthropic-version": "2025-01-01",
+          "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
