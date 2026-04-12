@@ -626,7 +626,7 @@ export default function BasUdrus() {
   }, []);
   const [adminAnalytics, setAdminAnalytics] = useState<any>(null);
 
-  const [aiTab, setAiTab] = useState<"wellbeing"|"tutor"|"match"|"plan">("wellbeing");
+  const [aiTab, setAiTab] = useState<""|"wellbeing"|"tutor"|"match"|"plan">("");
   const [aiLang, setAiLang] = useState<"auto"|"en"|"ar">("auto");
   const [tutorMsgs, setTutorMsgs] = useState<{role:"user"|"assistant";content:string}[]>([]);
   const [tutorInput, setTutorInput] = useState("");
@@ -661,6 +661,7 @@ export default function BasUdrus() {
   const [pomodoroMode, setPomodoroMode] = useState<"work"|"break"|"longbreak">("work");
   const [pomodoroCount, setPomodoroCount] = useState(0);
   const pomodoroRef = useRef<ReturnType<typeof setInterval>|null>(null);
+  const pomodoroModeRef = useRef<"work"|"break"|"longbreak">("work");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -1375,7 +1376,8 @@ export default function BasUdrus() {
         if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
         const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
         if (blob.size < 1000) { setIsRecording(false); setRecordingTime(0); return; }
-        await uploadAndSendFile(blob, `voice-${Date.now()}.webm`, "voice");
+        const ext = mediaRecorder.mimeType.includes("mp4") ? "mp4" : "webm";
+        await uploadAndSendFile(blob, `voice-${Date.now()}.${ext}`, "voice");
         setIsRecording(false);
         setRecordingTime(0);
       };
@@ -1409,6 +1411,7 @@ export default function BasUdrus() {
 
   const uploadAndSendFile = async (fileOrBlob: File | Blob, fileName: string, msgType: "voice" | "image" | "file") => {
     if (!user || !activeChat) return;
+    const partnerId = activeChat.id;  // Capture early to avoid stale closure
     try {
       const ext = fileName.split(".").pop() || "bin";
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -1418,14 +1421,14 @@ export default function BasUdrus() {
       const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
       const { data, error } = await supabase.from("messages").insert({
         sender_id: user.id,
-        receiver_id: activeChat.id,
+        receiver_id: partnerId,
         text: displayText,
         message_type: msgType,
         file_url: urlData.publicUrl,
         file_name: fileName,
       }).select().single();
       if (error || !data) { logError("sendFileMsg", error); showNotif("Couldn't send — try again", "err"); return; }
-      setMessages(prev => ({ ...prev, [activeChat.id]: [...(prev[activeChat.id] || []), data] }));
+      setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId] || []), data] }));
     } catch (err) { logError("uploadAndSendFile", err); showNotif("Upload failed", "err"); }
   };
 
@@ -1440,16 +1443,21 @@ export default function BasUdrus() {
           // Timer done
           if (pomodoroRef.current) clearInterval(pomodoroRef.current);
           setPomodoroRunning(false);
+          const mode = pomodoroModeRef.current;
           try { new Audio("data:audio/wav;base64,UklGRiQDAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQADAAB/f39/f39/f4B/gH+Af4F/gn+Df4R/hn+If4p/jH+Pf5J/ln+af55/on+mf6p/rn+yf7Z/un++f8J/xn/Jf8x/z3/Sf9V/13/Zf9t/3X/ef99/4H/hf+J/43/kf+V/5n/nf+h/6X/qf+t/7H/tf+5/73/wf/F/8n/zf/R/9X/2f/d/+H/5f/p/+3/8f/1//n//fwCAA").play(); } catch {}
-          showNotif(pomodoroMode === "work" ? "⏰ Break time! Great focus session." : "💪 Break over — back to studying!", "ok");
+          showNotif(mode === "work" ? "⏰ Break time! Great focus session." : "💪 Break over — back to studying!", "ok");
           setPomodoroCount(prev => {
-            const next = pomodoroMode === "work" ? prev + 1 : prev;
+            const next = mode === "work" ? prev + 1 : prev;
             // Auto-switch mode
-            if (pomodoroMode === "work") {
-              if ((next) % 4 === 0) { setPomodoroMode("longbreak"); setPomodoroSeconds(pomodoroConfig.longbreak); }
-              else { setPomodoroMode("break"); setPomodoroSeconds(pomodoroConfig.break); }
+            if (mode === "work") {
+              const newMode = (next) % 4 === 0 ? "longbreak" : "break";
+              pomodoroModeRef.current = newMode;
+              setPomodoroMode(newMode);
+              setPomodoroSeconds(pomodoroConfig[newMode]);
             } else {
-              setPomodoroMode("work"); setPomodoroSeconds(pomodoroConfig.work);
+              pomodoroModeRef.current = "work";
+              setPomodoroMode("work");
+              setPomodoroSeconds(pomodoroConfig.work);
             }
             return next;
           });
@@ -1467,6 +1475,7 @@ export default function BasUdrus() {
 
   const resetPomodoro = () => {
     pausePomodoro();
+    pomodoroModeRef.current = "work";
     setPomodoroMode("work");
     setPomodoroSeconds(pomodoroConfig.work);
     setPomodoroCount(0);
@@ -2023,7 +2032,7 @@ export default function BasUdrus() {
       if (k.startsWith("sb-") || k.includes("supabase") || k.includes("auth")) sessionStorage.removeItem(k);
     });
     // 2. Clear AI memory
-    clearAllMemory();
+    try { clearAllMemory(); } catch (_) {}
     // 3. Tell Supabase to sign out (global scope revokes token server-side too)
     try { await supabase.auth.signOut({ scope: "global" }); } catch (_) { /* session may already be gone */ }
     // 4. Reset ALL app state
@@ -3727,7 +3736,7 @@ export default function BasUdrus() {
                 ] as const).map(([tab,icon,title,desc,grad,bgTint])=>(
                   <button key={tab} onClick={()=>setAiTab(tab)} className="slide-in" style={{
                     display:"flex",flexDirection:"column",alignItems:"flex-start",gap:10,padding:"22px 20px",
-                    borderRadius:20,border:"1px solid rgba(255,255,255,0.08)",
+                    borderRadius:20,border:`1px solid ${T.border}`,
                     background:bgTint,
                     backdropFilter:"blur(20px)",
                     boxShadow:"0 4px 24px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.04)",
