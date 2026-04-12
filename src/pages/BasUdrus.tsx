@@ -1327,6 +1327,10 @@ export default function BasUdrus() {
     if (!newMsg.trim() || !user) return;
     const text = newMsg;
     setNewMsg("");
+    // Optimistic UI — show message instantly before DB confirms
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Message = { id: tempId, sender_id: user.id, receiver_id: partnerId, text, message_type: "text", file_url: null, file_name: null, created_at: new Date().toISOString() };
+    setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId]||[]), optimistic] }));
     try {
       const { data, error } = await supabase.from("messages").insert({
         sender_id: user.id,
@@ -1336,11 +1340,14 @@ export default function BasUdrus() {
       }).select().single();
       if (error || !data) {
         logError("sendMessage", error);
+        // Roll back optimistic message & restore input
+        setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
         setNewMsg(text);
         showNotif("Couldn't send message — please try again.", "err");
         return;
       }
-      setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId]||[]), data] }));
+      // Replace temp with real DB message
+      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).map(m => m.id === tempId ? data : m) }));
       if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
       const partner = connections.find(c => c.id === partnerId);
       if (partner?.email) {
@@ -1361,7 +1368,7 @@ export default function BasUdrus() {
           }).catch(() => {});
         }
       }
-    } catch { setNewMsg(text); showNotif("Couldn't send message — please try again.", "err"); }
+    } catch { setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) })); setNewMsg(text); showNotif("Couldn't send message — please try again.", "err"); }
   };
 
   // ── Voice Recording ─────────────────────────────────────────────────
@@ -3763,9 +3770,9 @@ export default function BasUdrus() {
                 <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
                   {["I'm stressed about exams","Explain recursion","Find a Calculus partner","Plan my study week"].map((q,i)=>(
                     <button key={q} onClick={()=>{setAiTab(i===0?"wellbeing":i===1?"tutor":i===2?"match":"plan");if(i===0)setWellbeingInput(q);if(i===1)setTutorInput(q);}}
-                      style={{padding:"9px 16px",borderRadius:99,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:T.textSoft,cursor:"pointer",fontWeight:500,transition:"all 0.15s",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}
+                      style={{padding:"9px 16px",borderRadius:99,border:`1px solid ${T.border}`,background:T.surface,fontSize:12,color:T.textSoft,cursor:"pointer",fontWeight:500,transition:"all 0.15s",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}
                       onMouseEnter={e=>{(e.currentTarget).style.borderColor=T.accent;(e.currentTarget).style.color=T.accent;}}
-                      onMouseLeave={e=>{(e.currentTarget).style.borderColor="#e5e7eb";(e.currentTarget).style.color=T.textSoft;}}>
+                      onMouseLeave={e=>{(e.currentTarget).style.borderColor=T.border;(e.currentTarget).style.color=T.textSoft;}}>
                       {q}
                     </button>
                   ))}
@@ -3774,8 +3781,8 @@ export default function BasUdrus() {
 
               {/* Footer */}
               <div style={{marginTop:28,textAlign:"center",padding:"0 10px"}}>
-                <div style={{fontSize:11,color:"rgba(0,0,0,0.3)",lineHeight:1.8}}>
-                  Powered by Claude Sonnet · Privacy first · Never stored · Built for Jordan 🇯🇴
+                <div style={{fontSize:11,color:T.muted,opacity:0.5,lineHeight:1.8}}>
+                  Powered by Claude AI · Privacy first · Never stored · Built for Jordan 🇯🇴
                 </div>
               </div>
             </div>
@@ -3806,7 +3813,7 @@ export default function BasUdrus() {
                       <span style={{fontSize:12,color:"#047857",fontWeight:500}}>Ready when you are — type below 💚</span>
                     </div>
                   )}
-                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:wellbeingMsgs.length===0?"#fafbfc":T.bg,position:"relative"}}>
+                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:T.bg,position:"relative"}}>
                     {wellbeingMsgs.length===0&&(()=>{
                       const quotes=[
                         {q:"\"الصبر مفتاح الفرج\"",t:"Patience is the key to relief — Arabic proverb"},
@@ -3846,7 +3853,7 @@ export default function BasUdrus() {
                         {m.role==="assistant"&&(
                           <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginBottom:2}}>🌿</div>
                         )}
-                        <div style={{maxWidth:"78%",padding:"14px 18px",borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",background:m.role==="user"?"linear-gradient(135deg,#059669,#10b981)":"#fff",color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?"1px solid #e5e7eb":"none",fontSize:15,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 4px rgba(0,0,0,0.04)":"0 2px 8px rgba(5,150,105,0.15)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
+                        <div style={{maxWidth:"78%",padding:"14px 18px",borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",background:m.role==="user"?"linear-gradient(135deg,#059669,#10b981)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",fontSize:15,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 4px rgba(0,0,0,0.04)":"0 2px 8px rgba(5,150,105,0.15)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
                           {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.4}}>▌</span>}
                         </div>
                       </div>
@@ -3861,17 +3868,17 @@ export default function BasUdrus() {
                     )}
                     <div ref={wellbeingEndRef}/>
                   </div>
-                  <div style={{padding:"16px 20px",borderTop:"1px solid #f0f0f0",background:"#fff",display:"flex",gap:10,alignItems:"flex-end"}}>
+                  <div style={{padding:"16px 20px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",gap:10,alignItems:"flex-end"}}>
                     <textarea value={wellbeingInput} onChange={e=>setWellbeingInput(e.target.value)}
                       onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendWellbeingMessage())}
                       placeholder={wellbeingMode==="Coping tool"?"خبرني شو حاسس — guide me through a calming technique...":wellbeingMode==="I want to vent"?"بحكيلك — this is your space. Start wherever.":"اكتب / Type — Arabic, English, or both."}
                       rows={2}
-                      style={{flex:1,padding:"14px 18px",border:"1.5px solid #e5e7eb",borderRadius:16,fontSize:16,color:T.text,background:"#fafbfc",outline:"none",resize:"none",lineHeight:1.6,fontFamily:"inherit",transition:"border-color 0.2s,box-shadow 0.2s"}}
+                      style={{flex:1,padding:"14px 18px",border:`1.5px solid ${T.border}`,borderRadius:16,fontSize:16,color:T.text,background:T.bg,outline:"none",resize:"none",lineHeight:1.6,fontFamily:"inherit",transition:"border-color 0.2s,box-shadow 0.2s"}}
                       onFocus={e=>{(e.target as HTMLTextAreaElement).style.borderColor="#10b981";(e.target as HTMLTextAreaElement).style.boxShadow="0 0 0 3px rgba(16,185,129,0.1)";}}
-                      onBlur={e=>{(e.target as HTMLTextAreaElement).style.borderColor="#e5e7eb";(e.target as HTMLTextAreaElement).style.boxShadow="none";}}
+                      onBlur={e=>{(e.target as HTMLTextAreaElement).style.borderColor=T.border;(e.target as HTMLTextAreaElement).style.boxShadow="none";}}
                       maxLength={2000}/>
                     <button type="button" onClick={sendWellbeingMessage} disabled={wellbeingLoading||!wellbeingInput.trim()}
-                      style={{width:46,height:46,borderRadius:14,background:wellbeingLoading||!wellbeingInput.trim()?"#e5e7eb":"linear-gradient(135deg,#059669,#10b981)",color:wellbeingLoading||!wellbeingInput.trim()?T.muted:"#fff",border:"none",cursor:wellbeingLoading||!wellbeingInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:wellbeingLoading||!wellbeingInput.trim()?"none":"0 3px 12px rgba(16,185,129,0.25)"}}>
+                      style={{width:46,height:46,borderRadius:14,background:wellbeingLoading||!wellbeingInput.trim()?T.border:"linear-gradient(135deg,#059669,#10b981)",color:wellbeingLoading||!wellbeingInput.trim()?T.muted:"#fff",border:"none",cursor:wellbeingLoading||!wellbeingInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:wellbeingLoading||!wellbeingInput.trim()?"none":"0 3px 12px rgba(16,185,129,0.25)"}}>
                       {wellbeingLoading?"···":"↑"}
                     </button>
                   </div>
@@ -4034,7 +4041,7 @@ export default function BasUdrus() {
                     </select>
                   </div>
 
-                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:12,background:tutorMsgs.length===0?"#fafbfc":T.bg,position:"relative"}}>
+                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:12,background:T.bg,position:"relative"}}>
                     {tutorMsgs.length===0&&(
                       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"30px 20px"}}>
                         {/* Orb */}
@@ -4063,7 +4070,7 @@ export default function BasUdrus() {
                         {m.role==="assistant"&&(
                           <div style={{width:32,height:32,borderRadius:10,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,marginRight:8,flexShrink:0,alignSelf:"flex-end",marginBottom:2,boxShadow:"0 2px 8px rgba(99,102,241,0.2)"}}>🎓</div>
                         )}
-                        <div className="ai-msg" style={{background:m.role==="user"?"linear-gradient(135deg,#6366f1,#4f46e5)":"#fff",color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?"1px solid #e5e7eb":"none",boxShadow:m.role==="user"?"0 2px 8px rgba(99,102,241,0.15)":"0 1px 4px rgba(0,0,0,0.04)",fontSize:15,...(m.role==="user"?{}:{whiteSpace:"normal" as const})}}>
+                        <div className="ai-msg" style={{background:m.role==="user"?"linear-gradient(135deg,#6366f1,#4f46e5)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",boxShadow:m.role==="user"?"0 2px 8px rgba(99,102,241,0.15)":"0 1px 4px rgba(0,0,0,0.04)",fontSize:15,...(m.role==="user"?{}:{whiteSpace:"normal" as const})}}>
                           {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.5}}>▌</span>}
                         </div>
                       </div>
@@ -4087,7 +4094,7 @@ export default function BasUdrus() {
                       <button onClick={()=>setTutorFile(null)} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:16,padding:2}} aria-label="Remove file">×</button>
                     </div>
                   )}
-                  <div style={{padding:"16px 20px",borderTop:"1px solid #f0f0f0",background:"#fff",display:"flex",gap:10,alignItems:"flex-end"}}>
+                  <div style={{padding:"16px 20px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",gap:10,alignItems:"flex-end"}}>
                     <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css" style={{display:"none"}}
                       onChange={e=>{
                         const f=e.target.files?.[0];if(!f)return;
@@ -4098,17 +4105,17 @@ export default function BasUdrus() {
                         e.target.value="";
                       }}/>
                     <button onClick={()=>tutorFileRef.current?.click()} title="Upload course material"
-                      style={{width:46,height:46,borderRadius:14,border:"1.5px solid #e5e7eb",background:tutorFile?"#eef2ff":"#fafbfc",color:tutorFile?"#6366f1":T.muted,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
+                      style={{width:46,height:46,borderRadius:14,border:`1.5px solid ${T.border}`,background:tutorFile?T.accentSoft:T.bg,color:tutorFile?T.accent:T.muted,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
                       📎
                     </button>
                     <input value={tutorInput} onChange={e=>setTutorInput(e.target.value)}
                       onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendTutorMessage()}
                       placeholder={tutorFile?"Ask about the uploaded file...":"Ask your AI tutor anything..."} maxLength={2000}
-                      style={{flex:1,padding:"14px 18px",border:"1.5px solid #e5e7eb",borderRadius:16,fontSize:16,color:T.text,background:"#fafbfc",outline:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}
+                      style={{flex:1,padding:"14px 18px",border:`1.5px solid ${T.border}`,borderRadius:16,fontSize:16,color:T.text,background:T.bg,outline:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}
                       onFocus={e=>{(e.target as HTMLInputElement).style.borderColor="#6366f1";(e.target as HTMLInputElement).style.boxShadow="0 0 0 3px rgba(99,102,241,0.1)";}}
-                      onBlur={e=>{(e.target as HTMLInputElement).style.borderColor="#e5e7eb";(e.target as HTMLInputElement).style.boxShadow="none";}}/>
+                      onBlur={e=>{(e.target as HTMLInputElement).style.borderColor=T.border;(e.target as HTMLInputElement).style.boxShadow="none";}}/>
                     <button type="button" onClick={sendTutorMessage} disabled={tutorLoading||!tutorInput.trim()}
-                      style={{width:46,height:46,borderRadius:14,background:tutorLoading||!tutorInput.trim()?"#e5e7eb":"linear-gradient(135deg,#6366f1,#4f46e5)",color:tutorLoading||!tutorInput.trim()?T.muted:"#fff",border:"none",cursor:tutorLoading||!tutorInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:tutorLoading||!tutorInput.trim()?"none":"0 3px 12px rgba(99,102,241,0.25)"}}>
+                      style={{width:46,height:46,borderRadius:14,background:tutorLoading||!tutorInput.trim()?T.border:"linear-gradient(135deg,#6366f1,#4f46e5)",color:tutorLoading||!tutorInput.trim()?T.muted:"#fff",border:"none",cursor:tutorLoading||!tutorInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:tutorLoading||!tutorInput.trim()?"none":"0 3px 12px rgba(99,102,241,0.25)"}}>
                       {tutorLoading?"···":"↑"}
                     </button>
                   </div>
