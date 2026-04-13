@@ -1915,17 +1915,22 @@ export default function BasUdrus() {
   const saveProfile = async () => {
     if (!user) { showNotif("Not signed in", "err"); return; }
     if (!editProfile) { showNotif("Nothing to save", "err"); return; }
+    if (actionLoading) return; // Prevent double-click
     setActionLoading(true);
     try {
-      // Verify session is still valid (RLS needs a live auth.uid())
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
+      // Validate session server-side (getSession only returns cached token — may be expired)
+      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authUser) {
+        showNotif("Session expired — please sign in again", "err");
+        setScreen("auth");
+        return;
+      }
 
       const merged = { ...profile, ...editProfile };
       const updatePayload: Record<string, unknown> = {
         name: (merged.name || "").trim(),
-        uni: merged.uni || "",
-        major: merged.major || "",
+        uni: (merged.uni || "").trim(),
+        major: (merged.major || "").trim(),
         year: merged.year || "",
         course: merged.course || "",
         meet_type: merged.meet_type || "flexible",
@@ -1946,11 +1951,30 @@ export default function BasUdrus() {
 
       if (error) {
         logError("saveProfile", error);
+        // If it's an auth/permission error, try refreshing session
+        if (error.code === "PGRST301" || error.message?.includes("JWT")) {
+          const { error: refreshErr } = await supabase.auth.refreshSession();
+          if (refreshErr) {
+            showNotif("Session expired — please sign in again", "err");
+            setScreen("auth");
+            return;
+          }
+          // Retry once after refresh
+          const { data: retryData, error: retryErr } = await supabase.from("profiles").update(updatePayload).eq("id", user.id).select().single();
+          if (retryErr || !retryData) {
+            showNotif("Save failed after retry — please sign out and back in", "err");
+            return;
+          }
+          setProfile(prev => ({ ...prev, ...retryData } as Profile));
+          setEditProfile(null);
+          showNotif("Profile saved ✅");
+          return;
+        }
         showNotif("Save failed: " + (error.message || "unknown error"), "err");
         return;
       }
       if (!data) {
-        showNotif("Save failed: no rows updated (permission issue)", "err");
+        showNotif("Save failed — please try again", "err");
         return;
       }
       setProfile(prev => ({ ...prev, ...data } as Profile));
@@ -3555,11 +3579,12 @@ export default function BasUdrus() {
                       {isOwn?(
                         <button className="btn-danger" style={{flex:1,padding:"13px 0",fontSize:15,borderRadius:16}} onClick={async()=>{
                           if(!confirm("Delete this post?"))return;
-                          await supabase.from("notifications").delete().eq("post_id",s._postId);
                           if(!user)return;
+                          // Delete related notifications first (ignore errors — notifications are secondary)
+                          try{await supabase.from("notifications").delete().eq("post_id",s._postId);}catch{}
                           const {error,count}=await supabase.from("help_requests").delete({count:"exact"}).eq("id",s._postId).eq("user_id",user.id);
                           if(error){showNotif("Delete failed: "+error.message,"err");return;}
-                          if(count===0){showNotif("Could not delete — permission denied. Check Supabase RLS policies.","err");return;}
+                          if(count===0){showNotif("Could not delete — try signing out and back in","err");return;}
                           setAllStudents(prev=>prev.filter((x:any)=>x._postId!==s._postId));
                           setHelpRequests(prev=>prev.filter((x:any)=>x.id!==s._postId));
                           showNotif("Post deleted");
@@ -4700,7 +4725,7 @@ export default function BasUdrus() {
                     <div className="field"><label>Bio</label><textarea rows={3} placeholder="Tell others a bit about yourself..." value={editProfile.bio||""} onChange={e=>setEditProfile(p=>({...p!,bio:e.target.value}))} maxLength={500}/></div>
                     <div style={{display:"flex",gap:10}}>
                       <button className="btn-ghost" style={{flex:0.45}} onClick={()=>setEditProfile(null)}>Cancel</button>
-                      <button className="btn-primary" style={{flex:1,padding:13,borderRadius:14}} onClick={saveProfile}>Save Changes</button>
+                      <button className="btn-primary" disabled={actionLoading} style={{flex:1,padding:13,borderRadius:14,opacity:actionLoading?0.6:1}} onClick={saveProfile}>{actionLoading?"Saving...":"Save Changes"}</button>
                     </div>
                   </div>
                 ):(
@@ -4752,8 +4777,9 @@ export default function BasUdrus() {
                                 {key==="active"&&(
                                   <button onClick={async()=>{
                                     if(!user)return;
+                                    try{await supabase.from("notifications").delete().eq("post_id",r.id);}catch{}
                                     const{error}=await supabase.from("help_requests").delete().eq("id",r.id).eq("user_id",user.id);
-                                    if(!error){setHelpRequests(prev=>prev.filter(x=>x.id!==r.id));showNotif("Post removed");}
+                                    if(!error){setHelpRequests(prev=>prev.filter(x=>x.id!==r.id));setAllStudents(prev=>prev.filter((x:any)=>x._postId!==r.id));showNotif("Post removed");}
                                     else showNotif("Error removing post","err");
                                   }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,color:T.muted,cursor:"pointer",flexShrink:0}}>Remove ✕</button>
                                 )}
