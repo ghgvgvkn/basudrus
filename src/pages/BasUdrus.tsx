@@ -1245,16 +1245,24 @@ export default function BasUdrus() {
   };
 
   // ── Onboard ───────────────────────────────────────────────────────────
+  const [onboardLoading, setOnboardLoading] = useState(false);
   const handleOnboard = async () => {
     if (!profile.uni||!profile.major||!profile.year) return showNotif("Almost there! Fill required fields 👆","err");
     if (!user) { showNotif("Session expired — please sign in again","err"); setScreen("auth"); return; }
-    // Get the best available name (from profile state, authForm, or OAuth metadata)
-    const { data: { session } } = await supabase.auth.getSession();
-    const meta = session?.user?.user_metadata;
-    const bestName = profile.name || authForm.name || meta?.full_name || meta?.name || user.email.split("@")[0];
-    // Check if user has a Google/OAuth avatar
-    const oauthAvatar = meta?.avatar_url || meta?.picture || null;
+    if (onboardLoading) return; // prevent double-click
+    setOnboardLoading(true);
     try {
+      // Ensure we have a valid session before writing to DB
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        showNotif("Session expired — please sign in again","err");
+        setScreen("auth");
+        setOnboardLoading(false);
+        return;
+      }
+      const meta = session.user?.user_metadata;
+      const bestName = profile.name || authForm.name || meta?.full_name || meta?.name || user.email.split("@")[0];
+      const oauthAvatar = meta?.avatar_url || meta?.picture || null;
       const profileData: Record<string, unknown> = {
         id: user.id,
         email: user.email,
@@ -1269,7 +1277,7 @@ export default function BasUdrus() {
         avatar_color: profile.avatar_color || "#6C8EF5",
         photo_mode: oauthAvatar ? "photo" : "initials",
         photo_url: oauthAvatar || null,
-        streak: 4,
+        streak: 0,
         xp: 0,
         badges: [],
         online: true,
@@ -1278,11 +1286,12 @@ export default function BasUdrus() {
         subjects: [],
       };
       const { error } = await supabase.from("profiles").upsert(profileData, { onConflict: "id" });
-      if (error) { logError("handleOnboard:upsert", error); showNotif("Error saving profile: " + error.message, "err"); return; }
+      if (error) { logError("handleOnboard:upsert", error); showNotif("Error saving profile: " + error.message, "err"); setOnboardLoading(false); return; }
       setProfile(profileData as typeof profile);
       setScreen("discover");
       loadAllStudents().catch(e => logError("loadAllStudents", e));
     } catch (e) { logError("handleOnboard", e); showNotif("Something went wrong — please try again", "err"); }
+    setOnboardLoading(false);
   };
 
   // ── Award badge ───────────────────────────────────────────────────────
@@ -2849,7 +2858,7 @@ export default function BasUdrus() {
               </div>
               <div style={{display:"flex",gap:10}}>
                 <button className="btn-ghost" style={{flex:0.45}} onClick={()=>setStep(1)}>← Back</button>
-                <button className="btn-primary" style={{flex:1,padding:13,borderRadius:14}} onClick={handleOnboard}>Let's go! 🎯</button>
+                <button className="btn-primary" style={{flex:1,padding:13,borderRadius:14,opacity:onboardLoading?0.7:1}} onClick={handleOnboard} disabled={onboardLoading}>{onboardLoading?"Saving...":"Let's go! 🎯"}</button>
               </div>
             </>
           )}
