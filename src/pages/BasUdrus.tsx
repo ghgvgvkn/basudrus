@@ -1311,18 +1311,21 @@ export default function BasUdrus() {
   // ── Connect / Reject ──────────────────────────────────────────────────
   const handleConnect = async (s: Profile & {_postId?: string; _postSubject?: string}) => {
     if (!user || connectingRef.current) return;
-    connectingRef.current = true; // Lock immediately to prevent double-clicks
+    connectingRef.current = true;
     const key = s._postId || s.id;
     setFlyCard({id:key,dir:"up"});
     if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
     connectTimerRef.current = setTimeout(async () => {
       try {
+        // Verify session is alive before DB write
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { showNotif("Session expired — please sign in again", "err"); setFlyCard(null); connectingRef.current = false; setScreen("auth"); return; }
         const { error } = await supabase.from("connections").upsert([
           { user_id: user.id, partner_id: s.id },
           { user_id: s.id, partner_id: user.id },
         ], { onConflict: "user_id,partner_id" });
         if (error) { showNotif("Connection failed — try again", "err"); setFlyCard(null); connectingRef.current = false; return; }
-        setConnections(prev => prev.find(c=>c.id===s.id) ? prev : [...prev, s]);
+        setConnections(prev => prev.some(c=>(c as any).id===s.id||(c as any).partner_id===s.id) ? prev : [...prev, s]);
         setDismissed(prev=>({...prev,[key]:true}));
         setFlyCard(null);
         setProfile(p => ({ ...p, xp: (p.xp || 0) + 20 }));
@@ -1341,7 +1344,7 @@ export default function BasUdrus() {
             user2Name: s.name || "A student",
           }),
         }).catch(() => {});
-      } catch { showNotif("Connection failed", "err"); setFlyCard(null); }
+      } catch { showNotif("Connection failed — check your internet", "err"); setFlyCard(null); }
       connectingRef.current = false;
     }, 360);
   };
@@ -1405,18 +1408,34 @@ export default function BasUdrus() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4" });
+      // Pick best supported mime type (varies by browser/device)
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg", ""].find(m => !m || MediaRecorder.isTypeSupported(m)) || "";
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
+      const actualMime = mediaRecorder.mimeType || "audio/webm";
       audioChunksRef.current = [];
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
-        const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
-        if (blob.size < 1000) { setIsRecording(false); setRecordingTime(0); return; }
-        const ext = mediaRecorder.mimeType.includes("mp4") ? "mp4" : "webm";
-        await uploadAndSendFile(blob, `voice-${Date.now()}.${ext}`, "voice");
+        try {
+          const blob = new Blob(audioChunksRef.current, { type: actualMime });
+          if (blob.size < 500) { showNotif("Recording too short", "err"); setIsRecording(false); setRecordingTime(0); return; }
+          const ext = actualMime.includes("mp4") ? "m4a" : actualMime.includes("ogg") ? "ogg" : "webm";
+          await uploadAndSendFile(blob, `voice-${Date.now()}.${ext}`, "voice");
+        } catch (err) {
+          logError("recording:onstop", err);
+          showNotif("Failed to send voice message", "err");
+        }
         setIsRecording(false);
         setRecordingTime(0);
+      };
+      mediaRecorder.onerror = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+        setIsRecording(false);
+        setRecordingTime(0);
+        showNotif("Recording error — try again", "err");
       };
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
@@ -1452,7 +1471,7 @@ export default function BasUdrus() {
     try {
       const ext = fileName.split(".").pop() || "bin";
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : "audio/webm" });
+      const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : (fileOrBlob.type || "audio/webm") });
       if (upErr) { logError("uploadChatFile", upErr); showNotif("Upload failed — try again", "err"); return; }
       const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
       const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
@@ -1811,17 +1830,26 @@ export default function BasUdrus() {
   const toggleJoinGroup = async (groupId: string, joined: boolean) => {
     if (!user) return;
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
       if (joined) {
         const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);
         if (error) { showNotif("Failed to leave group", "err"); return; }
         const grp = groups.find(g=>g.id===groupId);
-        if (grp) await supabase.from("group_rooms").update({ filled: Math.max(0, grp.filled - 1) }).eq("id", groupId);
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled-1,joined:false}:g));
+        if (grp) {
+          const { error: updErr } = await supabase.from("group_rooms").update({ filled: Math.max(0, grp.filled - 1) }).eq("id", groupId);
+          if (updErr) logError("toggleJoinGroup:updateFilled", updErr);
+        }
+        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:Math.max(0,g.filled-1),joined:false}:g));
       } else {
+        const cur = groups.find(g=>g.id===groupId);
+        if (cur && cur.filled >= cur.spots) { showNotif("Room is full!", "err"); return; }
         const { error } = await supabase.from("group_members").upsert({ group_id: groupId, user_id: user.id }, { onConflict: "group_id,user_id" });
         if (error) { showNotif("Failed to join group", "err"); return; }
-        const cur = groups.find(g=>g.id===groupId);
-        if (cur) await supabase.from("group_rooms").update({ filled: cur.filled + 1 }).eq("id", groupId);
+        if (cur) {
+          const { error: updErr } = await supabase.from("group_rooms").update({ filled: cur.filled + 1 }).eq("id", groupId);
+          if (updErr) logError("toggleJoinGroup:updateFilled", updErr);
+        }
         setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled+1,joined:true}:g));
         showNotif("You joined the session! 🎓");
       }
