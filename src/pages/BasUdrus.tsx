@@ -312,12 +312,12 @@ const makeCSS = (T: Theme) => `
   }
   @media(min-width: 800px) {
     .bento-grid { grid-template-columns: repeat(3, 1fr); }
-    .landing-feat:nth-child(1) { grid-column: span 2; grid-row: span 2; padding: 40px; }
-    .landing-feat:nth-child(1) .landing-feat-icon { font-size: 52px; margin-bottom: 24px; }
-    .landing-feat:nth-child(1) h3 { font-size: 26px; }
+    .landing-feat:nth-child(1) { grid-column: span 2; padding: 40px; }
+    .landing-feat:nth-child(1) .landing-feat-icon { font-size: 42px; margin-bottom: 18px; }
+    .landing-feat:nth-child(1) h3 { font-size: 22px; }
     .landing-feat:nth-child(1) p { font-size: 15px; }
-    .landing-feat:nth-child(2) { grid-column: span 1; }
     .landing-feat:nth-child(4) { grid-column: span 2; }
+    .landing-feat:nth-child(7) { grid-column: span 3; }
   }
   /* Smooth page transitions */
   .page-scroll > div { animation:fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
