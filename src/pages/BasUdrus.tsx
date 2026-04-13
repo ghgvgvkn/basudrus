@@ -730,6 +730,10 @@ export default function BasUdrus() {
   const [wellbeingMood, setWellbeingMood] = useState("");
   const [wellbeingMode, setWellbeingMode] = useState("");
   const wellbeingEndRef = useRef<HTMLDivElement>(null);
+  const wellbeingScrollRef = useRef<HTMLDivElement>(null);
+  const tutorScrollRef = useRef<HTMLDivElement>(null);
+  const [showWbScrollBtn, setShowWbScrollBtn] = useState(false);
+  const [showTutorScrollBtn, setShowTutorScrollBtn] = useState(false);
   const dragStart = useRef(0);
   const dragScroll = useRef(0);
   const courseDropRef = useRef<HTMLDivElement>(null);
@@ -3958,7 +3962,10 @@ export default function BasUdrus() {
                       <span style={{fontSize:12,color:darkMode?"#6ee7b7":"#047857",fontWeight:500}}>Ready when you are — type below 💚</span>
                     </div>
                   )}
-                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:T.bg,position:"relative"}}>
+                  <div ref={wellbeingScrollRef} onScroll={()=>{const el=wellbeingScrollRef.current;if(el){setShowWbScrollBtn(el.scrollHeight-el.scrollTop-el.clientHeight>150);}}} style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:T.bg,position:"relative"}}>
+                    {showWbScrollBtn&&wellbeingMsgs.length>0&&(
+                      <button onClick={()=>wellbeingEndRef.current?.scrollIntoView({behavior:"smooth"})} style={{position:"sticky",bottom:8,alignSelf:"center",zIndex:10,width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#059669,#10b981)",color:"#fff",border:"none",cursor:"pointer",fontSize:16,fontWeight:700,boxShadow:"0 4px 14px rgba(16,185,129,0.35)",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s"}}>↓</button>
+                    )}
                     {wellbeingMsgs.length===0&&(()=>{
                       const quotes=[
                         {q:"\"الصبر مفتاح الفرج\"",t:"Patience is the key to relief — Arabic proverb"},
@@ -4186,7 +4193,10 @@ export default function BasUdrus() {
                     </select>
                   </div>
 
-                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:12,background:T.bg,position:"relative"}}>
+                  <div ref={tutorScrollRef} onScroll={()=>{const el=tutorScrollRef.current;if(el){setShowTutorScrollBtn(el.scrollHeight-el.scrollTop-el.clientHeight>150);}}} style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:12,background:T.bg,position:"relative"}}>
+                    {showTutorScrollBtn&&tutorMsgs.length>0&&(
+                      <button onClick={()=>tutorEndRef.current?.scrollIntoView({behavior:"smooth"})} style={{position:"sticky",bottom:8,alignSelf:"center",zIndex:10,width:38,height:38,borderRadius:"50%",background:T.accent,color:"#fff",border:"none",cursor:"pointer",fontSize:16,fontWeight:700,boxShadow:`0 4px 14px ${T.accent}55`,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s"}}>↓</button>
+                    )}
                     {tutorMsgs.length===0&&(
                       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"30px 20px"}}>
                         {/* Orb */}
