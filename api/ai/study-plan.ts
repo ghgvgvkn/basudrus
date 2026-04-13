@@ -1,10 +1,25 @@
 export const config = { runtime: "edge" };
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const ALLOWED_ORIGINS = ["https://basudrus.com", "https://www.basudrus.com", "https://basudrus.vercel.app"];
+
+function secHeaders(origin?: string | null) {
+  const h: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
+  if (origin && ALLOWED_ORIGINS.some(o => origin.startsWith(o))) {
+    h["Access-Control-Allow-Origin"] = origin;
+    h["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+    h["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+  return h;
+}
 
 export default async function handler(req: Request) {
+  const origin = req.headers.get("origin");
+  const sH = secHeaders(origin);
+
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: sH });
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405 });
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: sH });
   }
 
   try {

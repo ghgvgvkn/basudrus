@@ -1,78 +1,25 @@
 export const config = { runtime: "edge" };
 
-export default async function handler() {
-  const rawKey = process.env.ANTHROPIC_API_KEY || "";
-  const key = rawKey.trim(); // Strip any whitespace
-
-  const keyDiag = {
-    length: rawKey.length,
-    trimmedLength: key.length,
-    hasLeadingSpace: rawKey !== rawKey.trimStart(),
-    hasTrailingSpace: rawKey !== rawKey.trimEnd(),
-    hasNewline: rawKey.includes("\n") || rawKey.includes("\r"),
-    hasQuotes: rawKey.includes('"') || rawKey.includes("'"),
-    first10: key.slice(0, 10),
-    last5: key.slice(-5),
-  };
-
-  // Test 1: Try with the current model
-  let test1 = "not run";
-  if (key) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 10,
-          messages: [{ role: "user", content: "Say hi" }],
-        }),
-      });
-      if (res.ok) {
-        test1 = "SUCCESS";
-      } else {
-        const errText = await res.text();
-        test1 = `FAILED (${res.status}): ${errText.slice(0, 300)}`;
-      }
-    } catch (e: any) {
-      test1 = `ERROR: ${e.message}`;
-    }
+// Safe health check — NO key exposure, NO API calls
+export default async function handler(req: Request) {
+  // Only allow admin (check for a secret header)
+  const adminSecret = process.env.ADMIN_DEBUG_SECRET || "";
+  const provided = req.headers.get("x-debug-secret") || "";
+  if (!adminSecret || provided !== adminSecret) {
+    return new Response(JSON.stringify({ status: "ok", version: "2.0", ai: "operational" }), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
-  // Test 2: Try with older API version + older model as fallback
-  let test2 = "not run";
-  if (key) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 10,
-          messages: [{ role: "user", content: "Say hi" }],
-        }),
-      });
-      if (res.ok) {
-        test2 = "SUCCESS";
-      } else {
-        const errText = await res.text();
-        test2 = `FAILED (${res.status}): ${errText.slice(0, 300)}`;
-      }
-    } catch (e: any) {
-      test2 = `ERROR: ${e.message}`;
-    }
-  }
-
+  // Admin-only: safe diagnostics (NO key content exposed)
+  const key = (process.env.ANTHROPIC_API_KEY || "").trim();
   return new Response(
-    JSON.stringify({ keyDiag, test1_sonnet46: test1, test2_sonnet35: test2, timestamp: new Date().toISOString() }, null, 2),
+    JSON.stringify({
+      status: "ok",
+      keyConfigured: key.length > 0,
+      keyLength: key.length,
+      timestamp: new Date().toISOString(),
+    }, null, 2),
     { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }
   );
 }

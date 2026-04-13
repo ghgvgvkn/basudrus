@@ -1,6 +1,20 @@
 export const config = { runtime: "edge" };
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const ALLOWED_ORIGINS = ["https://basudrus.com", "https://www.basudrus.com", "https://basudrus.vercel.app"];
+
+function securityHeaders(origin?: string | null) {
+  const headers: Record<string, string> = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  };
+  if (origin && ALLOWED_ORIGINS.some(o => origin.startsWith(o))) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type";
+  }
+  return headers;
+}
 
 const SYSTEM_PROMPT = `You are "Ustaz" (أستاذ) — the AI tutor inside Bas Udrus, a study platform for Jordanian university students. You are the tutor who makes students believe in themselves.
 
@@ -707,6 +721,14 @@ You exist inside Bas Udrus — a study platform. When genuinely helpful, suggest
 RULES: Never force it. Never sound like an ad. Only suggest when it genuinely helps. If they ignore the suggestion, don't repeat it.`;
 
 export default async function handler(req: Request) {
+  const origin = req.headers.get("origin");
+  const sHeaders = securityHeaders(origin);
+
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: sHeaders });
+  }
+
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405 });
   }
@@ -750,8 +772,8 @@ export default async function handler(req: Request) {
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      return new Response(JSON.stringify({ error: "AI API error", detail: err }), { status: 500 });
+      console.error("Anthropic API error:", response.status);
+      return new Response(JSON.stringify({ error: "AI service temporarily unavailable" }), { status: 502, headers: { ...sHeaders, "Content-Type": "application/json" } });
     }
 
     const encoder = new TextEncoder();
