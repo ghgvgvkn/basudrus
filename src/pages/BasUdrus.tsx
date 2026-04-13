@@ -292,14 +292,14 @@ const makeCSS = (T: Theme) => `
     100% { transform: rotate(360deg) translateX(30px) rotate(-360deg); }
   }
   .mesh-glow {
-    position: absolute;
-    top: -20%; left: -10%; right: -10%; bottom: -20%;
-    background: radial-gradient(circle at 30% 50%, rgba(74, 124, 247, 0.08), transparent 50%),
-                radial-gradient(circle at 70% 30%, rgba(67, 197, 158, 0.08), transparent 50%);
-    filter: blur(60px);
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse 80% 60% at 25% 40%, rgba(74, 124, 247, 0.10), transparent 60%),
+                radial-gradient(ellipse 70% 50% at 75% 25%, rgba(67, 197, 158, 0.10), transparent 60%),
+                radial-gradient(ellipse 60% 40% at 50% 80%, rgba(232, 114, 42, 0.05), transparent 50%);
+    filter: blur(80px);
     z-index: 0;
     pointer-events: none;
-    animation: orbit 15s linear infinite;
   }
   /* Bento Box grid for Features */
   .bento-grid {
@@ -2447,8 +2447,10 @@ export default function BasUdrus() {
   // LANDING
   // ═══════════════════════════════════════════════════════════════════════════════
   if (screen==="landing") return (
-    <div style={{minHeight:"100dvh",background:T.bg,transition:"background-color 0.3s",overflowX:"hidden"}}>
+    <div style={{minHeight:"100dvh",background:T.bg,transition:"background-color 0.3s",overflowX:"hidden",position:"relative"}}>
       <style>{makeCSS(T)}</style>
+      {/* ── Full-screen background glow ── */}
+      <div className="mesh-glow" style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:0,pointerEvents:"none"}} />
       {/* ── STICKY NAV ── */}
       <nav className="landing-nav" style={{padding:"12px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",background:T.navBg,borderBottom:`1px solid ${T.border}`,position:"sticky",top:0,zIndex:50,backdropFilter:"blur(18px)",WebkitBackdropFilter:"blur(18px)"}}>
         <Logo size={22} compact/>
@@ -2459,8 +2461,8 @@ export default function BasUdrus() {
       </nav>
 
       {/* ── HERO ── */}
-      <div className="landing-hero" style={{maxWidth:960,margin:"0 auto",padding:"72px 24px 48px",display:"flex",flexDirection:"column",alignItems:"center",gap:36,position:"relative",overflow:"hidden"}}>
-        <div className="mesh-glow" />
+      <div className="landing-hero" style={{maxWidth:960,margin:"0 auto",padding:"72px 24px 48px",display:"flex",flexDirection:"column",alignItems:"center",gap:36,position:"relative"}}>
+
         <div style={{textAlign:"center",maxWidth:720,zIndex:1,position:"relative"}}>
           <div style={{display:"inline-flex",alignItems:"center",gap:6,background:T.surface,border:`1px solid ${T.border}`,padding:"6px 16px",borderRadius:99,fontSize:11,color:T.textSoft,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,0.04)"}}>
             <span style={{width:7,height:7,background:T.green,borderRadius:"50%",display:"inline-block",boxShadow:`0 0 0 3px ${T.greenSoft}`}}/>
