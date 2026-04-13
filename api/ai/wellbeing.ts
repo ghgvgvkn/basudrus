@@ -482,7 +482,7 @@ export default async function handler(req: Request) {
       },
       body: JSON.stringify({
         // model: "claude-sonnet-4-6", // Sonnet — higher quality, higher cost (~$0.015/msg)
-        model: "claude-3-5-haiku-20241022", // Haiku — fast & affordable (~$0.001/msg)
+        model: "claude-haiku-4-5-20251001", // Haiku 4.5 — fast & affordable
         max_tokens: 1500,
         system: systemPrompt,
         messages: apiMessages,
