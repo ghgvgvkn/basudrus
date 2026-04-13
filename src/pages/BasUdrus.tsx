@@ -3927,7 +3927,7 @@ export default function BasUdrus() {
               {/* Footer */}
               <div style={{marginTop:28,textAlign:"center",padding:"0 10px"}}>
                 <div style={{fontSize:11,color:T.muted,opacity:0.5,lineHeight:1.8}}>
-                  Powered by Claude AI · Privacy first · Never stored · Built for Jordan 🇯🇴
+                  Powered by Dulaimi AI · Privacy first · Never stored · Built for Jordan 🇯🇴
                 </div>
               </div>
             </div>
