@@ -258,9 +258,9 @@ const makeCSS = (T: Theme) => `
   .meet-opt.active { border-color:${T.accent}; background:${T.accentSoft}; }
   .color-dot { width:28px; height:28px; border-radius:50%; cursor:pointer; border:2.5px solid transparent; transition:border-color 0.15s,transform 0.15s; }
   .color-dot:hover,.color-dot.sel { border-color:${T.text}; transform:scale(1.18); }
-  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
   .card:hover { box-shadow:0 16px 40px rgba(0,0,0,0.08); transform:translateY(-4px) scale(1.01); }
-  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
   .request-card:hover { box-shadow:0 12px 32px rgba(0,0,0,0.08); transform:translateY(-3px) scale(1.01); }
   .streak-badge { display:inline-flex; align-items:center; gap:5px; background:linear-gradient(135deg,#C44D1A,#B07D00); color:#fff; padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; }
   .ai-msg { padding:16px 20px; border-radius:24px; font-size:15px; line-height:1.6; max-width:85%; animation:fadeIn 0.3s ease; word-break:break-word; border:1px solid rgba(255,255,255,0.4); box-shadow: 0 4px 16px rgba(0,0,0,0.03); }
@@ -329,7 +329,7 @@ const makeCSS = (T: Theme) => `
   .xp-bar-fill { background:linear-gradient(90deg,${T.accent},#6C8EF5); height:100%; border-radius:99px; transition:transform 0.8s cubic-bezier(0.4,0,0.2,1); transform-origin:left; will-change:transform; }
   .star { font-size:18px; cursor:pointer; transition:transform 0.1s; }
   .star:hover { transform:scale(1.2); }
-  .notif { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:13px 26px; border-radius:99px; font-size:14px; font-weight:600; z-index:9999; white-space:nowrap; box-shadow:0 6px 30px rgba(0,0,0,0.18); animation:popIn 0.28s ease; }
+  .notif { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:13px 26px; border-radius:99px; font-size:14px; font-weight:600; z-index:9999; white-space:nowrap; box-shadow:0 6px 30px rgba(0,0,0,0.18); animation:popIn 0.28s ease; max-width:90vw; overflow:hidden; text-overflow:ellipsis; }
   .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:300; display:flex; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(4px); animation:fadeIn 0.2s ease; }
   .modal { background:${T.surface}; border-radius:24px; padding:28px; width:100%; max-width:460px; box-shadow:0 24px 80px rgba(0,0,0,0.25); animation:popIn 0.28s ease; max-height:92dvh; overflow-y:auto; border:1px solid ${T.border}; }
   .progress-track { background:${T.border}; border-radius:99px; height:6px; overflow:hidden; }
@@ -1238,6 +1238,7 @@ export default function BasUdrus() {
       if (error) { setAuthError(error.message); setAuthLoading(false); return; }
       setNewPassword("");
       showNotif("Password updated! You're logged in.", "ok");
+      if (user) await loadProfile(user.id);
       setScreen("discover");
     } catch { setAuthError("Failed — please try again"); }
     setAuthLoading(false);
@@ -1589,7 +1590,7 @@ export default function BasUdrus() {
         .single();
 
       if (profileCheckError || !existingProfile) {
-
+        setActionLoading(false);
         showNotif("Please save your profile first before posting", "err");
         setShowReqModal(false);
         setScreen("profile");
@@ -3205,7 +3206,7 @@ export default function BasUdrus() {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
           <div ref={notifPanelRef} style={{position:"relative"}}>
-            <button onClick={()=>setShowNotifPanel(p=>!p)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,position:"relative",padding:"3px 5px"}}>
+            <button onClick={()=>setShowNotifPanel(p=>!p)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,position:"relative",padding:"10px 12px",minWidth:44,minHeight:44,display:"flex",alignItems:"center",justifyContent:"center"}}>
               🔔
               {unreadCount>0&&<span style={{position:"absolute",top:0,right:0,background:T.red,color:"#fff",borderRadius:"50%",width:18,height:18,fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid "+T.navBg}}>{unreadCount>9?"9+":unreadCount}</span>}
             </button>
@@ -4913,7 +4914,13 @@ export default function BasUdrus() {
                           <div style={{fontSize:12,color:T.muted,textAlign:"center",padding:20}}>No activity yet</div>
                         ):(
                           a.topActiveUsers.map((u:any,i:number)=>{
-                            const colors = [
+                            const colors = darkMode ? [
+                              {bg:"rgba(139,92,246,0.25)",text:"#c4b5fd"},
+                              {bg:"rgba(16,185,129,0.25)",text:"#6ee7b7"},
+                              {bg:"rgba(244,114,182,0.25)",text:"#f9a8d4"},
+                              {bg:"rgba(59,130,246,0.25)",text:"#93c5fd"},
+                              {bg:"rgba(250,204,21,0.25)",text:"#fde68a"},
+                            ] : [
                               {bg:"#CECBF6",text:"#3C3489"},
                               {bg:"#9FE1CB",text:"#085041"},
                               {bg:"#F4C0D1",text:"#72243E"},
@@ -4945,8 +4952,8 @@ export default function BasUdrus() {
                           </svg>
                           <div style={{flex:1}}>
                             {[
-                              {label:"Resolved",value:rResolved,color:"#1D9E75",bg:"#E1F5EE"},
-                              {label:"Unresolved",value:rUnresolved,color:"#A32D2D",bg:"#FCEBEB"},
+                              {label:"Resolved",value:rResolved,color:darkMode?"#6ee7b7":"#1D9E75",bg:darkMode?"rgba(16,185,129,0.15)":"#E1F5EE"},
+                              {label:"Unresolved",value:rUnresolved,color:darkMode?"#fca5a5":"#A32D2D",bg:darkMode?"rgba(239,68,68,0.15)":"#FCEBEB"},
                             ].map(r=>(
                               <div key={r.label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,background:r.bg,marginBottom:8}}>
                                 <span style={{fontSize:13,color:r.color,fontWeight:500}}>{r.label}</span>

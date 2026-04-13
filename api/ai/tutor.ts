@@ -727,9 +727,9 @@ export default async function handler(req: Request) {
 
     const systemPrompt = SYSTEM_PROMPT + (contextParts.length > 0 ? "\n\n═══════════════════════════════════════════\nCONTEXT FOR THIS SESSION\n═══════════════════════════════════════════\n" + contextParts.join("\n") : "");
 
-    const apiMessages = (messages || []).map((m: { role: string; content: string }) => ({
+    const apiMessages = (messages || []).slice(-40).map((m: { role: string; content: string }) => ({
       role: m.role,
-      content: m.content,
+      content: typeof m.content === "string" ? m.content.slice(0, 4000) : String(m.content).slice(0, 4000),
     }));
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
