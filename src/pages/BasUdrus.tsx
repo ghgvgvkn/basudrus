@@ -129,7 +129,62 @@ async function loadUniData() {
 }
 
 function getUniversities(): string[] {
-  return _uniList.map(u => u.name);
+  return _uniList.map(u => u.name.trim());
+}
+
+/**
+ * Normalize a user-entered university string to the canonical name from the DB.
+ * Handles: short names (PSUT, GJU), partial names, trailing spaces, case mismatch.
+ */
+function normalizeUni(raw: string): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
+  // 1. Exact match (trimmed)
+  for (const u of _uniList) {
+    if (u.name.trim() === trimmed) return u.name.trim();
+  }
+  // 2. Case-insensitive match on name, short_name, full_name
+  for (const u of _uniList) {
+    const canonical = u.name.trim();
+    if (u.name.trim().toLowerCase() === lower) return canonical;
+    if (u.short_name?.toLowerCase() === lower) return canonical;
+    if (u.full_name?.toLowerCase() === lower) return canonical;
+  }
+  // 3. Partial / contains match (e.g., "Jordan University" matches "University of Jordan")
+  for (const u of _uniList) {
+    const canonical = u.name.trim();
+    const uLower = canonical.toLowerCase();
+    // Check if user input contains main keywords of the uni name
+    const keywords = uLower.split(/\s+/).filter(w => w.length > 2 && !["the","of","for","and"].includes(w));
+    const inputWords = lower.split(/\s+/);
+    const matchCount = keywords.filter(kw => inputWords.some(iw => iw.includes(kw) || kw.includes(iw))).length;
+    if (keywords.length > 0 && matchCount >= Math.ceil(keywords.length * 0.5)) return canonical;
+  }
+  // 4. No match — return trimmed original (so it still works for comparison)
+  return trimmed;
+}
+
+/**
+ * Check if a profile's uni matches a filter value. Handles all variations.
+ */
+function uniMatches(profileUni: string, filterUni: string): boolean {
+  if (!filterUni) return true;
+  if (!profileUni) return false;
+  const normProfile = normalizeUni(profileUni);
+  const normFilter = normalizeUni(filterUni);
+  if (normProfile === normFilter) return true;
+  // Fallback: case-insensitive trimmed compare
+  return normProfile.toLowerCase() === normFilter.toLowerCase();
+}
+
+/**
+ * Check if a profile's major matches a filter value. Case-insensitive, trimmed.
+ */
+function majorMatches(profileMajor: string, filterMajor: string): boolean {
+  if (!filterMajor) return true;
+  if (!profileMajor) return false;
+  return profileMajor.trim().toLowerCase() === filterMajor.trim().toLowerCase();
 }
 
 function getAllMajors(): string[] {
@@ -2303,9 +2358,9 @@ export default function BasUdrus() {
   // Derived discover deck — each entry is a post (help_request + profile)
   const connectionIds = new Set(connections.map(c=>c.id));
   const filteredPool = allStudents.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => {
-    const subjectMatch = !subjectFilter || (s._postSubject && s._postSubject === subjectFilter);
-    const uniMatch     = !uniFilter     || s.uni === uniFilter;
-    const majorMatch   = !majorFilter   || s.major === majorFilter;
+    const subjectMatch = !subjectFilter || (s._postSubject && s._postSubject.trim().toLowerCase() === subjectFilter.trim().toLowerCase());
+    const uniMatch     = uniMatches(s.uni || "", uniFilter);
+    const majorMatch   = majorMatches(s.major || "", majorFilter);
     const typeMatch    = !typeFilter    || (s._postMeetType || s.meet_type) === typeFilter;
     return subjectMatch && uniMatch && majorMatch && typeMatch;
   });
