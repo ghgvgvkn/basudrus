@@ -1023,8 +1023,9 @@ export default function BasUdrus() {
         setMessages(prev => {
           const partnerId = msg.receiver_id;
           const existing = prev[partnerId] || [];
-          // Skip if already exists (from optimistic UI or duplicate event)
-          if (existing.some(m => m.id === msg.id || (m.id.startsWith("temp-") && m.text === msg.text && m.created_at === msg.created_at))) return prev;
+          // Skip if already exists: check real ID match OR any temp message with same text
+          // (temp messages have client timestamps that never match DB timestamps, so don't compare created_at)
+          if (existing.some(m => m.id === msg.id || (m.id.startsWith("temp-") && m.text === msg.text))) return prev;
           return { ...prev, [partnerId]: [...existing, msg] };
         });
       })
@@ -1820,16 +1821,21 @@ export default function BasUdrus() {
     if (cached) {
       setViewingProfile(cached as Profile);
       // 2. BACKGROUND: Refresh with latest DB data (non-blocking)
+      // Only update if the modal is still showing this same user
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
-        .then(({ data }) => { if (data) setViewingProfile(data as Profile); });
+        .then(({ data }) => { if (data) setViewingProfile(prev => prev?.id === userId ? data as Profile : prev); });
       return;
     }
     // 3. FALLBACK: No cached data — must fetch (rare: only for profiles not in feed)
     setViewingProfile({ id: userId, name: "Loading...", email: "", uni: "", major: "", year: "", course: "", meet_type: "", bio: "", avatar_emoji: "⏳", avatar_color: "#ccc", photo_mode: "initials", photo_url: null, streak: 0, xp: 0, badges: [], online: false, sessions: 0, rating: 0, subjects: [], created_at: "" } as Profile);
     supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
       .then(({ data }) => {
-        if (data) setViewingProfile(data as Profile);
-        else { setViewingProfile(null); showNotif("Profile not found", "err"); }
+        setViewingProfile(prev => {
+          if (!prev || prev.id !== userId) return prev; // Modal closed or switched user
+          if (data) return data as Profile;
+          showNotif("Profile not found", "err");
+          return null;
+        });
       });
   };
 
