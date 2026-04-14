@@ -63,6 +63,7 @@ export type Message = {
   message_type: "text" | "voice" | "image" | "file";
   file_url: string | null;
   file_name: string | null;
+  client_id?: string | null;
   created_at: string;
 };
 

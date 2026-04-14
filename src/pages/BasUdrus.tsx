@@ -95,6 +95,27 @@ function logError(context: string, error: unknown) {
   }
 }
 
+// ─── NETWORK STATUS HOOK ────────────────────────────────────────────────────
+function useNetworkStatus() {
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, []);
+  return online;
+}
+
+/** Generate a collision-resistant client ID for message dedup */
+function generateClientId(): string {
+  // crypto.randomUUID is available in all modern browsers (Chrome 92+, Safari 15.4+, Firefox 95+)
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  // Fallback: timestamp + random
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 // ─── PERFORMANCE UTILS ──────────────────────────────────────────────────────
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -276,6 +297,7 @@ const makeCSS = (T: Theme) => `
   @keyframes pulse    { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
   @keyframes orbFloat { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-8px) scale(1.03)} }
   @keyframes bounceIn { 0%{transform:scale(0.3);opacity:0} 60%{transform:scale(1.05)} 100%{transform:scale(1);opacity:1} }
+  @keyframes slideDown { 0%{transform:translateY(-100%)} 100%{transform:translateY(0)} }
   .fly-up   { animation:flyUp   0.35s cubic-bezier(0.4,0,0.2,1) forwards; will-change:transform,opacity; }
   .fly-down { animation:flyDown 0.3s cubic-bezier(0.4,0,0.2,1) forwards; will-change:transform,opacity; }
   .fade-in  { animation:fadeIn  0.4s ease forwards; will-change:transform,opacity; }
@@ -737,6 +759,21 @@ export default function BasUdrus() {
   const dragStart = useRef(0);
   const dragScroll = useRef(0);
   const dragMoved = useRef(false);
+
+  // ── Network status (offline detection) ──────────────────────────────
+  const isOnline = useNetworkStatus();
+  const [showOfflineBanner, setShowOfflineBanner] = useState(false);
+  useEffect(() => {
+    if (!isOnline) { setShowOfflineBanner(true); }
+    else {
+      // Delay hiding so user sees "Back online" briefly
+      const t = setTimeout(() => setShowOfflineBanner(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [isOnline]);
+
+  // ── Pending messages map: clientId → tempId (for robust dedup) ─────
+  const pendingMsgs = useRef<Map<string, string>>(new Map());
   const courseDropRef = useRef<HTMLDivElement>(null);
 
   const allCourseOptions = useMemo(() => {
@@ -1019,13 +1056,28 @@ export default function BasUdrus() {
         table: "messages",
         filter: `sender_id=eq.${user.id}`,
       }, (payload) => {
-        const msg = payload.new as Message;
+        const msg = payload.new as Message & { client_id?: string };
         setMessages(prev => {
           const partnerId = msg.receiver_id;
           const existing = prev[partnerId] || [];
-          // Skip if already exists: check real ID match OR any temp message with same text
-          // (temp messages have client timestamps that never match DB timestamps, so don't compare created_at)
-          if (existing.some(m => m.id === msg.id || (m.id.startsWith("temp-") && m.text === msg.text))) return prev;
+          // 1. Skip if we already have this exact DB message
+          if (existing.some(m => m.id === msg.id)) return prev;
+          // 2. If this message has a client_id, find and replace the matching temp message
+          if (msg.client_id && pendingMsgs.current.has(msg.client_id)) {
+            const tempId = pendingMsgs.current.get(msg.client_id)!;
+            pendingMsgs.current.delete(msg.client_id);
+            // Replace temp → real (if temp still exists), otherwise skip (already replaced by insert callback)
+            if (existing.some(m => m.id === tempId)) {
+              return { ...prev, [partnerId]: existing.map(m => m.id === tempId ? msg : m) };
+            }
+            return prev; // Already replaced by the insert response
+          }
+          // 3. Fallback for messages without client_id (file/voice msgs, or from other tabs)
+          //    Check for any temp message with matching text as last resort
+          if (existing.some(m => m.id.startsWith("temp-") && m.text === msg.text)) {
+            return { ...prev, [partnerId]: existing.map(m => (m.id.startsWith("temp-") && m.text === msg.text) ? msg : m) };
+          }
+          // 4. Truly new message (from another tab) — append
           return { ...prev, [partnerId]: [...existing, msg] };
         });
       })
@@ -1388,6 +1440,7 @@ export default function BasUdrus() {
   // ── Connect / Reject ──────────────────────────────────────────────────
   const handleConnect = async (s: Profile & {_postId?: string; _postSubject?: string}) => {
     if (!user || connectingRef.current) return;
+    if (!navigator.onLine) { showNotif("You're offline — can't connect right now. Try again when online.", "err"); return; }
     connectingRef.current = true;
     const key = s._postId || s.id;
     setFlyCard({id:key,dir:"up"});
@@ -1435,11 +1488,15 @@ export default function BasUdrus() {
   // ── Chat ──────────────────────────────────────────────────────────────
   const sendMessage = async (partnerId: string) => {
     if (!newMsg.trim() || !user) return;
+    // Offline guard — fail fast with clear feedback
+    if (!navigator.onLine) { showNotif("You're offline — message not sent. Check your connection.", "err"); return; }
     const text = newMsg;
+    const clientId = generateClientId();
     setNewMsg("");
     // Optimistic UI — show message instantly before DB confirms
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `temp-${clientId}`;
     const optimistic: Message = { id: tempId, sender_id: user.id, receiver_id: partnerId, text, message_type: "text", file_url: null, file_name: null, created_at: new Date().toISOString() };
+    pendingMsgs.current.set(clientId, tempId);
     setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId]||[]), optimistic] }));
     try {
       const { data, error } = await supabase.from("messages").insert({
@@ -1447,15 +1504,20 @@ export default function BasUdrus() {
         receiver_id: partnerId,
         text,
         message_type: "text",
+        client_id: clientId,
       }).select().single();
       if (error || !data) {
         logError("sendMessage", error);
+        pendingMsgs.current.delete(clientId);
         // Roll back optimistic message & restore input
         setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
         setNewMsg(text);
-        showNotif("Couldn't send message — please try again.", "err");
+        // Distinguish network errors from other failures
+        const isNetworkErr = !navigator.onLine || (error?.message && /fetch|network|timeout|abort/i.test(error.message));
+        showNotif(isNetworkErr ? "No connection — message not sent. Try again when online." : "Couldn't send message — please try again.", "err");
         return;
       }
+      pendingMsgs.current.delete(clientId);
       // Replace temp with real DB message
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).map(m => m.id === tempId ? data : m) }));
       if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
@@ -1478,7 +1540,13 @@ export default function BasUdrus() {
           }).catch(() => {});
         }
       }
-    } catch { setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) })); setNewMsg(text); showNotif("Couldn't send message — please try again.", "err"); }
+    } catch (err) {
+      pendingMsgs.current.delete(clientId);
+      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
+      setNewMsg(text);
+      const isNet = !navigator.onLine || (err instanceof TypeError && /fetch|network/i.test(err.message));
+      showNotif(isNet ? "No connection — message not sent. Check your internet." : "Couldn't send message — please try again.", "err");
+    }
   };
 
   // ── Voice Recording ─────────────────────────────────────────────────
@@ -1544,12 +1612,13 @@ export default function BasUdrus() {
 
   const uploadAndSendFile = async (fileOrBlob: File | Blob, fileName: string, msgType: "voice" | "image" | "file") => {
     if (!user || !activeChat) return;
+    if (!navigator.onLine) { showNotif(`You're offline — ${msgType === "voice" ? "voice message" : "file"} not sent.`, "err"); return; }
     const partnerId = activeChat.id;  // Capture early to avoid stale closure
     try {
       const ext = fileName.split(".").pop() || "bin";
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : (fileOrBlob.type || "audio/webm") });
-      if (upErr) { logError("uploadChatFile", upErr); showNotif("Upload failed — try again", "err"); return; }
+      if (upErr) { logError("uploadChatFile", upErr); showNotif(!navigator.onLine ? "No connection — upload failed." : "Upload failed — try again", "err"); return; }
       const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
       const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
       const { data, error } = await supabase.from("messages").insert({
@@ -1560,9 +1629,9 @@ export default function BasUdrus() {
         file_url: urlData.publicUrl,
         file_name: fileName,
       }).select().single();
-      if (error || !data) { logError("sendFileMsg", error); showNotif("Couldn't send — try again", "err"); return; }
+      if (error || !data) { logError("sendFileMsg", error); showNotif(!navigator.onLine ? "Connection lost — message not sent." : "Couldn't send — try again", "err"); return; }
       setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId] || []), data] }));
-    } catch (err) { logError("uploadAndSendFile", err); showNotif("Upload failed", "err"); }
+    } catch (err) { logError("uploadAndSendFile", err); showNotif(!navigator.onLine ? "No connection — upload failed. Check your internet." : "Upload failed — try again", "err"); }
   };
 
   // ── Pomodoro Timer ──────────────────────────────────────────────────
@@ -1685,6 +1754,7 @@ export default function BasUdrus() {
   const submitRequest = async () => {
     if (!newReq.subject||!user) return showNotif("Pick a course first","err");
     if (!newReq.detail?.trim()) return showNotif("Write what you need help with","err");
+    if (!navigator.onLine) return showNotif("You're offline — can't post right now. Try again when connected.", "err");
     if (actionLoading) return;
     setActionLoading(true);
     try {
@@ -1827,13 +1897,14 @@ export default function BasUdrus() {
       return;
     }
     // 3. FALLBACK: No cached data — must fetch (rare: only for profiles not in feed)
+    if (!navigator.onLine) { showNotif("You're offline — can't load this profile right now.", "err"); return; }
     setViewingProfile({ id: userId, name: "Loading...", email: "", uni: "", major: "", year: "", course: "", meet_type: "", bio: "", avatar_emoji: "⏳", avatar_color: "#ccc", photo_mode: "initials", photo_url: null, streak: 0, xp: 0, badges: [], online: false, sessions: 0, rating: 0, subjects: [], created_at: "" } as Profile);
     supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
       .then(({ data }) => {
         setViewingProfile(prev => {
           if (!prev || prev.id !== userId) return prev; // Modal closed or switched user
           if (data) return data as Profile;
-          showNotif("Profile not found", "err");
+          showNotif(!navigator.onLine ? "Can't load profile — you're offline." : "Profile not found", "err");
           return null;
         });
       });
@@ -1949,6 +2020,7 @@ export default function BasUdrus() {
   const saveProfile = async () => {
     if (!user) { showNotif("Not signed in", "err"); return; }
     if (!editProfile) { showNotif("Nothing to save", "err"); return; }
+    if (!navigator.onLine) { showNotif("You're offline — changes can't be saved right now.", "err"); return; }
     if (actionLoading) return; // Prevent double-click
     setActionLoading(true);
     try {
@@ -2240,6 +2312,7 @@ export default function BasUdrus() {
   // ── AI Handlers ───────────────────────────────────────────────────────
   const sendTutorMessage = async () => {
     if (!tutorInput.trim() || tutorLoading) return;
+    if (!navigator.onLine) { showNotif("You're offline — AI tutor needs internet to work.", "err"); return; }
     const msg = tutorInput.trim();
     const fileCtx = tutorFile ? `\n\n[Attached file: ${tutorFile.name}]\n${tutorFile.text.slice(0,4000)}` : "";
     const displayMsg = tutorFile ? `${msg}\n📎 ${tutorFile.name}` : msg;
@@ -2313,6 +2386,7 @@ export default function BasUdrus() {
 
   const sendWellbeingMessage = async () => {
     if (!wellbeingInput.trim() || wellbeingLoading) return;
+    if (!navigator.onLine) { showNotif("You're offline — wellbeing chat needs internet.", "err"); return; }
     const msg = wellbeingInput.trim();
     setWellbeingInput("");
     const newMsgs = [...wellbeingMsgs, { role:"user" as const, content:msg }];
@@ -3045,6 +3119,13 @@ export default function BasUdrus() {
       <style>{makeCSS(T)}</style>
 
       {notif&&<div className="notif" style={{background:notif.type==="err"?T.red:T.navy,color:"#fff"}}>{notif.msg}</div>}
+
+      {/* ── Offline / Back-online banner ── */}
+      {showOfflineBanner&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:10000,padding:"10px 16px",textAlign:"center",fontSize:13,fontWeight:700,color:"#fff",background:isOnline?"#22c55e":"#ef4444",transition:"background 0.3s",animation:"slideDown 0.3s ease"}}>
+          {isOnline ? "✅ Back online" : "📡 No internet connection — some features won't work"}
+        </div>
+      )}
 
       {newBadge&&(
         <div style={{position:"fixed",top:72,left:"50%",transform:"translateX(-50%)",background:T.goldSoft,border:`2px solid ${T.gold}`,borderRadius:20,padding:"16px 24px",zIndex:9998,display:"flex",alignItems:"center",gap:14,boxShadow:"0 8px 32px rgba(0,0,0,0.15)",animation:"bounceIn 0.45s ease"}}>
