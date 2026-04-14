@@ -1622,8 +1622,9 @@ export default function BasUdrus() {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null; // Prevent double-stop
     }
   };
 
@@ -1642,13 +1643,22 @@ export default function BasUdrus() {
     if (!user || !activeChat) return;
     if (!navigator.onLine) { showNotif(`You're offline — ${msgType === "voice" ? "voice message" : "file"} not sent.`, "err"); return; }
     const partnerId = activeChat.id;  // Capture early to avoid stale closure
+    const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
+    // Optimistic: show "uploading" message immediately
+    const tempId = `temp-upload-${Date.now()}`;
+    const optimistic: Message = { id: tempId, sender_id: user.id, receiver_id: partnerId, text: `⏳ Sending ${msgType}...`, message_type: msgType, file_url: null, file_name: fileName, created_at: new Date().toISOString() };
+    setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId] || []), optimistic] }));
     try {
       const ext = fileName.split(".").pop() || "bin";
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : (fileOrBlob.type || "audio/webm") });
-      if (upErr) { logError("uploadChatFile", upErr); showNotif(!navigator.onLine ? "No connection — upload failed." : "Upload failed — try again", "err"); return; }
+      if (upErr) {
+        logError("uploadChatFile", upErr);
+        setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
+        showNotif(!navigator.onLine ? "No connection — upload failed." : "Upload failed — try again", "err");
+        return;
+      }
       const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
-      const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
       const { data, error } = await supabase.from("messages").insert({
         sender_id: user.id,
         receiver_id: partnerId,
@@ -1657,9 +1667,19 @@ export default function BasUdrus() {
         file_url: urlData.publicUrl,
         file_name: fileName,
       }).select().single();
-      if (error || !data) { logError("sendFileMsg", error); showNotif(!navigator.onLine ? "Connection lost — message not sent." : "Couldn't send — try again", "err"); return; }
-      setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId] || []), data] }));
-    } catch (err) { logError("uploadAndSendFile", err); showNotif(!navigator.onLine ? "No connection — upload failed. Check your internet." : "Upload failed — try again", "err"); }
+      if (error || !data) {
+        logError("sendFileMsg", error);
+        setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
+        showNotif(!navigator.onLine ? "Connection lost — message not sent." : "Couldn't send — try again", "err");
+        return;
+      }
+      // Replace optimistic with real DB message
+      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).map(m => m.id === tempId ? data : m) }));
+    } catch (err) {
+      logError("uploadAndSendFile", err);
+      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
+      showNotif(!navigator.onLine ? "No connection — upload failed. Check your internet." : "Upload failed — try again", "err");
+    }
   };
 
   // ── Pomodoro Timer ──────────────────────────────────────────────────

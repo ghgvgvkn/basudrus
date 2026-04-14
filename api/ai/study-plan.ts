@@ -8,7 +8,7 @@ function secHeaders(origin?: string | null) {
   if (origin && ALLOWED_ORIGINS.some(o => origin.startsWith(o))) {
     h["Access-Control-Allow-Origin"] = origin;
     h["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-    h["Access-Control-Allow-Headers"] = "Content-Type";
+    h["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
   }
   return h;
 }

@@ -28,7 +28,7 @@ function securityHeaders(origin?: string | null) {
   if (origin && ALLOWED_ORIGINS.some(o => origin.startsWith(o))) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
   }
   return headers;
 }
@@ -589,12 +589,13 @@ export default async function handler(req: Request) {
 
     return new Response(stream, {
       headers: {
+        ...sHeaders,
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
       },
     });
   } catch {
-    return new Response(JSON.stringify({ error: "Server error" }), { status: 500 });
+    return new Response(JSON.stringify({ error: "Server error" }), { status: 500, headers: { ...sHeaders, "Content-Type": "application/json" } });
   }
 }
