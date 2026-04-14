@@ -106,6 +106,72 @@ function logError(context: string, error: unknown) {
   }
 }
 
+// ─── EVENT TRACKER (lightweight analytics — fire-and-forget) ─────────────────
+// Batches events and flushes every 5 seconds to avoid spamming DB
+const _eventQueue: { user_id: string | null; event: string; screen: string; meta: Record<string, unknown>; created_at: string }[] = [];
+let _flushTimer: ReturnType<typeof setTimeout> | null = null;
+let _currentScreen = "landing";
+
+function trackEvent(event: string, meta: Record<string, unknown> = {}) {
+  _eventQueue.push({
+    user_id: _errorUserId,
+    event,
+    screen: _currentScreen,
+    meta,
+    created_at: new Date().toISOString(),
+  });
+  // Flush after 5s of inactivity, or immediately if queue is large
+  if (_flushTimer) clearTimeout(_flushTimer);
+  if (_eventQueue.length >= 20) {
+    flushEvents();
+  } else {
+    _flushTimer = setTimeout(flushEvents, 5000);
+  }
+}
+
+function flushEvents() {
+  if (_eventQueue.length === 0) return;
+  const batch = _eventQueue.splice(0, 50);
+  supabase.from("events").insert(batch).then(() => {}, () => {});
+}
+
+// Flush on tab close + global error catching
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", flushEvents);
+  window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushEvents();
+  });
+  // Catch uncaught errors and unhandled promise rejections
+  window.addEventListener("error", (e) => {
+    trackEvent("js_error", { message: (e.message || "").slice(0, 300), file: (e.filename || "").split("/").pop(), line: e.lineno });
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    const msg = e.reason instanceof Error ? e.reason.message : String(e.reason || "");
+    trackEvent("js_error", { message: msg.slice(0, 300), type: "unhandled_promise" });
+  });
+}
+
+// UX signal: detect repeated rapid clicks (confusion/lag indicator)
+let _lastClickEvent = "";
+let _lastClickTime = 0;
+let _rapidClickCount = 0;
+
+function trackClick(event: string, meta: Record<string, unknown> = {}) {
+  const now = Date.now();
+  if (event === _lastClickEvent && now - _lastClickTime < 1500) {
+    _rapidClickCount++;
+    if (_rapidClickCount === 3) {
+      trackEvent("retry_click", { ...meta, original_event: event, clicks: _rapidClickCount });
+      _rapidClickCount = 0;
+    }
+  } else {
+    _rapidClickCount = 1;
+  }
+  _lastClickEvent = event;
+  _lastClickTime = now;
+  trackEvent(event, meta);
+}
+
 // ─── NETWORK STATUS HOOK ────────────────────────────────────────────────────
 function useNetworkStatus() {
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -615,7 +681,8 @@ export default function BasUdrus() {
   const T = darkMode ? DARK : LIGHT;
   useEffect(() => { try { localStorage.setItem("bas-udrus-dark", String(darkMode)); } catch {} }, [darkMode]);
 
-  const [screen, setScreen] = useState<string>("landing");
+  const [screen, _setScreen] = useState<string>("landing");
+  const setScreen = useCallback((s: string) => { _currentScreen = s; _setScreen(s); }, []);
   const [authMode, setAuthMode] = useState<"signup"|"login"|"reset"|"reset-sent"|"new-password">("signup");
   const [authForm, setAuthForm] = useState({ email:"", password:"", name:"" });
   const [authError, setAuthError] = useState("");
@@ -962,6 +1029,7 @@ export default function BasUdrus() {
         }
         if (event === "SIGNED_IN" || event === "USER_UPDATED") {
           const p = await loadProfile(session.user.id);
+          if (!p) trackEvent("signup");  // New user — no profile yet
           setScreen(p ? "discover" : "onboard");
         }
       } else if (event === "SIGNED_OUT") {
@@ -1458,6 +1526,7 @@ export default function BasUdrus() {
       const { error } = await supabase.from("profiles").upsert(profileData, { onConflict: "id" });
       if (error) { logError("handleOnboard:upsert", error); showNotif("Error saving profile: " + error.message, "err"); setOnboardLoading(false); return; }
       setProfile(profileData as typeof profile);
+      trackEvent("onboard_complete", { uni: profileData.uni, major: profileData.major });
       setScreen("discover");
       loadAllStudents().catch(e => logError("loadAllStudents", e));
     } catch (e) { logError("handleOnboard", e); showNotif("Something went wrong — please try again", "err"); }
@@ -1502,6 +1571,7 @@ export default function BasUdrus() {
         setProfile(p => ({ ...p, xp: (p.xp || 0) + 20 }));
         supabase.from("profiles").update({ xp: (profile.xp || 0) + 20 }).eq("id", user.id).then(() => {});
         showNotif(`You matched with ${s.name}! 🎉`);
+        trackEvent("connect", { partner_id: s.id });
         setActiveChat(s);
         setScreen("connect");
         if (!earnedBadges.includes("first_connect")) awardBadge("first_connect");
@@ -1549,11 +1619,10 @@ export default function BasUdrus() {
       }).select().single();
       if (error || !data) {
         logError("sendMessage", error);
+        trackEvent("msg_fail", { reason: error?.code || "unknown", network: !navigator.onLine });
         pendingMsgs.current.delete(clientId);
-        // Roll back optimistic message & restore input
         setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
         setNewMsg(text);
-        // Distinguish network errors from other failures
         const isNetworkErr = !navigator.onLine || (error?.message && /fetch|network|timeout|abort/i.test(error.message));
         showNotif(isNetworkErr ? "No connection — message not sent. Try again when online." : "Couldn't send message — please try again.", "err");
         return;
@@ -1561,6 +1630,7 @@ export default function BasUdrus() {
       pendingMsgs.current.delete(clientId);
       // Replace temp with real DB message
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).map(m => m.id === tempId ? data : m) }));
+      trackEvent("msg_sent", { type: "text" });
       if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
       const partner = connections.find(c => c.id === partnerId);
       if (partner?.email) {
@@ -1582,6 +1652,8 @@ export default function BasUdrus() {
         }
       }
     } catch (err) {
+      logError("sendMessage", err);
+      trackEvent("msg_fail", { reason: "exception", network: !navigator.onLine });
       pendingMsgs.current.delete(clientId);
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
       setNewMsg(text);
@@ -1688,8 +1760,10 @@ export default function BasUdrus() {
       }
       // Replace optimistic with real DB message
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).map(m => m.id === tempId ? data : m) }));
+      trackEvent(msgType === "voice" ? "voice_sent" : "msg_sent", { type: msgType });
     } catch (err) {
       logError("uploadAndSendFile", err);
+      trackEvent(msgType === "voice" ? "voice_fail" : "msg_fail", { type: msgType, network: !navigator.onLine });
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
       showNotif(!navigator.onLine ? "No connection — upload failed. Check your internet." : "Upload failed — try again", "err");
     }
@@ -1844,6 +1918,7 @@ export default function BasUdrus() {
         setHelpRequests(prev=>[fullReq as HelpRequest,...prev]);
         setNewReq({subject:"",detail:"",meetType:"flexible"});
         setShowReqModal(false);
+        trackEvent("post_created", { subject: newReq.subject });
         showNotif("Your post is live! 📢");
         await awardBadge("helper");
       } else if (error) {
@@ -1944,6 +2019,7 @@ export default function BasUdrus() {
   };
 
   const openStudentProfile = (userId: string, cachedProfile?: Profile) => {
+    trackClick("post_click", { target_user: userId });
     if (userId === user?.id) { setScreen("profile"); return; }
     // 1. INSTANT: Use cached data from allStudents/connections (already loaded)
     const cached = cachedProfile
@@ -2068,6 +2144,7 @@ export default function BasUdrus() {
         // Atomic decrement (void return — DB caps at GREATEST(0, filled-1))
         await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
         setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:Math.max(0,g.filled-1),joined:false}:g));
+        trackEvent("room_leave", { room_id: groupId });
       } else {
         const cur = groups.find(g=>g.id===groupId);
         if (cur && cur.filled >= cur.spots) { showNotif("Room is full!", "err"); return; }
@@ -2088,6 +2165,7 @@ export default function BasUdrus() {
           return;
         }
         setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled+1,joined:true}:g));
+        trackEvent("room_join", { room_id: groupId });
         showNotif("You joined the session! 🎓");
       }
     } catch { showNotif("Failed — please try again", "err"); }
@@ -2451,11 +2529,13 @@ export default function BasUdrus() {
         }
       }
       // Save assistant response to memory & update stats
+      trackEvent("ai_call", { endpoint: "tutor", subject: tutorSubject || "" });
       saveMemory("tutor", "assistant", assistantMsg.slice(0, 300));
       const stats = incrementStats("tutor");
       const tier = getTokenTier(stats);
       setAiUserTier({ tier: tier.tier, interactionCount: stats.totalInteractions, maxTokens: tier.maxTokens });
     } catch {
+      trackEvent("ai_fail", { endpoint: "tutor" });
       setTutorMsgs(prev => prev.slice(0,-1));
       showNotif("AI tutor error. Please try again.", "err");
     } finally {
@@ -2520,11 +2600,13 @@ export default function BasUdrus() {
         }
       }
       // Save assistant response to memory & update stats
+      trackEvent("ai_call", { endpoint: "wellbeing" });
       saveMemory("wellbeing", "assistant", assistantMsg.slice(0, 300));
       const stats = incrementStats("wellbeing");
       const tier = getTokenTier(stats);
       setAiUserTier({ tier: tier.tier, interactionCount: stats.totalInteractions, maxTokens: tier.maxTokens });
     } catch {
+      trackEvent("ai_fail", { endpoint: "wellbeing" });
       setWellbeingMsgs(prev => prev.slice(0,-1));
       showNotif("Could not reach Mental Health AI. Please try again.", "err");
     } finally {
@@ -3941,7 +4023,7 @@ export default function BasUdrus() {
                 {connections.map(s=>(
                   <div key={s.id} className={`conn-row conn-row-mini ${activeChat?.id===s.id?"active":""}`}
                     style={{padding:"10px 12px",borderRadius:12,marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}
-                    onClick={()=>{setActiveChat(s);loadMessages(s.id);}}>
+                    onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
                     <Avatar s={s} size={38}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600,color:T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
@@ -3970,7 +4052,7 @@ export default function BasUdrus() {
                   </div>
                   <div className="chat-partner-cards" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
                     {connections.map(s=>(
-                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer"}} onClick={()=>{setActiveChat(s);loadMessages(s.id);}}>
+                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer"}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                           <Avatar s={s} size={42}/>
                           <div style={{flex:1}}>
