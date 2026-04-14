@@ -2046,6 +2046,18 @@ export default function BasUdrus() {
         const { data: rpcData, error: rpcErr } = await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
         if (rpcErr) { showNotif("Failed to join — room may be full", "err"); return; }
         const newFilled = typeof rpcData === "number" ? rpcData : null;
+        // Post-join verify: read actual member count from DB to detect over-capacity race
+        if (newFilled !== null) {
+          const { count } = await supabase.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
+          const room = groups.find(g => g.id === groupId);
+          if (room && count !== null && count > room.spots) {
+            // Over-capacity race: more members than spots. Roll back our join.
+            try { await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id); } catch {}
+            try { await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 }); } catch {}
+            showNotif("Room just filled up! Try another session.", "err");
+            return;
+          }
+        }
         setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:newFilled ?? g.filled+1,joined:true}:g));
         showNotif("You joined the session! 🎓");
       }
@@ -3639,7 +3651,7 @@ export default function BasUdrus() {
           ["profile","👤","Me"],
         ] as const).map(([tab,icon,lbl])=>(
           <button key={tab} className={`bot-tab ${curTab===tab?"active":""}`}
-            onClick={()=>{setScreen(tab);if(tab==="connect")setActiveChat(null);}}>
+            onClick={()=>{setScreen(tab);setViewingProfile(null);if(tab==="connect")setActiveChat(null);}}>
             <span className="bi">{icon}</span>
             {lbl}
           </button>
