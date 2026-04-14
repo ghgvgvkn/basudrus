@@ -2233,11 +2233,19 @@ export default function BasUdrus() {
     try {
       const apiMsgs = fileCtx ? [...tutorMsgs, { role:"user" as const, content:msg+fileCtx }] : newMsgs;
       const memory = formatMemoryForPrompt("tutor");
+      const { data: { session: sess } } = await supabase.auth.getSession();
       const res = await fetch("/api/ai/tutor", {
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json", ...(sess?.access_token ? {"Authorization":`Bearer ${sess.access_token}`} : {})},
         body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", year:profile.year||"", uni:profile.uni||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
       });
+      if (res.status === 429) {
+        const errData = await res.json().catch(()=>({error:"Too many messages. Wait a moment."}));
+        setTutorMsgs(prev => prev.slice(0,-1));
+        showNotif(errData.error || "Slow down — wait a moment", "err");
+        setTutorLoading(false);
+        return;
+      }
       if (!res.ok || !res.body) throw new Error("AI error");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -2289,11 +2297,19 @@ export default function BasUdrus() {
     saveMemory("wellbeing", "user", msg);
     try {
       const memory = formatMemoryForPrompt("wellbeing");
+      const { data: { session: wSess } } = await supabase.auth.getSession();
       const res = await fetch("/api/ai/wellbeing", {
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json", ...(wSess?.access_token ? {"Authorization":`Bearer ${wSess.access_token}`} : {})},
         body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
       });
+      if (res.status === 429) {
+        const errData = await res.json().catch(()=>({error:"Take a moment before your next message."}));
+        setWellbeingMsgs(prev => prev.slice(0,-1));
+        showNotif(errData.error || "Slow down — wait a moment", "err");
+        setWellbeingLoading(false);
+        return;
+      }
       if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

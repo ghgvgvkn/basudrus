@@ -1,7 +1,24 @@
 export const config = { runtime: "edge" };
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const ALLOWED_ORIGINS = ["https://basudrus.com", "https://www.basudrus.com", "https://basudrus.vercel.app"];
+
+const LIMITS = { daily: 30, hourly: 15, minute: 3 };
+
+async function checkRateLimit(authHeader: string | null, endpoint: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !authHeader) return { allowed: true, daily_count: 0 };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_ai_rate_limit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": authHeader },
+      body: JSON.stringify({ p_user_id: null, p_endpoint: endpoint, p_daily_limit: LIMITS.daily, p_hourly_limit: LIMITS.hourly, p_minute_limit: LIMITS.minute }),
+    });
+    if (!res.ok) return { allowed: true, daily_count: 0 };
+    return await res.json();
+  } catch { return { allowed: true, daily_count: 0 }; }
+}
 
 function securityHeaders(origin?: string | null) {
   const headers: Record<string, string> = {
@@ -473,6 +490,22 @@ export default async function handler(req: Request) {
   }
 
   try {
+    // ── Rate limit check (soft — fails open if DB unreachable) ──
+    const authHeader = req.headers.get("authorization");
+    const rateCheck = await checkRateLimit(authHeader, "wellbeing");
+    if (!rateCheck.allowed) {
+      const msg = rateCheck.reason === "cooldown"
+        ? "Take a moment before your next message"
+        : rateCheck.reason === "minute_limit"
+        ? "Take a deep breath. I'll be here when you're ready."
+        : rateCheck.reason === "hourly_limit"
+        ? "You've been talking a lot — that's good. Take a short break and come back soon."
+        : "You've reached today's limit. I'll be here tomorrow. Remember: you're not alone.";
+      return new Response(JSON.stringify({ error: msg, limit: true, daily_count: rateCheck.daily_count }), {
+        status: 429, headers: { ...sHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     const { messages, name, mood, mode, uni, major, lang, memory } = await req.json();
 
     const contextParts: string[] = [];

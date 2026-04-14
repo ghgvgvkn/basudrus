@@ -1,7 +1,40 @@
 export const config = { runtime: "edge" };
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const ALLOWED_ORIGINS = ["https://basudrus.com", "https://www.basudrus.com", "https://basudrus.vercel.app"];
+
+// ── Rate limit config (easy to adjust later) ──
+const LIMITS = {
+  daily: 30,    // Generous for now — feels unlimited for normal users
+  hourly: 15,   // Prevents marathon abuse
+  minute: 3,    // Prevents spam clicking
+  // To switch to freemium later, just change daily to 5
+};
+
+async function checkRateLimit(authHeader: string | null, endpoint: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !authHeader) return { allowed: true, daily_count: 0 };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_ai_rate_limit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify({
+        p_user_id: null,  // Function uses auth.uid() internally via SECURITY DEFINER
+        p_endpoint: endpoint,
+        p_daily_limit: LIMITS.daily,
+        p_hourly_limit: LIMITS.hourly,
+        p_minute_limit: LIMITS.minute,
+      }),
+    });
+    if (!res.ok) return { allowed: true, daily_count: 0 }; // Fail open — don't block on rate limit errors
+    return await res.json();
+  } catch { return { allowed: true, daily_count: 0 }; } // Fail open
+}
 
 function securityHeaders(origin?: string | null) {
   const headers: Record<string, string> = {
@@ -734,6 +767,22 @@ export default async function handler(req: Request) {
   }
 
   try {
+    // ── Rate limit check (soft — fails open if DB unreachable) ──
+    const authHeader = req.headers.get("authorization");
+    const rateCheck = await checkRateLimit(authHeader, "tutor");
+    if (!rateCheck.allowed) {
+      const msg = rateCheck.reason === "cooldown"
+        ? "Slow down — wait a few seconds between messages"
+        : rateCheck.reason === "minute_limit"
+        ? "You're sending messages too fast. Take a breath and try again in a minute."
+        : rateCheck.reason === "hourly_limit"
+        ? "You've been studying hard! Take a short break and come back soon."
+        : "You've reached today's limit. Come back tomorrow for more help!";
+      return new Response(JSON.stringify({ error: msg, limit: true, daily_count: rateCheck.daily_count }), {
+        status: 429, headers: { ...sHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     const { messages, subject, major, year, uni, lang, memory } = await req.json();
 
     const contextParts: string[] = [];
