@@ -1907,21 +1907,16 @@ export default function BasUdrus() {
       if (joined) {
         const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);
         if (error) { showNotif("Failed to leave group", "err"); return; }
-        const grp = groups.find(g=>g.id===groupId);
-        if (grp) {
-          const { error: updErr } = await supabase.from("group_rooms").update({ filled: Math.max(0, grp.filled - 1) }).eq("id", groupId);
-          if (updErr) logError("toggleJoinGroup:updateFilled", updErr);
-        }
+        // Atomic decrement — prevents race condition when multiple users leave simultaneously
+        await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
         setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:Math.max(0,g.filled-1),joined:false}:g));
       } else {
         const cur = groups.find(g=>g.id===groupId);
         if (cur && cur.filled >= cur.spots) { showNotif("Room is full!", "err"); return; }
         const { error } = await supabase.from("group_members").upsert({ group_id: groupId, user_id: user.id }, { onConflict: "group_id,user_id" });
         if (error) { showNotif("Failed to join group", "err"); return; }
-        if (cur) {
-          const { error: updErr } = await supabase.from("group_rooms").update({ filled: cur.filled + 1 }).eq("id", groupId);
-          if (updErr) logError("toggleJoinGroup:updateFilled", updErr);
-        }
+        // Atomic increment — prevents race condition when multiple users join simultaneously
+        await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
         setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled+1,joined:true}:g));
         showNotif("You joined the session! 🎓");
       }
