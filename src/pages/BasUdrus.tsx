@@ -154,6 +154,13 @@ function checkBurst(event: string) {
     });
     // Flush immediately — spikes are urgent
     flushEvents();
+    // Alert admin instantly via DB notification
+    const spikeMsg = `${rule.spike}: ${_burstLog[event].length} ${event} events in ${rule.windowMs / 1000}s`;
+    supabase.rpc("report_spike", {
+      spike_type: rule.spike,
+      spike_message: spikeMsg,
+      spike_meta: { count: _burstLog[event].length, window_sec: rule.windowMs / 1000, source: event, screen: _currentScreen },
+    }).then(() => {}, () => {});
   }
 }
 
