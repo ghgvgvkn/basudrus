@@ -2032,33 +2032,29 @@ export default function BasUdrus() {
       if (joined) {
         const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);
         if (error) { showNotif("Failed to leave group", "err"); return; }
-        // Atomic decrement — prevents race condition when multiple users leave simultaneously
-        const { data: rpcData } = await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
-        const newFilled = typeof rpcData === "number" ? rpcData : null;
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:newFilled ?? Math.max(0,g.filled-1),joined:false}:g));
+        // Atomic decrement (void return — DB caps at GREATEST(0, filled-1))
+        await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
+        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:Math.max(0,g.filled-1),joined:false}:g));
       } else {
         const cur = groups.find(g=>g.id===groupId);
         if (cur && cur.filled >= cur.spots) { showNotif("Room is full!", "err"); return; }
         // Upsert prevents duplicate rows on rapid clicks
         const { error } = await supabase.from("group_members").upsert({ group_id: groupId, user_id: user.id }, { onConflict: "group_id,user_id" });
         if (error) { showNotif("Failed to join group", "err"); return; }
-        // Atomic increment with bounds check in DB (GREATEST/LEAST prevents over-filling)
-        const { data: rpcData, error: rpcErr } = await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
+        // Atomic increment (void return — DB caps at LEAST(spots, filled+1))
+        const { error: rpcErr } = await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
         if (rpcErr) { showNotif("Failed to join — room may be full", "err"); return; }
-        const newFilled = typeof rpcData === "number" ? rpcData : null;
-        // Post-join verify: read actual member count from DB to detect over-capacity race
-        if (newFilled !== null) {
-          const { count } = await supabase.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
-          const room = groups.find(g => g.id === groupId);
-          if (room && count !== null && count > room.spots) {
-            // Over-capacity race: more members than spots. Roll back our join.
-            try { await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id); } catch {}
-            try { await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 }); } catch {}
-            showNotif("Room just filled up! Try another session.", "err");
-            return;
-          }
+        // Post-join verify: read actual member count to detect over-capacity race
+        const { count } = await supabase.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
+        const room = groups.find(g => g.id === groupId);
+        if (room && count !== null && count > room.spots) {
+          // Over-capacity race: more members than spots. Roll back our join.
+          try { await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id); } catch {}
+          try { await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 }); } catch {}
+          showNotif("Room just filled up! Try another session.", "err");
+          return;
         }
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:newFilled ?? g.filled+1,joined:true}:g));
+        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled+1,joined:true}:g));
         showNotif("You joined the session! 🎓");
       }
     } catch { showNotif("Failed — please try again", "err"); }
