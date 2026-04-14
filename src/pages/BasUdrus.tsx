@@ -106,13 +106,29 @@ function logError(context: string, error: unknown) {
   }
 }
 
-// ─── EVENT TRACKER (lightweight analytics — fire-and-forget) ─────────────────
-// Batches events and flushes every 5 seconds to avoid spamming DB
+// ─── EVENT TRACKER (lean — batched + sampled to minimize DB writes) ──────────
+// Critical events (errors, failures): always logged immediately
+// High-frequency events (msg_sent, chat_open, post_click, ai_call): counted
+//   locally and flushed as a single summary row every 60 seconds
 const _eventQueue: { user_id: string | null; event: string; screen: string; meta: Record<string, unknown>; created_at: string }[] = [];
 let _flushTimer: ReturnType<typeof setTimeout> | null = null;
 let _currentScreen = "landing";
 
+// Counters for high-frequency events — flushed as one summary row
+const _counters: Record<string, number> = {};
+let _counterTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Events that are high-frequency and should be counted, not logged individually
+const COUNTED_EVENTS = new Set(["msg_sent", "chat_open", "post_click", "ai_call", "voice_sent"]);
+
 function trackEvent(event: string, meta: Record<string, unknown> = {}) {
+  // High-frequency events: just count locally, flush as summary
+  if (COUNTED_EVENTS.has(event)) {
+    _counters[event] = (_counters[event] || 0) + 1;
+    if (!_counterTimer) _counterTimer = setTimeout(flushCounters, 60_000);
+    return;
+  }
+  // Critical/low-frequency events: queue for DB insert
   _eventQueue.push({
     user_id: _errorUserId,
     event,
@@ -120,13 +136,34 @@ function trackEvent(event: string, meta: Record<string, unknown> = {}) {
     meta,
     created_at: new Date().toISOString(),
   });
-  // Flush after 5s of inactivity, or immediately if queue is large
+  // Flush after 10s of inactivity, or immediately if queue hits 15
   if (_flushTimer) clearTimeout(_flushTimer);
-  if (_eventQueue.length >= 20) {
+  if (_eventQueue.length >= 15) {
     flushEvents();
   } else {
-    _flushTimer = setTimeout(flushEvents, 5000);
+    _flushTimer = setTimeout(flushEvents, 10_000);
   }
+}
+
+function flushCounters() {
+  _counterTimer = null;
+  const entries = Object.entries(_counters);
+  if (entries.length === 0) return;
+  // Single row with all counts as meta
+  const summary: Record<string, unknown> = {};
+  for (const [k, v] of entries) { summary[k] = v; _counters[k] = 0; }
+  // Only flush if there's actually activity
+  if (entries.some(([, v]) => v > 0)) {
+    supabase.from("events").insert({
+      user_id: _errorUserId,
+      event: "activity_summary",
+      screen: _currentScreen,
+      meta: summary,
+      created_at: new Date().toISOString(),
+    }).then(() => {}, () => {});
+  }
+  // Reset counters
+  for (const k of Object.keys(_counters)) _counters[k] = 0;
 }
 
 function flushEvents() {
@@ -137,11 +174,11 @@ function flushEvents() {
 
 // Flush on tab close + global error catching
 if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", flushEvents);
+  window.addEventListener("beforeunload", () => { flushCounters(); flushEvents(); });
   window.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushEvents();
+    if (document.visibilityState === "hidden") { flushCounters(); flushEvents(); }
   });
-  // Catch uncaught errors and unhandled promise rejections
+  // Catch uncaught errors — always logged (critical)
   window.addEventListener("error", (e) => {
     trackEvent("js_error", { message: (e.message || "").slice(0, 300), file: (e.filename || "").split("/").pop(), line: e.lineno });
   });
@@ -161,6 +198,7 @@ function trackClick(event: string, meta: Record<string, unknown> = {}) {
   if (event === _lastClickEvent && now - _lastClickTime < 1500) {
     _rapidClickCount++;
     if (_rapidClickCount === 3) {
+      // This is critical UX signal — always log
       trackEvent("retry_click", { ...meta, original_event: event, clicks: _rapidClickCount });
       _rapidClickCount = 0;
     }
