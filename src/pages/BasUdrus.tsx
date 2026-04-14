@@ -1062,20 +1062,32 @@ export default function BasUdrus() {
           const existing = prev[partnerId] || [];
           // 1. Skip if we already have this exact DB message
           if (existing.some(m => m.id === msg.id)) return prev;
-          // 2. If this message has a client_id, find and replace the matching temp message
-          if (msg.client_id && pendingMsgs.current.has(msg.client_id)) {
-            const tempId = pendingMsgs.current.get(msg.client_id)!;
-            pendingMsgs.current.delete(msg.client_id);
-            // Replace temp → real (if temp still exists), otherwise skip (already replaced by insert callback)
-            if (existing.some(m => m.id === tempId)) {
-              return { ...prev, [partnerId]: existing.map(m => m.id === tempId ? msg : m) };
+          // 2. If this message has a client_id, match it to the corresponding temp message
+          if (msg.client_id) {
+            const expectedTempId = `temp-${msg.client_id}`;
+            if (pendingMsgs.current.has(msg.client_id)) {
+              // Realtime arrived before insert callback — replace temp with real
+              pendingMsgs.current.delete(msg.client_id);
+              if (existing.some(m => m.id === expectedTempId)) {
+                return { ...prev, [partnerId]: existing.map(m => m.id === expectedTempId ? msg : m) };
+              }
+              return prev;
             }
-            return prev; // Already replaced by the insert response
+            // Insert callback already resolved — check if temp was already replaced
+            // If the real msg ID is already present (insert callback put it there), skip
+            // If the temp ID is still present (shouldn't happen but defensive), replace it
+            if (existing.some(m => m.id === expectedTempId)) {
+              return { ...prev, [partnerId]: existing.map(m => m.id === expectedTempId ? msg : m) };
+            }
+            return prev; // Already handled by insert callback
           }
           // 3. Fallback for messages without client_id (file/voice msgs, or from other tabs)
-          //    Check for any temp message with matching text as last resort
-          if (existing.some(m => m.id.startsWith("temp-") && m.text === msg.text)) {
-            return { ...prev, [partnerId]: existing.map(m => (m.id.startsWith("temp-") && m.text === msg.text) ? msg : m) };
+          //    Use FIRST matching temp message only (prevents replacing wrong temp on identical texts)
+          const tempIdx = existing.findIndex(m => m.id.startsWith("temp-") && m.text === msg.text);
+          if (tempIdx >= 0) {
+            const updated = [...existing];
+            updated[tempIdx] = msg;
+            return { ...prev, [partnerId]: updated };
           }
           // 4. Truly new message (from another tab) — append
           return { ...prev, [partnerId]: [...existing, msg] };
@@ -1148,9 +1160,25 @@ export default function BasUdrus() {
         .select("*")
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user.id})`)
         .order("created_at", { ascending: true })
-        .limit(100);  // Reduced from 200 for faster load; recent messages matter most
+        .limit(100);
       if (error) { logError("loadMessages", error); return; }
-      if (data) setMessages(prev => ({ ...prev, [partnerId]: data }));
+      if (data) {
+        // Merge: keep any in-flight optimistic (temp-*) messages that aren't in the DB response yet
+        setMessages(prev => {
+          const existing = prev[partnerId] || [];
+          const pendingOptimistic = existing.filter(m => m.id.startsWith("temp-"));
+          // If no pending messages, just use DB data directly
+          if (pendingOptimistic.length === 0) return { ...prev, [partnerId]: data };
+          // Merge: DB messages + any temp messages not yet confirmed
+          const dbIds = new Set(data.map(m => m.id));
+          const stillPending = pendingOptimistic.filter(m => {
+            // Check if this temp message's real version is in the DB response (by client_id or text)
+            const clientId = m.id.replace("temp-", "");
+            return !data.some((d: any) => d.client_id === clientId);
+          });
+          return { ...prev, [partnerId]: [...data, ...stillPending] };
+        });
+      }
     } catch (e) { logError("loadMessages", e); }
   };
 
@@ -1992,8 +2020,12 @@ export default function BasUdrus() {
     setActionLoading(false);
   };
 
+  const joiningGroupRef = useRef<Set<string>>(new Set());
   const toggleJoinGroup = async (groupId: string, joined: boolean) => {
     if (!user) return;
+    // Double-click guard — prevents duplicate join/leave
+    if (joiningGroupRef.current.has(groupId)) return;
+    joiningGroupRef.current.add(groupId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
@@ -2001,19 +2033,24 @@ export default function BasUdrus() {
         const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);
         if (error) { showNotif("Failed to leave group", "err"); return; }
         // Atomic decrement — prevents race condition when multiple users leave simultaneously
-        await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:Math.max(0,g.filled-1),joined:false}:g));
+        const { data: rpcData } = await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
+        const newFilled = typeof rpcData === "number" ? rpcData : null;
+        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:newFilled ?? Math.max(0,g.filled-1),joined:false}:g));
       } else {
         const cur = groups.find(g=>g.id===groupId);
         if (cur && cur.filled >= cur.spots) { showNotif("Room is full!", "err"); return; }
+        // Upsert prevents duplicate rows on rapid clicks
         const { error } = await supabase.from("group_members").upsert({ group_id: groupId, user_id: user.id }, { onConflict: "group_id,user_id" });
         if (error) { showNotif("Failed to join group", "err"); return; }
-        // Atomic increment — prevents race condition when multiple users join simultaneously
-        await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled+1,joined:true}:g));
+        // Atomic increment with bounds check in DB (GREATEST/LEAST prevents over-filling)
+        const { data: rpcData, error: rpcErr } = await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
+        if (rpcErr) { showNotif("Failed to join — room may be full", "err"); return; }
+        const newFilled = typeof rpcData === "number" ? rpcData : null;
+        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:newFilled ?? g.filled+1,joined:true}:g));
         showNotif("You joined the session! 🎓");
       }
     } catch { showNotif("Failed — please try again", "err"); }
+    finally { joiningGroupRef.current.delete(groupId); }
   };
 
   // ── Profile update ────────────────────────────────────────────────────
