@@ -652,6 +652,10 @@ export default function BasUdrus() {
   const [showGrpModal, setShowGrpModal] = useState(false);
   const [newGrp, setNewGrp] = useState({ subject:"", date:"", time:"", type:"online", spots:4, link:"", location:"", note:"" });
 
+  const [aiLimitModal, setAiLimitModal] = useState<{show:boolean; reason:string; endpoint:string}>({show:false, reason:"", endpoint:""});
+  const [earlyAccessEmail, setEarlyAccessEmail] = useState("");
+  const [earlyAccessSent, setEarlyAccessSent] = useState(false);
+
   const [notif, setNotif] = useState<{msg:string; type:string} | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -2240,10 +2244,14 @@ export default function BasUdrus() {
         body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", year:profile.year||"", uni:profile.uni||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
       });
       if (res.status === 429) {
-        const errData = await res.json().catch(()=>({error:"Too many messages. Wait a moment."}));
+        const errData = await res.json().catch(()=>({reason:"daily_limit"}));
         setTutorMsgs(prev => prev.slice(0,-1));
-        showNotif(errData.error || "Slow down — wait a moment", "err");
         setTutorLoading(false);
+        if (errData.reason === "daily_limit" || errData.reason === "hourly_limit") {
+          setAiLimitModal({show:true, reason:errData.reason, endpoint:"tutor"});
+        } else {
+          showNotif(errData.reason === "cooldown" ? "Give it a sec..." : "Slow down a bit — try again in a moment", "err");
+        }
         return;
       }
       if (!res.ok || !res.body) throw new Error("AI error");
@@ -2304,10 +2312,14 @@ export default function BasUdrus() {
         body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
       });
       if (res.status === 429) {
-        const errData = await res.json().catch(()=>({error:"Take a moment before your next message."}));
+        const errData = await res.json().catch(()=>({reason:"daily_limit"}));
         setWellbeingMsgs(prev => prev.slice(0,-1));
-        showNotif(errData.error || "Slow down — wait a moment", "err");
         setWellbeingLoading(false);
+        if (errData.reason === "daily_limit" || errData.reason === "hourly_limit") {
+          setAiLimitModal({show:true, reason:errData.reason, endpoint:"wellbeing"});
+        } else {
+          showNotif(errData.reason === "cooldown" ? "Take a breath..." : "Slow down a bit — try again in a moment", "err");
+        }
         return;
       }
       if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
@@ -3198,6 +3210,91 @@ export default function BasUdrus() {
       )}
 
       {/* ── Report modal ── */}
+      {/* ── AI Limit — Premium Upsell Modal ── */}
+      {aiLimitModal.show&&(
+        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setAiLimitModal({show:false,reason:"",endpoint:""})} style={{zIndex:9999}}>
+          <div className="modal fade-in" style={{maxWidth:420,textAlign:"center",padding:"40px 32px",borderRadius:24,background:`linear-gradient(145deg, ${T.surface}, ${T.bg})`,border:`1.5px solid ${T.accent}30`,boxShadow:"0 20px 60px rgba(0,0,0,0.15)"}}>
+            {/* Decorative top accent */}
+            <div style={{width:64,height:64,borderRadius:20,background:`linear-gradient(135deg, ${T.accent}, ${T.navy})`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",fontSize:28,boxShadow:`0 8px 24px ${T.accent}40`}}>
+              {aiLimitModal.endpoint==="wellbeing"?"💙":"🎓"}
+            </div>
+
+            <h3 style={{fontSize:20,fontWeight:800,color:T.navy,marginBottom:8,letterSpacing:"-0.3px"}}>
+              {aiLimitModal.reason==="daily_limit" ? "You've reached today's limit" : "Time for a short break"}
+            </h3>
+
+            <p style={{fontSize:14,color:T.muted,lineHeight:1.7,marginBottom:24,maxWidth:320,margin:"0 auto 24px"}}>
+              {aiLimitModal.reason==="daily_limit"
+                ? `You've used all your free ${aiLimitModal.endpoint==="wellbeing"?"wellbeing":"tutor"} messages for today. Your limit resets tomorrow.`
+                : "You've been studying hard! Your messages will refresh in about an hour."
+              }
+            </p>
+
+            {/* Coming soon badge */}
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,background:`linear-gradient(135deg, ${T.accent}15, ${T.navy}15)`,padding:"8px 18px",borderRadius:99,marginBottom:20,border:`1px solid ${T.accent}25`}}>
+              <span style={{fontSize:13}}>✨</span>
+              <span style={{fontSize:13,fontWeight:700,color:T.accent}}>Unlimited Plan — Coming Soon</span>
+            </div>
+
+            <p style={{fontSize:13,color:T.textSoft,lineHeight:1.6,marginBottom:24}}>
+              We're building a premium plan with unlimited AI access, priority responses, and exclusive features. Be the first to know.
+            </p>
+
+            {/* Early access form */}
+            {!earlyAccessSent ? (
+              <div style={{display:"flex",gap:8,marginBottom:20}}>
+                <input
+                  type="email"
+                  placeholder="your@email.com"
+                  value={earlyAccessEmail}
+                  onChange={e=>setEarlyAccessEmail(e.target.value)}
+                  style={{flex:1,padding:"12px 16px",borderRadius:14,border:`1.5px solid ${T.border}`,fontSize:14,background:T.surface,color:T.text,outline:"none"}}
+                  onFocus={e=>{e.currentTarget.style.borderColor=T.accent;}}
+                  onBlur={e=>{e.currentTarget.style.borderColor=T.border;}}
+                />
+                <button
+                  onClick={async()=>{
+                    if(!earlyAccessEmail.includes("@")){showNotif("Enter a valid email","err");return;}
+                    try{
+                      await supabase.from("notifications").insert({user_id:user?.id||"00000000-0000-0000-0000-000000000000",from_id:user?.id||"00000000-0000-0000-0000-000000000000",type:"early_access",subject:earlyAccessEmail,post_id:null});
+                    }catch{}
+                    setEarlyAccessSent(true);
+                    showNotif("You're on the list!");
+                  }}
+                  style={{padding:"12px 20px",borderRadius:14,background:`linear-gradient(135deg, ${T.accent}, ${T.navy})`,color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",boxShadow:`0 4px 12px ${T.accent}40`}}
+                >
+                  Notify Me
+                </button>
+              </div>
+            ) : (
+              <div style={{padding:"14px 20px",borderRadius:14,background:T.greenSoft,color:T.green,fontWeight:700,fontSize:14,marginBottom:20}}>
+                🎉 You're on the early access list!
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{display:"flex",gap:10}}>
+              <button
+                onClick={()=>setAiLimitModal({show:false,reason:"",endpoint:""})}
+                style={{flex:1,padding:"13px",borderRadius:14,border:`1.5px solid ${T.border}`,background:T.surface,color:T.text,fontSize:14,fontWeight:600,cursor:"pointer"}}
+              >
+                Got it
+              </button>
+              <button
+                onClick={()=>{setAiLimitModal({show:false,reason:"",endpoint:""});setScreen("discover");}}
+                style={{flex:1,padding:"13px",borderRadius:14,border:"none",background:T.navy,color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}
+              >
+                Browse Posts
+              </button>
+            </div>
+
+            <p style={{fontSize:11,color:T.muted,marginTop:16,opacity:0.6}}>
+              Free users get 30 AI messages per day • Resets at midnight
+            </p>
+          </div>
+        </div>
+      )}
+
       {reportModal&&(
         <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setReportModal(null)}>
           <div className="modal" style={{maxWidth:420}}>
