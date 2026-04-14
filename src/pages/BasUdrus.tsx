@@ -732,6 +732,7 @@ export default function BasUdrus() {
   const wellbeingEndRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef(0);
   const dragScroll = useRef(0);
+  const dragMoved = useRef(false);
   const courseDropRef = useRef<HTMLDivElement>(null);
 
   const allCourseOptions = useMemo(() => {
@@ -989,11 +990,11 @@ export default function BasUdrus() {
     loadMessages(activeChat.id);
   }, [user?.id, activeChat]);
 
-  // Real-time messages — subscribe once per session, cache for all contacts
+  // Real-time messages — subscribe to BOTH incoming AND sent (for multi-tab sync)
   useEffect(() => {
     if (!user) return;
     const channel = supabase
-      .channel(`msgs-inbox-${user.id}`)
+      .channel(`msgs-all-${user.id}`)
       .on("postgres_changes", {
         event: "INSERT",
         schema: "public",
@@ -1002,9 +1003,25 @@ export default function BasUdrus() {
       }, (payload) => {
         const msg = payload.new as Message;
         setMessages(prev => {
-          const existing = prev[msg.sender_id] || [];
-          if (existing.find(m => m.id === msg.id)) return prev;
-          return { ...prev, [msg.sender_id]: [...existing, msg] };
+          const partnerId = msg.sender_id;
+          const existing = prev[partnerId] || [];
+          if (existing.some(m => m.id === msg.id)) return prev;
+          return { ...prev, [partnerId]: [...existing, msg] };
+        });
+      })
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `sender_id=eq.${user.id}`,
+      }, (payload) => {
+        const msg = payload.new as Message;
+        setMessages(prev => {
+          const partnerId = msg.receiver_id;
+          const existing = prev[partnerId] || [];
+          // Skip if already exists (from optimistic UI or duplicate event)
+          if (existing.some(m => m.id === msg.id || (m.id.startsWith("temp-") && m.text === msg.text && m.created_at === msg.created_at))) return prev;
+          return { ...prev, [partnerId]: [...existing, msg] };
         });
       })
       .subscribe();
@@ -2380,16 +2397,16 @@ export default function BasUdrus() {
   };
 
   // Derived discover deck — each entry is a post (help_request + profile)
-  const connectionIds = new Set(connections.map(c=>c.id));
-  const filteredPool = allStudents.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => {
+  const connectionIds = useMemo(() => new Set(connections.map(c=>c.id)), [connections]);
+  const filteredPool = useMemo(() => allStudents.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => {
     const subjectMatch = !subjectFilter || (s._postSubject && s._postSubject.trim().toLowerCase() === subjectFilter.trim().toLowerCase());
     const uniMatch     = uniMatches(s.uni || "", uniFilter);
     const majorMatch   = majorMatches(s.major || "", majorFilter);
     const typeMatch    = !typeFilter    || (s._postMeetType || s.meet_type) === typeFilter;
     return subjectMatch && uniMatch && majorMatch && typeMatch;
-  });
-  const visibleDeck = filteredPool.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => s._isOwn || !dismissed[s._postId || s.id]);
-  const nonOwnPool = filteredPool.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => !s._isOwn);
+  }), [allStudents, subjectFilter, uniFilter, majorFilter, typeFilter]);
+  const visibleDeck = useMemo(() => filteredPool.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => s._isOwn || !dismissed[s._postId || s.id]), [filteredPool, dismissed]);
+  const nonOwnPool = useMemo(() => filteredPool.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => !s._isOwn), [filteredPool]);
   const allDismissed = nonOwnPool.length > 0 && visibleDeck.filter((s: Profile & {_postSubject?: string; _postMeetType?: string; _isOwn?: boolean; _postId?: string}) => !s._isOwn).length === 0;
   const noFilterResults = filteredPool.length === 0 && allStudents.length > 0;
   const curTab = screen;
@@ -3527,10 +3544,10 @@ export default function BasUdrus() {
           ) : (
             <>
             <div className="scroll-col" ref={scrollRef}
-              onMouseDown={e=>{dragStart.current=e.pageY;dragScroll.current=scrollRef.current!.scrollTop;(scrollRef.current as HTMLDivElement).style.cursor="grabbing";}}
-              onMouseMove={e=>{if(!dragStart.current)return;scrollRef.current!.scrollTop=dragScroll.current-(e.pageY-dragStart.current);}}
+              onMouseDown={e=>{dragStart.current=e.pageY;dragScroll.current=scrollRef.current!.scrollTop;dragMoved.current=false;(scrollRef.current as HTMLDivElement).style.cursor="grabbing";}}
+              onMouseMove={e=>{if(!dragStart.current)return;const dist=Math.abs(e.pageY-dragStart.current);if(dist>5)dragMoved.current=true;scrollRef.current!.scrollTop=dragScroll.current-(e.pageY-dragStart.current);}}
               onMouseUp={()=>{dragStart.current=0;if(scrollRef.current)scrollRef.current.style.cursor="grab";}}
-              onMouseLeave={()=>{dragStart.current=0;if(scrollRef.current)scrollRef.current.style.cursor="grab";}}>
+              onMouseLeave={()=>{dragStart.current=0;dragMoved.current=false;if(scrollRef.current)scrollRef.current.style.cursor="grab";}}>
               {visibleDeck.map((s: Profile & {_postId?: string; _postSubject?: string; _postDetail?: string; _postMeetType?: string; _postCreatedAt?: string; _isOwn?: boolean})=>{
                 const cardKey = s._postId || s.id;
                 const flying=flyCard?.id===cardKey;
@@ -3542,12 +3559,12 @@ export default function BasUdrus() {
                 const isConnected = connectionIds.has(s.id);
                 return(
                   <div key={cardKey} className={`s-card ${flying?(flyCard?.dir==="up"?"fly-up":"fly-down"):""}`} style={isOwn?{border:`2px solid ${T.accent}40`}:undefined}>
-                    <div className="dis-card-hdr" style={{background:isOwn?`linear-gradient(135deg,${T.accent}15,${T.accent}25)`:`linear-gradient(135deg,${s.avatar_color||"#6C8EF5"}20,${s.avatar_color||"#6C8EF5"}40)`,padding:"20px 24px 16px",borderBottom:`1px solid ${T.border}`}}>
+                    <div className="dis-card-hdr" style={{background:isOwn?`linear-gradient(135deg,${T.accent}15,${T.accent}25)`:`linear-gradient(135deg,${s.avatar_color||"#6C8EF5"}20,${s.avatar_color||"#6C8EF5"}40)`,padding:"20px 24px 16px",borderBottom:`1px solid ${T.border}`,cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id);}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
                         <div className="dis-avatar" style={{flexShrink:0}}><Avatar s={s} size={58}/></div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div className="dis-name" style={{fontWeight:700,fontSize:16,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:isOwn?undefined:"pointer"}} onClick={()=>!isOwn&&openStudentProfile(s.id)}>{s.name}</div>
+                            <div className="dis-name" style={{fontWeight:700,fontSize:16,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
                             {isOwn&&<span style={{background:T.accent,color:"#fff",padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700}}>Your Post</span>}
                             {!isOwn&&isConnected&&<span style={{background:T.greenSoft,color:T.green,padding:"2px 10px",borderRadius:99,fontSize:11,fontWeight:700}}>Connected</span>}
                             {!isOwn&&s.online&&<span style={{width:7,height:7,borderRadius:"50%",background:T.green,display:"inline-block",boxShadow:`0 0 0 2px ${T.greenSoft}`,flexShrink:0}}/>}
@@ -3557,7 +3574,7 @@ export default function BasUdrus() {
                         {postTime&&<div style={{fontSize:11,color:T.muted,flexShrink:0,whiteSpace:"nowrap"}}>{postTime}</div>}
                       </div>
                     </div>
-                    <div className="dis-card-body" style={{padding:"16px 24px"}}>
+                    <div className="dis-card-body" style={{padding:"16px 24px",cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id);}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
                         <span className="dis-chip" style={{background:T.accentSoft,color:T.accent,padding:"6px 14px",borderRadius:99,fontSize:13,fontWeight:700}}>📚 {postSubject}</span>
                         <span className="dis-meet-pill" style={{display:"inline-flex",alignItems:"center",gap:4,background:T.surface,padding:"4px 12px",borderRadius:99,fontSize:12,fontWeight:600,color:T.textSoft,border:`1px solid ${T.border}`}}>
@@ -3575,7 +3592,7 @@ export default function BasUdrus() {
                         </div>
                       )}
                     </div>
-                    <div className="dis-card-btns" style={{padding:"0 20px 18px",display:"flex",gap:12}}>
+                    <div className="dis-card-btns" style={{padding:"0 20px 18px",display:"flex",gap:12}} onClick={e=>e.stopPropagation()}>
                       {isOwn?(
                         <button className="btn-danger" style={{flex:1,padding:"13px 0",fontSize:15,borderRadius:16}} onClick={async()=>{
                           if(!confirm("Delete this post?"))return;
@@ -3602,8 +3619,8 @@ export default function BasUdrus() {
                         </>
                       ):(
                         <>
-                          <button className="btn-danger" style={{flex:1,padding:"13px 0",fontSize:15,borderRadius:16}} onClick={()=>handleReject(s)}>✕ Pass</button>
-                          <button className="btn-success" style={{flex:2,padding:"13px 0",fontSize:15,borderRadius:16,background:T.navy,color:T.bg,border:"none",fontWeight:700}} onClick={()=>handleConnect(s)}>✓ Study Together →</button>
+                          <button className="btn-danger" style={{flex:1,padding:"13px 0",fontSize:15,borderRadius:16}} onClick={(e)=>{e.stopPropagation();if(dragMoved.current)return;handleReject(s);}}>✕ Pass</button>
+                          <button className="btn-success" style={{flex:2,padding:"13px 0",fontSize:15,borderRadius:16,background:T.navy,color:T.bg,border:"none",fontWeight:700}} onClick={(e)=>{e.stopPropagation();if(dragMoved.current)return;handleConnect(s);}}>✓ Study Together →</button>
                         </>
                       )}
                     </div>
