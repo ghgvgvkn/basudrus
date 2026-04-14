@@ -87,11 +87,22 @@ function renderMarkdown(text: string) {
   return <>{elements}</>;
 }
 
-// ─── ERROR LOGGING (production-safe) ────────────────────────────────────────
+// ─── ERROR LOGGING (production-safe + remote reporting) ─────────────────────
+let _errorUserId: string | null = null;
+function setErrorUserId(id: string | null) { _errorUserId = id; }
+
 function logError(context: string, error: unknown) {
-  if (import.meta.env.DEV) {
-    const msg = error instanceof Error ? error.message : typeof error === "object" && error !== null ? JSON.stringify(error).slice(0, 200) : String(error);
-    console.error(`[BasUdrus:${context}] ${msg}`);
+  const msg = error instanceof Error ? error.message : typeof error === "object" && error !== null ? JSON.stringify(error).slice(0, 200) : String(error);
+  if (import.meta.env.DEV) console.error(`[BasUdrus:${context}] ${msg}`);
+  // Report to DB (fire-and-forget, never blocks UI)
+  if (_errorUserId) {
+    supabase.from("client_errors").insert({
+      user_id: _errorUserId,
+      error_type: context.split(":")[0] || "unknown",
+      context,
+      message: msg.slice(0, 500),
+      user_agent: navigator.userAgent.slice(0, 200),
+    }).then(() => {}, () => {});  // Silent — never affects user
   }
 }
 
@@ -916,6 +927,7 @@ export default function BasUdrus() {
       clearTimeout(loadTimeout);
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email ?? "" });
+        setErrorUserId(session.user.id);
         // Capture name from OAuth provider metadata (Google, Apple, etc.)
         const meta = session.user.user_metadata;
         const oauthName = meta?.full_name || meta?.name || meta?.preferred_username || "";
@@ -940,6 +952,7 @@ export default function BasUdrus() {
       if (event === "INITIAL_SESSION") return; // handled by getSession above
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email ?? "" });
+        setErrorUserId(session.user.id);
         // Capture name from OAuth provider metadata (Google, Apple, etc.)
         const meta = session.user.user_metadata;
         const oauthName = meta?.full_name || meta?.name || meta?.preferred_username || "";
@@ -2356,6 +2369,7 @@ export default function BasUdrus() {
     // 4. Clear AI memory
     try { clearAllMemory(); } catch (_) {}
     // 5. Reset ALL app state
+    setErrorUserId(null);
     setUser(null);
     setProfile({ name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible", bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials", photo_url:null, streak:0, xp:0, badges:[], sessions:0, rating:0, subjects:[] });
     setConnections([]);
