@@ -121,13 +121,52 @@ let _counterTimer: ReturnType<typeof setTimeout> | null = null;
 // Events that are high-frequency and should be counted, not logged individually
 const COUNTED_EVENTS = new Set(["msg_sent", "chat_open", "post_click", "ai_call", "voice_sent"]);
 
+// ── Burst detection: sliding window timestamps per event type ────────────────
+const _burstLog: Record<string, number[]> = {};
+const _burstFired: Record<string, number> = {};  // cooldown: last spike alert time
+const BURST_RULES: Record<string, { limit: number; windowMs: number; spike: string }> = {
+  msg_sent:    { limit: 10, windowMs: 10_000, spike: "msg_spike" },
+  ai_call:     { limit: 5,  windowMs: 30_000, spike: "ai_spike" },
+  post_click:  { limit: 8,  windowMs: 10_000, spike: "ux_spike" },
+  retry_click: { limit: 5,  windowMs: 15_000, spike: "ux_spike" },
+};
+
+function checkBurst(event: string) {
+  const rule = BURST_RULES[event];
+  if (!rule) return;
+  const now = Date.now();
+  // Record timestamp
+  if (!_burstLog[event]) _burstLog[event] = [];
+  _burstLog[event].push(now);
+  // Trim to window
+  const cutoff = now - rule.windowMs;
+  _burstLog[event] = _burstLog[event].filter(t => t > cutoff);
+  // Check threshold + cooldown (60s between alerts of same type)
+  if (_burstLog[event].length >= rule.limit && (now - (_burstFired[event] || 0)) > 60_000) {
+    _burstFired[event] = now;
+    // Log as individual critical event — bypasses summary
+    _eventQueue.push({
+      user_id: _errorUserId,
+      event: rule.spike,
+      screen: _currentScreen,
+      meta: { count: _burstLog[event].length, window_sec: rule.windowMs / 1000, source: event },
+      created_at: new Date().toISOString(),
+    });
+    // Flush immediately — spikes are urgent
+    flushEvents();
+  }
+}
+
 function trackEvent(event: string, meta: Record<string, unknown> = {}) {
-  // High-frequency events: just count locally, flush as summary
+  // High-frequency events: count locally + check for abnormal bursts
   if (COUNTED_EVENTS.has(event)) {
     _counters[event] = (_counters[event] || 0) + 1;
+    checkBurst(event);
     if (!_counterTimer) _counterTimer = setTimeout(flushCounters, 60_000);
     return;
   }
+  // Check burst even for critical events that have rules (e.g. retry_click)
+  if (BURST_RULES[event]) checkBurst(event);
   // Critical/low-frequency events: queue for DB insert
   _eventQueue.push({
     user_id: _errorUserId,
