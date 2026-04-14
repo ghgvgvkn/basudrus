@@ -1811,14 +1811,26 @@ export default function BasUdrus() {
     } catch (e) { logError("cropAndUpload", e); showNotif("Upload failed — please try again", "err"); }
   };
 
-  const openStudentProfile = async (userId: string) => {
+  const openStudentProfile = (userId: string, cachedProfile?: Profile) => {
     if (userId === user?.id) { setScreen("profile"); return; }
-    try {
-      const { data, error: profErr } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
-      if (profErr) { showNotif("Could not load profile", "err"); return; }
-      if (data) setViewingProfile(data as Profile);
-      else showNotif("Profile not found", "err");
-    } catch { showNotif("Could not load profile", "err"); }
+    // 1. INSTANT: Use cached data from allStudents/connections (already loaded)
+    const cached = cachedProfile
+      || (allStudents as any[]).find((s: any) => s.id === userId)
+      || connections.find(c => c.id === userId);
+    if (cached) {
+      setViewingProfile(cached as Profile);
+      // 2. BACKGROUND: Refresh with latest DB data (non-blocking)
+      supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
+        .then(({ data }) => { if (data) setViewingProfile(data as Profile); });
+      return;
+    }
+    // 3. FALLBACK: No cached data — must fetch (rare: only for profiles not in feed)
+    setViewingProfile({ id: userId, name: "Loading...", email: "", uni: "", major: "", year: "", course: "", meet_type: "", bio: "", avatar_emoji: "⏳", avatar_color: "#ccc", photo_mode: "initials", photo_url: null, streak: 0, xp: 0, badges: [], online: false, sessions: 0, rating: 0, subjects: [], created_at: "" } as Profile);
+    supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
+      .then(({ data }) => {
+        if (data) setViewingProfile(data as Profile);
+        else { setViewingProfile(null); showNotif("Profile not found", "err"); }
+      });
   };
 
   // ── Open post-request modal (blocks incomplete profiles) ──────────────
@@ -3667,7 +3679,7 @@ export default function BasUdrus() {
                 const isConnected = connectionIds.has(s.id);
                 return(
                   <div key={cardKey} className={`s-card ${flying?(flyCard?.dir==="up"?"fly-up":"fly-down"):""}`} style={isOwn?{border:`2px solid ${T.accent}40`}:undefined}>
-                    <div className="dis-card-hdr" style={{background:isOwn?`linear-gradient(135deg,${T.accent}15,${T.accent}25)`:`linear-gradient(135deg,${s.avatar_color||"#6C8EF5"}20,${s.avatar_color||"#6C8EF5"}40)`,padding:"20px 24px 16px",borderBottom:`1px solid ${T.border}`,cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id);}}>
+                    <div className="dis-card-hdr" style={{background:isOwn?`linear-gradient(135deg,${T.accent}15,${T.accent}25)`:`linear-gradient(135deg,${s.avatar_color||"#6C8EF5"}20,${s.avatar_color||"#6C8EF5"}40)`,padding:"20px 24px 16px",borderBottom:`1px solid ${T.border}`,cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id, s as Profile);}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
                         <div className="dis-avatar" style={{flexShrink:0}}><Avatar s={s} size={58}/></div>
                         <div style={{flex:1,minWidth:0}}>
@@ -3682,7 +3694,7 @@ export default function BasUdrus() {
                         {postTime&&<div style={{fontSize:11,color:T.muted,flexShrink:0,whiteSpace:"nowrap"}}>{postTime}</div>}
                       </div>
                     </div>
-                    <div className="dis-card-body" style={{padding:"16px 24px",cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id);}}>
+                    <div className="dis-card-body" style={{padding:"16px 24px",cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id, s as Profile);}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
                         <span className="dis-chip" style={{background:T.accentSoft,color:T.accent,padding:"6px 14px",borderRadius:99,fontSize:13,fontWeight:700}}>📚 {postSubject}</span>
                         <span className="dis-meet-pill" style={{display:"inline-flex",alignItems:"center",gap:4,background:T.surface,padding:"4px 12px",borderRadius:99,fontSize:12,fontWeight:600,color:T.textSoft,border:`1px solid ${T.border}`}}>
@@ -3796,7 +3808,7 @@ export default function BasUdrus() {
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                           <Avatar s={s} size={42}/>
                           <div style={{flex:1}}>
-                            <div style={{fontWeight:700,fontSize:13,color:T.navy,cursor:"pointer"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id);}}>{s.name}</div>
+                            <div style={{fontWeight:700,fontSize:13,color:T.navy,cursor:"pointer"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>{s.name}</div>
                             <div style={{fontSize:11,color:T.muted}}>{s.uni}</div>
                           </div>
                         </div>
@@ -3814,7 +3826,7 @@ export default function BasUdrus() {
                 <div style={{background:T.navBg,padding:"12px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
                   <button onClick={()=>setActiveChat(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:T.muted,padding:"2px 6px",display:"flex",alignItems:"center"}}>←</button>
                   <Avatar s={activeChat} size={38}/>
-                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>openStudentProfile(activeChat.id)}>
+                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>openStudentProfile(activeChat.id, activeChat)}>
                     <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{activeChat.name}</div>
                     <div style={{fontSize:11,color:activeChat.online?T.green:T.muted,fontWeight:500}}>{activeChat.online?"● Online now":"● Offline"}{parseCourses(activeChat.course ?? "").length > 0 ? ` · ${parseCourses(activeChat.course ?? "")[0]}` : ""}</div>
                   </div>
@@ -3919,13 +3931,13 @@ export default function BasUdrus() {
                   return(
                     <div key={g.id} className="request-card">
                       <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:10}}>
-                        <div style={{width:42,height:42,borderRadius:"50%",background:host?.avatar_color||"#6C8EF5",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0,cursor:"pointer",overflow:"hidden"}} onClick={()=>g.host_id&&openStudentProfile(g.host_id)}>{host?.photo_mode==="photo"&&host?.photo_url?<img src={host.photo_url} alt={host?.name?`${host.name}'s photo`:"Host photo"} width={42} height={42} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";((e.target as HTMLImageElement).parentElement||{} as HTMLElement).textContent=initials(host?.name||"?");}}/>:initials(host?.name||"?")}</div>
+                        <div style={{width:42,height:42,borderRadius:"50%",background:host?.avatar_color||"#6C8EF5",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0,cursor:"pointer",overflow:"hidden"}} onClick={()=>g.host_id&&openStudentProfile(g.host_id, host as Profile)}>{host?.photo_mode==="photo"&&host?.photo_url?<img src={host.photo_url} alt={host?.name?`${host.name}'s photo`:"Host photo"} width={42} height={42} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";((e.target as HTMLImageElement).parentElement||{} as HTMLElement).textContent=initials(host?.name||"?");}}/>:initials(host?.name||"?")}</div>
                         <div style={{flex:1}}>
                           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                             <span style={{fontWeight:700,fontSize:14,color:T.navy}}>{g.subject}</span>
                             <span style={{background:T.accentSoft,color:T.accent,padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:700}}>{getMeetIcon(g.type)} {getMeetLabel(g.type)}</span>
                           </div>
-                          <div style={{fontSize:12,color:T.muted,marginTop:3}}>Hosted by <span style={{cursor:"pointer",fontWeight:600}} onClick={()=>g.host_id&&openStudentProfile(g.host_id)}>{host?.name||"Unknown"}</span></div>
+                          <div style={{fontSize:12,color:T.muted,marginTop:3}}>Hosted by <span style={{cursor:"pointer",fontWeight:600}} onClick={()=>g.host_id&&openStudentProfile(g.host_id, host as Profile)}>{host?.name||"Unknown"}</span></div>
                           <div style={{fontSize:12,color:T.textSoft,marginTop:2}}>📅 {g.date} at {g.time}</div>
                         </div>
                         <div style={{textAlign:"right",flexShrink:0}}>
@@ -4479,7 +4491,7 @@ export default function BasUdrus() {
                                 {(s.name||"?").split(" ").map((x:string)=>x[0]).join("").slice(0,2).toUpperCase()}
                               </div>
                               <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontWeight:700,fontSize:14,color:T.navy,cursor:"pointer"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id);}}>{s.name}</div>
+                                <div style={{fontWeight:700,fontSize:14,color:T.navy,cursor:"pointer"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>{s.name}</div>
                                 <div style={{fontSize:12,color:T.muted,marginTop:1}}>{s.major} · {s.uni}</div>
                                 <div style={{fontSize:11,color:T.textSoft,marginTop:2,fontStyle:"italic"}}>"{ms.reason}"</div>
                               </div>
