@@ -835,6 +835,10 @@ export default function BasUdrus() {
   const [groups, setGroups] = useState<GroupRoom[]>([]);
   const [showGrpModal, setShowGrpModal] = useState(false);
   const [newGrp, setNewGrp] = useState({ subject:"", date:"", time:"", type:"online", spots:4, link:"", location:"", note:"" });
+  const [editingRoom, setEditingRoom] = useState<GroupRoom|null>(null);
+  const [editGrp, setEditGrp] = useState({ subject:"", date:"", time:"", type:"online", spots:4, link:"", location:"" });
+  const [confirmDeleteRoom, setConfirmDeleteRoom] = useState<string|null>(null);
+  const [roomActionLoading, setRoomActionLoading] = useState(false);
 
   const [aiLimitModal, setAiLimitModal] = useState<{show:boolean; reason:string; endpoint:string}>({show:false, reason:"", endpoint:""});
   const [earlyAccessEmail, setEarlyAccessEmail] = useState("");
@@ -2179,9 +2183,12 @@ export default function BasUdrus() {
   // ── Group rooms ───────────────────────────────────────────────────────
   const submitGroup = async () => {
     if (!newGrp.subject||!newGrp.date||!newGrp.time||!user) return showNotif("Fill subject, date and time","err");
-    if (actionLoading) return;
-    setActionLoading(true);
+    if (!navigator.onLine) return showNotif("You're offline — can't create room right now.", "err");
+    if (roomActionLoading) return;
+    setRoomActionLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
       await supabase.from("profiles").upsert({
         id: user.id, email: user.email, name: profile.name||"", uni: profile.uni||"", major: profile.major||"",
         year: profile.year||"", course: profile.course||"", meet_type: profile.meet_type||"flexible",
@@ -2209,8 +2216,64 @@ export default function BasUdrus() {
         showNotif("Study room created! 🎓");
         await awardBadge("group_host");
       }
-    } catch { showNotif("Failed to create room", "err"); }
-    setActionLoading(false);
+    } catch { showNotif("Failed to create room — please try again", "err"); }
+    finally { setRoomActionLoading(false); }
+  };
+
+  // ── Edit room (host only) ──────────────────────────────────────────────
+  const openEditRoom = (g: GroupRoom) => {
+    setEditingRoom(g);
+    setEditGrp({ subject: g.subject, date: g.date, time: g.time, type: g.type, spots: g.spots, link: g.link||"", location: g.location||"" });
+  };
+
+  const saveEditRoom = async () => {
+    if (!editingRoom || !user) return;
+    if (!editGrp.subject||!editGrp.date||!editGrp.time) return showNotif("Fill subject, date and time","err");
+    if (!navigator.onLine) return showNotif("You're offline — can't save changes right now.", "err");
+    if (roomActionLoading) return;
+    setRoomActionLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
+      if (editingRoom.host_id !== user.id) { showNotif("Only the room creator can edit", "err"); return; }
+      const newSpots = Number(editGrp.spots)||4;
+      if (newSpots < editingRoom.filled) { showNotif(`Can't reduce spots below ${editingRoom.filled} (current members)`, "err"); return; }
+      const { error } = await supabase.from("group_rooms").update({
+        subject: editGrp.subject,
+        date: editGrp.date,
+        time: editGrp.time,
+        type: editGrp.type,
+        spots: newSpots,
+        link: editGrp.link,
+        location: editGrp.location,
+      }).eq("id", editingRoom.id).eq("host_id", user.id);
+      if (error) { showNotif("Failed to update room — " + error.message, "err"); return; }
+      setGroups(prev=>prev.map(g=>g.id===editingRoom.id?{...g, subject:editGrp.subject, date:editGrp.date, time:editGrp.time, type:editGrp.type, spots:newSpots, link:editGrp.link, location:editGrp.location}:g));
+      setEditingRoom(null);
+      showNotif("Room updated ✅");
+    } catch { showNotif("Failed to update room — please try again", "err"); }
+    finally { setRoomActionLoading(false); }
+  };
+
+  // ── Delete room (host only) ────────────────────────────────────────────
+  const deleteRoom = async (groupId: string) => {
+    if (!user) return;
+    if (!navigator.onLine) return showNotif("You're offline — can't delete right now.", "err");
+    if (roomActionLoading) return;
+    setRoomActionLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
+      const room = groups.find(g=>g.id===groupId);
+      if (!room || room.host_id !== user.id) { showNotif("Only the room creator can delete", "err"); return; }
+      const { error } = await supabase.from("group_rooms").delete().eq("id", groupId).eq("host_id", user.id);
+      if (error) { showNotif("Failed to delete room — " + error.message, "err"); return; }
+      setGroups(prev=>prev.filter(g=>g.id!==groupId));
+      setConfirmDeleteRoom(null);
+      showNotif("Room deleted");
+      trackEvent("room_delete", { room_id: groupId });
+    } catch { showNotif("Failed to delete room — please try again", "err"); }
+    finally { setRoomActionLoading(false); }
   };
 
   const joiningGroupRef = useRef<Set<string>>(new Set());
@@ -3755,7 +3818,62 @@ export default function BasUdrus() {
             </div>
             <div style={{display:"flex",gap:10}}>
               <button className="btn-ghost" style={{flex:0.45}} onClick={()=>setShowGrpModal(false)}>Cancel</button>
-              <button className="btn-primary" style={{flex:1,padding:13,borderRadius:14}} onClick={submitGroup}>Create Room 🎓</button>
+              <button className="btn-primary" disabled={roomActionLoading} style={{flex:1,padding:13,borderRadius:14,opacity:roomActionLoading?0.6:1}} onClick={submitGroup}>{roomActionLoading?"Creating...":"Create Room 🎓"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit room modal ── */}
+      {editingRoom&&(
+        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setEditingRoom(null)}>
+          <div className="modal">
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div><h3 style={{fontSize:17,fontWeight:700,color:T.navy}}>✏️ Edit Study Room</h3><p style={{fontSize:12,color:T.muted,marginTop:2}}>Update your room details</p></div>
+              <button onClick={()=>setEditingRoom(null)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
+            </div>
+            <div className="field"><label>Subject *</label>
+              <CourseSearch value={editGrp.subject} onChange={v=>setEditGrp(p=>({...p,subject:v}))} placeholder="Search for a subject..."/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div className="field"><label>Date *</label><input type="date" value={editGrp.date} onChange={e=>setEditGrp(p=>({...p,date:e.target.value}))}/></div>
+              <div className="field"><label>Time *</label><input type="time" value={editGrp.time} onChange={e=>setEditGrp(p=>({...p,time:e.target.value}))}/></div>
+            </div>
+            <div className="field"><label>Type</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                {[["online","🎥","Online"],["face","📍","Campus"],["flexible","💬","Flexible"]].map(([val,icon,lbl])=>(
+                  <div key={val} className={`meet-opt ${editGrp.type===val?"active":""}`} onClick={()=>setEditGrp(p=>({...p,type:val}))}>
+                    <div style={{fontSize:18}}>{icon}</div><div style={{fontSize:11,fontWeight:700,marginTop:3,color:editGrp.type===val?T.accent:T.textSoft}}>{lbl}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div className="field"><label>Max spots</label><input type="number" min={2} max={20} value={editGrp.spots} onChange={e=>setEditGrp(p=>({...p,spots:Number(e.target.value)}))}/></div>
+              <div className="field"><label>{editGrp.type==="face"?"Location":"Meeting link"}</label><input placeholder={editGrp.type==="face"?"Library Room 4":"zoom.us/j/..."} value={editGrp.type==="face"?editGrp.location:editGrp.link} onChange={e=>setEditGrp(p=>({...p,[editGrp.type==="face"?"location":"link"]:e.target.value}))} maxLength={500}/></div>
+            </div>
+            {editingRoom.filled > 0 && <div style={{background:"rgba(251,191,36,0.12)",borderRadius:10,padding:"8px 12px",fontSize:12,color:"#b45309",marginBottom:4}}>⚠️ {editingRoom.filled} student{editingRoom.filled!==1?"s have":" has"} already joined this room</div>}
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn-ghost" style={{flex:0.45}} onClick={()=>setEditingRoom(null)}>Cancel</button>
+              <button className="btn-primary" disabled={roomActionLoading} style={{flex:1,padding:13,borderRadius:14,opacity:roomActionLoading?0.6:1}} onClick={saveEditRoom}>{roomActionLoading?"Saving...":"Save Changes ✅"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete room confirmation ── */}
+      {confirmDeleteRoom&&(
+        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setConfirmDeleteRoom(null)}>
+          <div className="modal" style={{maxWidth:380}}>
+            <div style={{textAlign:"center",padding:"12px 0 8px"}}>
+              <div style={{fontSize:40,marginBottom:12}}>🗑</div>
+              <h3 style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:8}}>Delete this room?</h3>
+              <p style={{fontSize:13,color:T.muted,lineHeight:1.5,marginBottom:4}}>This will permanently remove the room and all members will be removed.</p>
+              {(()=>{const r=groups.find(g=>g.id===confirmDeleteRoom);return r&&r.filled>0?<p style={{fontSize:12,color:"#ef4444",fontWeight:600,marginTop:6}}>⚠️ {r.filled} student{r.filled!==1?"s are":" is"} currently in this room</p>:null})()}
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:16}}>
+              <button className="btn-ghost" style={{flex:1}} onClick={()=>setConfirmDeleteRoom(null)}>Cancel</button>
+              <button disabled={roomActionLoading} style={{flex:1,padding:12,borderRadius:14,background:"#ef4444",color:"#fff",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",opacity:roomActionLoading?0.6:1}} onClick={()=>deleteRoom(confirmDeleteRoom)}>{roomActionLoading?"Deleting...":"Delete Room"}</button>
             </div>
           </div>
         </div>
@@ -4282,12 +4400,20 @@ export default function BasUdrus() {
                           {g.type==="face"?"📍 ":"🔗 "}{g.link||g.location}
                         </div>
                       )}
-                      <button
-                        style={{background:joined?T.greenSoft:full?T.border:T.navy,color:joined?T.green:full?T.muted:"#fff",border:"none",padding:"10px 20px",borderRadius:99,fontSize:13,fontWeight:700,cursor:full&&!joined?"not-allowed":"pointer",transition:"background-color 0.2s,color 0.2s"}}
-                        disabled={!!(full&&!joined)}
-                        onClick={()=>toggleJoinGroup(g.id, !!joined)}>
-                        {joined?"✓ Joined — Leave":full?"Session Full":"Join Session →"}
-                      </button>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <button
+                          style={{background:joined?T.greenSoft:full?T.border:T.navy,color:joined?T.green:full?T.muted:"#fff",border:"none",padding:"10px 20px",borderRadius:99,fontSize:13,fontWeight:700,cursor:full&&!joined?"not-allowed":"pointer",transition:"background-color 0.2s,color 0.2s"}}
+                          disabled={!!(full&&!joined)}
+                          onClick={()=>toggleJoinGroup(g.id, !!joined)}>
+                          {joined?"✓ Joined — Leave":full?"Session Full":"Join Session →"}
+                        </button>
+                        {user&&g.host_id===user.id&&(
+                          <>
+                            <button onClick={()=>openEditRoom(g)} style={{background:T.accentSoft,color:T.accent,border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button>
+                            <button onClick={()=>setConfirmDeleteRoom(g.id)} style={{background:"rgba(239,68,68,0.1)",color:"#ef4444",border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 Delete</button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
