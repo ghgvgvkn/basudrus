@@ -10,13 +10,14 @@ import { loadUniData, isUniDataReady, getUniversities, normalizeUni, uniMatches,
 import type { UniRow, MajorRow, CourseRow } from "@/services/uniData";
 import { renderMarkdown } from "@/shared/renderMarkdown";
 import { generateClientId } from "@/shared/useNetworkStatus";
-import { useDebounce } from "@/shared/useDebounce";
 import { makeCSS } from "@/shared/makeCSS";
 import { useAdmin } from "@/features/admin/useAdmin";
 import { AdminScreen } from "@/features/admin/AdminScreen";
 import { useRooms } from "@/features/rooms/useRooms";
 import { RoomsScreen } from "@/features/rooms/RoomsScreen";
 import { useAI } from "@/features/ai/useAI";
+import { useProfile } from "@/features/profile/useProfile";
+import { useDiscover } from "@/features/discover/useDiscover";
 
 import {
   AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel,
@@ -33,36 +34,15 @@ export default function BasUdrus() {
   const [authLoading, setAuthLoading] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [editProfile, setEditProfile] = useState<Partial<Profile> | null>(null);
-  const [editCourseSearch, setEditCourseSearch] = useState("");
-  const [editCourseDropOpen, setEditCourseDropOpen] = useState(false);
-  const editCourseDropRef = useRef<HTMLDivElement>(null);
   const [onboardMajorSearch, setOnboardMajorSearch] = useState("");
   const [onboardMajorOpen, setOnboardMajorOpen] = useState(false);
   const onboardMajorRef = useRef<HTMLDivElement>(null);
-  const [editMajorSearch, setEditMajorSearch] = useState("");
-  const [editMajorOpen, setEditMajorOpen] = useState(false);
-  const editMajorRef = useRef<HTMLDivElement>(null);
-  const [profileTab, setProfileTab] = useState("edit");
   const [step, setStep] = useState(1);
 
   const streak = profile.streak ?? 0;
   const xp = profile.xp ?? 0;
   const earnedBadges: string[] = profile.badges ?? [];
   const [newBadge, setNewBadge] = useState<typeof BADGES_DEF[0] | null>(null);
-
-  const [allStudents, setAllStudents] = useState<Profile[]>([]);
-  const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
-  const [subjectFilter, setSubjectFilter] = useState("");
-  const [uniFilter, setUniFilter] = useState("");
-  const [majorFilter, setMajorFilter] = useState("");
-  const [majorFilterSearch, setMajorFilterSearch] = useState("");
-  const [majorFilterOpen, setMajorFilterOpen] = useState(false);
-  const majorFilterRef = useRef<HTMLDivElement>(null);
-  const [typeFilter, setTypeFilter] = useState("");
-  const [courseSearch, setCourseSearch] = useState("");
-  const [courseDropOpen, setCourseDropOpen] = useState(false);
-  const [flyCard, setFlyCard] = useState<{id:string; dir:string} | null>(null);
 
   const [connections, setConnections] = useState<Profile[]>([]);
   const [ratings, setRatings] = useState<Record<string,number>>({});
@@ -76,32 +56,6 @@ export default function BasUdrus() {
   const [schedModal, setSchedModal] = useState<Profile | null>(null);
   const [schedForm, setSchedForm] = useState({ date:"", time:"", type:"online", note:"" });
 
-  const [helpRequests, setHelpRequests] = useState<HelpRequest[]>([]);
-  const [showReqModal, setShowReqModal] = useState(false);
-  const [newReq, setNewReq] = useState({ subject:"", detail:"", meetType:"flexible" });
-
-  const { adminTab, setAdminTab, adminReports, adminPosts, adminAnalytics, loadAdminData, adminDeletePost, loadAdminAnalytics } = useAdmin(
-    (postId) => setHelpRequests(p => p.filter(x => x.id !== postId))
-  );
-
-  const [subjectHistory, setSubjectHistory] = useState<SubjectHistory[]>([]);
-  const [showSubModal, setShowSubModal] = useState(false);
-  const [newSub, setNewSub] = useState({ subject:"", note:"", status:"active" });
-
-
-
-  const [actionLoading, setActionLoading] = useState(false);
-  const [canPost, setCanPost] = useState(false);
-  const [viewingProfile, setViewingProfile] = useState<Profile | null>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
-  const [cropModal, setCropModal] = useState<{src:string; file:File}|null>(null);
-  const [cropZoom, setCropZoom] = useState(1);
-  const [cropPos, setCropPos] = useState({x:0,y:0});
-  const cropCanvasRef = useRef<HTMLCanvasElement>(null);
-  const cropDragging = useRef(false);
-  const cropLastPos = useRef({x:0,y:0});
-  const [reportModal, setReportModal] = useState<{userId:string;name:string}|null>(null);
-  const [reportReason, setReportReason] = useState("");
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const notifPanelRef = useRef<HTMLDivElement>(null);
@@ -150,35 +104,6 @@ export default function BasUdrus() {
 
   // ── Pending messages map: clientId → tempId (for robust dedup) ─────
   const pendingMsgs = useRef<Map<string, string>>(new Map());
-  const courseDropRef = useRef<HTMLDivElement>(null);
-
-  const allCourseOptions = useMemo(() => {
-    const groups = getCourseGroups();
-    const results: {course: string; group: string}[] = [];
-    const seen = new Set<string>();
-    for (const [cat, list] of groups) {
-      for (const c of list) {
-        if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: cat }); }
-      }
-    }
-    return results;
-  }, [uniDataReady]);
-
-  const debouncedCourseSearch = useDebounce(courseSearch, 150);
-  const filteredCourseOptions = useMemo(() => {
-    if (!debouncedCourseSearch) return allCourseOptions;
-    const q = debouncedCourseSearch.toLowerCase();
-    const startsWith: typeof allCourseOptions = [];
-    const wordStarts: typeof allCourseOptions = [];
-    const contains: typeof allCourseOptions = [];
-    for (const opt of allCourseOptions) {
-      const name = opt.course.toLowerCase();
-      if (name.startsWith(q)) startsWith.push(opt);
-      else if (name.split(/[\s(&]/).some(w => w.startsWith(q))) wordStarts.push(opt);
-      else if (name.includes(q)) contains.push(opt);
-    }
-    return [...startsWith, ...wordStarts, ...contains];
-  }, [allCourseOptions, debouncedCourseSearch]);
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
@@ -206,54 +131,9 @@ export default function BasUdrus() {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  function parseCourses(courseStr: string | undefined): string[] {
-    if (!courseStr) return [];
-    try {
-      const parsed = JSON.parse(courseStr);
-      if (Array.isArray(parsed)) return parsed.filter(Boolean);
-    } catch {}
-    return courseStr ? [courseStr] : [];
-  }
-
-  function serializeCourses(courses: string[]): string {
-    if (courses.length === 0) return "";
-    if (courses.length === 1) return courses[0];
-    return JSON.stringify(courses);
-  }
-
-  const editCoursesList = useMemo(() => editProfile ? parseCourses(editProfile.course) : [], [editProfile?.course]);
-
-  const editAllCourseOptions = useMemo(() => {
-    if (!editProfile) return [];
-    const groups = getCourseGroups();
-    const results: {course: string; group: string}[] = [];
-    const seen = new Set<string>();
-    for (const [cat, list] of groups) {
-      for (const c of list) { if (!seen.has(c)) { seen.add(c); results.push({ course: c, group: cat }); } }
-    }
-    return results;
-  }, [uniDataReady, !!editProfile]);
-
-  const editFilteredCourseOptions = useMemo(() => {
-    const selected = new Set(editCoursesList);
-    const available = editAllCourseOptions.filter(o => !selected.has(o.course));
-    if (!editCourseSearch) return available.slice(0, 80); // Show first 80 when not searching
-    const q = editCourseSearch.toLowerCase();
-    const startsWith: typeof available = [];
-    const wordStarts: typeof available = [];
-    const contains: typeof available = [];
-    for (const opt of available) {
-      const name = opt.course.toLowerCase();
-      if (name.startsWith(q)) startsWith.push(opt);
-      else if (name.split(/[\s(&]/).some(w => w.startsWith(q))) wordStarts.push(opt);
-      else if (name.includes(q)) contains.push(opt);
-    }
-    return [...startsWith, ...wordStarts, ...contains].slice(0, 80);
-  }, [editAllCourseOptions, editCourseSearch, editCoursesList]);
-
   // Smart auto-scroll: only scroll to bottom if user is already near the bottom.
   // This keeps the user's reading position when the AI replies with a long answer.
-  const smartScroll = (endRef: React.RefObject<HTMLDivElement>) => {
+  const smartScroll = (endRef: React.RefObject<HTMLDivElement | null>) => {
     const el = endRef.current;
     if (!el) return;
     const scroller = el.closest(".chat-scroll, .page-scroll, .scroll-col") as HTMLElement | null;
@@ -265,17 +145,6 @@ export default function BasUdrus() {
     el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
   useEffect(() => { smartScroll(chatEndRef); }, [activeChat, messages]);
-  useEffect(() => { smartScroll(tutorEndRef); }, [tutorMsgs]);
-  useEffect(() => { smartScroll(wellbeingEndRef); }, [wellbeingMsgs]);
-
-  useEffect(() => {
-    fetch("/api/ai/version").then(r=>r.json()).then(d=>{ if(d.version) setAiVersion(d.version); }).catch(()=>{});
-  }, []);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    fetch(`/api/ai/user-stats/${user.id}`).then(r=>r.json()).then(d=>{ if(d.tier) setAiUserTier(d); }).catch(()=>{});
-  }, [user?.id]);
 
   const initials = (n: string) => n ? n.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase() : "ME";
 
@@ -482,32 +351,6 @@ export default function BasUdrus() {
     } catch (e) { logError("loadProfile", e); return null; }
   };
 
-  const loadAllStudents = async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from("help_requests")
-        .select("*, profile:profiles!fk_help_requests_user(*)")
-        .order("created_at", { ascending: false })
-        .limit(80);
-      if (error) { return; }
-      if (data) {
-        const cards = (data as Array<HelpRequest & {profile: Profile}>)
-          .filter((r: HelpRequest & {profile: Profile}) => r.profile && r.subject && r.detail?.trim())
-          .map((r: HelpRequest & {profile: Profile}) => ({
-            ...r.profile,
-            _postId: r.id,
-            _postSubject: r.subject,
-            _postDetail: r.detail,
-            _postMeetType: r.meet_type,
-            _postCreatedAt: r.created_at,
-            _isOwn: r.user_id === user.id,
-          }));
-        setAllStudents(cards);
-      }
-    } catch (e) { logError("loadAllStudents", e); }
-  };
-
   const loadConnections = async () => {
     if (!user) return;
     try {
@@ -553,36 +396,6 @@ export default function BasUdrus() {
         });
       }
     } catch (e) { logError("loadMessages", e); }
-  };
-
-  const loadHelpRequests = async () => {
-    try {
-      // Batch the two queries in parallel instead of sequentially
-      const [requestsRes, canPostRes] = await Promise.all([
-        supabase.from("help_requests")
-          .select("*, profile:profiles!fk_help_requests_user(*)")
-          .order("created_at", { ascending: false })
-          .limit(30),
-        user ? supabase.from("profiles").select("can_post").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
-      ]);
-      if (requestsRes.error) { logError("loadHelpRequests", requestsRes.error); return; }
-      if (requestsRes.data) {
-        setHelpRequests(requestsRes.data as HelpRequest[]);
-        if (user && (requestsRes.data as HelpRequest[]).some((r: HelpRequest) => r.user_id === user.id)) setCanPost(true);
-      }
-      if (canPostRes.data?.can_post) setCanPost(true);
-    } catch (e) { logError("loadHelpRequests", e); }
-  };
-
-  const enablePosting = async () => {
-    setCanPost(true);
-    showNotif("Posting enabled! You can now create study requests 🎉");
-    if (user) {
-      try {
-        const { error } = await supabase.from("profiles").update({ can_post: true }).eq("id", user.id);
-        if (error) return;
-      } catch { }
-    }
   };
 
   const loadSubjectHistory = async () => {
@@ -751,13 +564,90 @@ export default function BasUdrus() {
   } = useRooms(awardBadge);
 
   const {
+    editProfile, setEditProfile,
+    editCourseSearch, setEditCourseSearch,
+    editCourseDropOpen, setEditCourseDropOpen,
+    editCourseDropRef,
+    editMajorSearch, setEditMajorSearch,
+    editMajorOpen, setEditMajorOpen,
+    editMajorRef,
+    profileTab, setProfileTab,
+    parseCourses, serializeCourses,
+    editCoursesList, editFilteredCourseOptions,
+    subjectHistory, setSubjectHistory,
+    showSubModal, setShowSubModal,
+    newSub, setNewSub,
+    profileSaveLoading,
+    photoInputRef, cropModal, setCropModal,
+    cropZoom, setCropZoom, cropPos, setCropPos,
+    cropCanvasRef, cropDragging, cropLastPos,
+    cropImgDims, cropInitialZoom,
+    reportModal, setReportModal, reportReason, setReportReason,
+    viewingProfile, setViewingProfile,
+    handlePhotoUpload, cropAndUpload, saveProfile,
+    submitSubject, markSubjectDone, submitReport,
+  } = useProfile(awardBadge, uniDataReady);
+
+  const {
+    allStudents, setAllStudents,
+    helpRequests, setHelpRequests,
+    canPost, setCanPost, postLoading,
+    dismissed, setDismissed,
+    subjectFilter, setSubjectFilter,
+    uniFilter, setUniFilter,
+    majorFilter, setMajorFilter,
+    majorFilterSearch, setMajorFilterSearch,
+    majorFilterOpen, setMajorFilterOpen,
+    majorFilterRef,
+    typeFilter, setTypeFilter,
+    courseSearch, setCourseSearch,
+    courseDropOpen, setCourseDropOpen,
+    courseDropRef,
+    flyCard, setFlyCard,
+    allCourseOptions, filteredCourseOptions,
+    showReqModal, setShowReqModal,
+    newReq, setNewReq,
+    loadAllStudents, loadHelpRequests, enablePosting,
+    openReqModal, submitRequest, handleReject,
+  } = useDiscover(awardBadge, uniDataReady);
+
+  const { adminTab, setAdminTab, adminReports, adminPosts, adminAnalytics, loadAdminData, adminDeletePost, loadAdminAnalytics } = useAdmin(
+    (postId) => setHelpRequests(p => p.filter(x => x.id !== postId))
+  );
+
+  const openStudentProfile = (userId: string, cachedProfile?: Profile) => {
+    trackClick("post_click", { target_user: userId });
+    if (userId === user?.id) { setScreen("profile"); return; }
+    const cached = cachedProfile
+      || (allStudents as any[]).find((s: any) => s.id === userId)
+      || connections.find(c => c.id === userId);
+    if (cached) {
+      setViewingProfile(cached as Profile);
+      supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
+        .then(({ data }) => { if (data) setViewingProfile(prev => prev?.id === userId ? data as Profile : prev); });
+      return;
+    }
+    if (!navigator.onLine) { showNotif("You're offline — can't load this profile right now.", "err"); return; }
+    setViewingProfile({ id: userId, name: "Loading...", email: "", uni: "", major: "", year: "", course: "", meet_type: "", bio: "", avatar_emoji: "⏳", avatar_color: "#ccc", photo_mode: "initials", photo_url: null, streak: 0, xp: 0, badges: [], online: false, sessions: 0, rating: 0, subjects: [], created_at: "" } as Profile);
+    supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
+      .then(({ data }) => {
+        setViewingProfile(prev => {
+          if (!prev || prev.id !== userId) return prev;
+          if (data) return data as Profile;
+          showNotif(!navigator.onLine ? "Can't load profile — you're offline." : "Profile not found", "err");
+          return null;
+        });
+      });
+  };
+
+  const {
     aiTab, setAiTab, aiLang, setAiLang,
     tutorMsgs, setTutorMsgs, tutorInput, setTutorInput,
     tutorLoading, tutorSubject, setTutorSubject,
     tutorFile, setTutorFile, tutorFileRef, tutorEndRef,
     matchScores, matchLoading, matchQuiz, setMatchQuiz, matchQuizSaved,
     planSubjects, setPlanSubjects, planExamDates, setPlanExamDates,
-    planResult, planLoading, savedPlans,
+    planResult, setPlanResult, planLoading, savedPlans,
     aiVersion, aiUserTier,
     wellbeingMsgs, setWellbeingMsgs, wellbeingInput, setWellbeingInput,
     wellbeingLoading, wellbeingMood, setWellbeingMood,
@@ -767,6 +657,9 @@ export default function BasUdrus() {
     sendTutorMessage, sendWellbeingMessage, loadMatchScores, generateStudyPlan,
     resetAI,
   } = useAI(allStudents);
+
+  useEffect(() => { smartScroll(tutorEndRef); }, [tutorMsgs]);
+  useEffect(() => { smartScroll(wellbeingEndRef); }, [wellbeingMsgs]);
 
   // ── Connect / Reject ──────────────────────────────────────────────────
   const handleConnect = async (s: Profile & {_postId?: string; _postSubject?: string}) => {
@@ -811,11 +704,6 @@ export default function BasUdrus() {
     }, 360);
   };
 
-  const handleReject = (s: Profile & {_postId?: string}) => {
-    const key = s._postId || s.id;
-    setFlyCard({id:key,dir:"down"});
-    setTimeout(()=>{ setDismissed(prev=>({...prev,[key]:true})); setFlyCard(null); }, 310);
-  };
 
   // ── Chat ──────────────────────────────────────────────────────────────
   const sendMessage = async (partnerId: string) => {
@@ -1104,304 +992,6 @@ export default function BasUdrus() {
       }
       showNotif("Thanks for rating! ⭐");
     } catch { showNotif("Rating failed", "err"); }
-  };
-
-  // ── Help request ──────────────────────────────────────────────────────
-  const submitRequest = async () => {
-    if (!newReq.subject||!user) return showNotif("Pick a course first","err");
-    if (!newReq.detail?.trim()) return showNotif("Write what you need help with","err");
-    if (!navigator.onLine) return showNotif("You're offline — can't post right now. Try again when connected.", "err");
-    if (actionLoading) return;
-    setActionLoading(true);
-    try {
-      const { data: existingProfile, error: profileCheckError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", user.id)
-        .single();
-
-      if (profileCheckError || !existingProfile) {
-        setActionLoading(false);
-        showNotif("Please save your profile first before posting", "err");
-        setShowReqModal(false);
-        setScreen("profile");
-        return;
-      }
-
-      const { data, error } = await supabase.from("help_requests").insert({
-        user_id: user.id,
-        subject: newReq.subject,
-        detail: newReq.detail.trim(),
-        meet_type: newReq.meetType,
-      }).select().single();
-      if (!error && data) {
-        const fullReq = { ...data, profile };
-        setHelpRequests(prev=>[fullReq as HelpRequest,...prev]);
-        setNewReq({subject:"",detail:"",meetType:"flexible"});
-        setShowReqModal(false);
-        trackEvent("post_created", { subject: newReq.subject });
-        showNotif("Your post is live! 📢");
-        await awardBadge("helper");
-      } else if (error) {
-
-        showNotif("Error posting — " + (error.message || "please try again"), "err");
-      }
-    } catch { showNotif("Error posting — please try again", "err"); }
-    setActionLoading(false);
-  };
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-    if (file.size > 5 * 1024 * 1024) { showNotif("Photo must be under 5 MB", "err"); return; }
-    // Open crop modal instead of uploading directly
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropModal({ src: reader.result as string, file });
-      setCropZoom(1);
-      setCropPos({ x: 0, y: 0 });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = ""; // reset input so re-selecting same file works
-  };
-
-  // Calculate initial zoom to "cover" the circle (fill it without gaps)
-  const [cropImgDims, setCropImgDims] = useState<{w:number;h:number}|null>(null);
-  const cropInitialZoom = useMemo(() => {
-    if (!cropImgDims) return 1;
-    const previewSize = 260;
-    // Scale to cover the circle — use the LARGER ratio so the full circle is filled
-    return Math.max(previewSize / cropImgDims.w, previewSize / cropImgDims.h);
-  }, [cropImgDims]);
-
-  // When crop modal opens, measure the image
-  useEffect(() => {
-    if (!cropModal) { setCropImgDims(null); return; }
-    const img = new Image();
-    img.onload = () => {
-      setCropImgDims({ w: img.naturalWidth, h: img.naturalHeight });
-      const previewSize = 260;
-      const coverZoom = Math.max(previewSize / img.naturalWidth, previewSize / img.naturalHeight);
-      setCropZoom(coverZoom);
-      setCropPos({ x: 0, y: 0 });
-    };
-    img.src = cropModal.src;
-  }, [cropModal?.src]);
-
-  const cropAndUpload = async () => {
-    if (!cropModal || !user) return;
-    try {
-      const canvas = document.createElement("canvas");
-      const size = 400; // output 400x400
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Image load failed"));
-        img.src = cropModal.src;
-      });
-
-      // The preview circle is 260px. Canvas is 400px. Scale factor:
-      const canvasToPreview = size / 260;
-      // Draw the image at the same relative position/zoom as the preview
-      const imgW = img.naturalWidth * cropZoom * canvasToPreview;
-      const imgH = img.naturalHeight * cropZoom * canvasToPreview;
-      const drawX = (size - imgW) / 2 + cropPos.x * canvasToPreview;
-      const drawY = (size - imgH) / 2 + cropPos.y * canvasToPreview;
-
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, size, size);
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      ctx.drawImage(img, drawX, drawY, imgW, imgH);
-
-      const blob = await new Promise<Blob|null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
-      if (!blob) { showNotif("Failed to process image", "err"); return; }
-
-      const path = `${user.id}/avatar.jpg`;
-      const { error } = await supabase.storage.from("avatars").upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-      if (error) { showNotif("Upload failed — make sure the 'avatars' bucket exists in Supabase Storage", "err"); return; }
-      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
-      const url = publicUrl + "?t=" + Date.now();
-      const { error: updateErr } = await supabase.from("profiles").update({ photo_mode: "photo", photo_url: url }).eq("id", user.id);
-      if (updateErr) { showNotif("Photo uploaded but profile update failed", "err"); return; }
-      setProfile(p => ({ ...p, photo_mode: "photo", photo_url: url }));
-      if (editProfile) setEditProfile(p => ({ ...p!, photo_mode: "photo", photo_url: url }));
-      setCropModal(null);
-      showNotif("Profile photo updated! 📸");
-    } catch (e) { logError("cropAndUpload", e); showNotif("Upload failed — please try again", "err"); }
-  };
-
-  const openStudentProfile = (userId: string, cachedProfile?: Profile) => {
-    trackClick("post_click", { target_user: userId });
-    if (userId === user?.id) { setScreen("profile"); return; }
-    // 1. INSTANT: Use cached data from allStudents/connections (already loaded)
-    const cached = cachedProfile
-      || (allStudents as any[]).find((s: any) => s.id === userId)
-      || connections.find(c => c.id === userId);
-    if (cached) {
-      setViewingProfile(cached as Profile);
-      // 2. BACKGROUND: Refresh with latest DB data (non-blocking)
-      // Only update if the modal is still showing this same user
-      supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
-        .then(({ data }) => { if (data) setViewingProfile(prev => prev?.id === userId ? data as Profile : prev); });
-      return;
-    }
-    // 3. FALLBACK: No cached data — must fetch (rare: only for profiles not in feed)
-    if (!navigator.onLine) { showNotif("You're offline — can't load this profile right now.", "err"); return; }
-    setViewingProfile({ id: userId, name: "Loading...", email: "", uni: "", major: "", year: "", course: "", meet_type: "", bio: "", avatar_emoji: "⏳", avatar_color: "#ccc", photo_mode: "initials", photo_url: null, streak: 0, xp: 0, badges: [], online: false, sessions: 0, rating: 0, subjects: [], created_at: "" } as Profile);
-    supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
-      .then(({ data }) => {
-        setViewingProfile(prev => {
-          if (!prev || prev.id !== userId) return prev; // Modal closed or switched user
-          if (data) return data as Profile;
-          showNotif(!navigator.onLine ? "Can't load profile — you're offline." : "Profile not found", "err");
-          return null;
-        });
-      });
-  };
-
-  // ── Open post-request modal (blocks incomplete profiles) ──────────────
-  const openReqModal = () => {
-    if (!profile.name || !profile.uni || !profile.major) {
-      showNotif("Complete your profile first — add your name, university & major 👤", "err");
-      setScreen("profile");
-      return;
-    }
-    setShowReqModal(true);
-  };
-
-  // ── Subject history ───────────────────────────────────────────────────
-  const submitSubject = async () => {
-    if (!newSub.subject||!user) return showNotif("Pick a subject","err");
-    if (subjectHistory.find(s=>s.subject===newSub.subject)) return showNotif("Already in your history","err");
-    try {
-      const { data, error } = await supabase.from("subject_history").insert({
-        user_id: user.id,
-        subject: newSub.subject,
-        status: newSub.status,
-        note: newSub.note || "",
-      }).select().single();
-      if (error) { showNotif("Failed to add subject — try again", "err"); return; }
-      if (data) {
-        const updatedHistory = [data,...subjectHistory];
-        setSubjectHistory(updatedHistory);
-        setNewSub({subject:"",note:"",status:"active"});
-        setShowSubModal(false);
-        showNotif("Subject added ✅");
-        const done = updatedHistory.filter(x=>x.status==="done").length;
-        if (done >= 3) await awardBadge("subject_master");
-      }
-    } catch { showNotif("Failed to add subject", "err"); }
-  };
-
-  const markSubjectDone = async (subId: string) => {
-    try {
-      const { error } = await supabase.from("subject_history").update({ status:"done" }).eq("id", subId);
-      if (error) { showNotif("Failed to update subject", "err"); return; }
-      const updated = subjectHistory.map(x=>x.id===subId?{...x,status:"done"}:x);
-      setSubjectHistory(updated);
-      const done = updated.filter(x=>x.status==="done").length;
-      if (done >= 3) await awardBadge("subject_master");
-    } catch { }
-  };
-
-  // ── Profile update ────────────────────────────────────────────────────
-  const saveProfile = async () => {
-    if (!user) { showNotif("Not signed in", "err"); return; }
-    if (!editProfile) { showNotif("Nothing to save", "err"); return; }
-    if (!navigator.onLine) { showNotif("You're offline — changes can't be saved right now.", "err"); return; }
-    if (actionLoading) return; // Prevent double-click
-    setActionLoading(true);
-    try {
-      // Validate session server-side (getSession only returns cached token — may be expired)
-      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
-      if (authErr || !authUser) {
-        showNotif("Session expired — please sign in again", "err");
-        setScreen("auth");
-        return;
-      }
-
-      const merged = { ...profile, ...editProfile };
-      const updatePayload: Record<string, unknown> = {
-        name: (merged.name || "").trim(),
-        uni: (merged.uni || "").trim(),
-        major: (merged.major || "").trim(),
-        year: merged.year || "",
-        course: merged.course || "",
-        meet_type: merged.meet_type || "flexible",
-        bio: (merged.bio || "").trim(),
-        avatar_emoji: merged.avatar_emoji || "🫶",
-        avatar_color: merged.avatar_color || "#6C8EF5",
-        photo_mode: merged.photo_mode || "initials",
-        photo_url: merged.photo_url || null,
-        subjects: Array.isArray(merged.subjects) ? merged.subjects : [],
-      };
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .update(updatePayload)
-        .eq("id", user.id)
-        .select()
-        .single();
-
-      if (error) {
-        logError("saveProfile", error);
-        // If it's an auth/permission error, try refreshing session
-        if (error.code === "PGRST301" || error.message?.includes("JWT")) {
-          const { error: refreshErr } = await supabase.auth.refreshSession();
-          if (refreshErr) {
-            showNotif("Session expired — please sign in again", "err");
-            setScreen("auth");
-            return;
-          }
-          // Retry once after refresh
-          const { data: retryData, error: retryErr } = await supabase.from("profiles").update(updatePayload).eq("id", user.id).select().single();
-          if (retryErr || !retryData) {
-            showNotif("Save failed after retry — please sign out and back in", "err");
-            return;
-          }
-          setProfile(prev => ({ ...prev, ...retryData } as Profile));
-          setEditProfile(null);
-          showNotif("Profile saved ✅");
-          return;
-        }
-        showNotif("Save failed: " + (error.message || "unknown error"), "err");
-        return;
-      }
-      if (!data) {
-        showNotif("Save failed — please try again", "err");
-        return;
-      }
-      setProfile(prev => ({ ...prev, ...data } as Profile));
-      setEditProfile(null);
-      showNotif("Profile saved ✅");
-    } catch (e) {
-      logError("saveProfile", e);
-      showNotif("Save failed — please try again", "err");
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const submitReport = async () => {
-    if (!reportModal || !reportReason.trim() || !user) return;
-    try {
-      const { error } = await supabase.from("reports").insert({
-        reporter_id: user.id,
-        reported_id: reportModal.userId,
-        reason: reportReason.trim(),
-      });
-      if (error) { showNotif("Failed to submit report", "err"); }
-      else { showNotif("Report submitted. Thank you."); setReportModal(null); setReportReason(""); }
-    } catch { showNotif("Failed to submit report", "err"); }
   };
 
   const loadNotifications = async () => {
@@ -3949,7 +3539,7 @@ export default function BasUdrus() {
                     <div className="field"><label>Bio</label><textarea rows={3} placeholder="Tell others a bit about yourself..." value={editProfile.bio||""} onChange={e=>setEditProfile(p=>({...p!,bio:e.target.value}))} maxLength={500}/></div>
                     <div style={{display:"flex",gap:10}}>
                       <button className="btn-ghost" style={{flex:0.45}} onClick={()=>setEditProfile(null)}>Cancel</button>
-                      <button className="btn-primary" disabled={actionLoading} style={{flex:1,padding:13,borderRadius:14,opacity:actionLoading?0.6:1}} onClick={saveProfile}>{actionLoading?"Saving...":"Save Changes"}</button>
+                      <button className="btn-primary" disabled={profileSaveLoading} style={{flex:1,padding:13,borderRadius:14,opacity:profileSaveLoading?0.6:1}} onClick={saveProfile}>{profileSaveLoading?"Saving...":"Save Changes"}</button>
                     </div>
                   </div>
                 ):(

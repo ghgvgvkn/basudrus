@@ -38,6 +38,16 @@ export function useAI(allStudents: Profile[]) {
   const [earlyAccessEmail, setEarlyAccessEmail] = useState("");
   const [earlyAccessSent, setEarlyAccessSent] = useState(false);
 
+  // Load AI version and user tier on mount
+  useEffect(() => {
+    fetch("/api/ai/version").then(r=>r.json()).then(d=>{ if(d.version) setAiVersion(d.version); }).catch(()=>{});
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`/api/ai/user-stats/${user.id}`).then(r=>r.json()).then(d=>{ if(d.tier) setAiUserTier(d); }).catch(()=>{});
+  }, [user?.id]);
+
   const loadSavedPlans = async () => {
     if (!user) return;
     try {
@@ -342,7 +352,7 @@ export function useAI(allStudents: Profile[]) {
     tutorFile, setTutorFile, tutorFileRef, tutorEndRef,
     matchScores, matchLoading, matchQuiz, setMatchQuiz, matchQuizSaved,
     planSubjects, setPlanSubjects, planExamDates, setPlanExamDates,
-    planResult, planLoading, savedPlans,
+    planResult, setPlanResult, planLoading, savedPlans,
     aiVersion, aiUserTier,
     wellbeingMsgs, setWellbeingMsgs, wellbeingInput, setWellbeingInput,
     wellbeingLoading, wellbeingMood, setWellbeingMood,
