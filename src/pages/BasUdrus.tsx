@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Message, HelpRequest } from "@/lib/supabase";
@@ -24,6 +24,148 @@ import {
   AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel,
   statusColor
 } from "@/lib/constants";
+import type { Theme } from "@/lib/constants";
+
+// ─── Helper: initials from name ──────────────────────────────────────────────
+const initials = (n: string) => n ? n.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase() : "ME";
+
+// ─── Stable sub-components (outside render to prevent remount) ───────────────
+const FallbackCircle = ({name, color, size, ringStyle}: {name:string; color:string; size:number; ringStyle?:React.CSSProperties}) => (
+  <div style={{width:size,height:size,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:size*0.31,boxShadow:`0 3px 14px ${color}55`,flexShrink:0,...(ringStyle||{})}}>
+    {initials(name||"")}
+  </div>
+);
+
+// Ref callback that detects already-cached images (React onLoad doesn't fire for cached imgs)
+const useCachedImg = (src: string | null | undefined) => {
+  const [state, setState] = useState<"loading"|"loaded"|"error">(src ? "loading" : "loaded");
+  useEffect(() => { if (src) setState("loading"); }, [src]);
+  const ref = (el: HTMLImageElement | null) => {
+    if (!el || !src) return;
+    if (el.complete) {
+      if (el.naturalWidth > 0) setState(s => s === "loaded" ? s : "loaded");
+      else setState(s => s === "error" ? s : "error");
+    }
+  };
+  return { state, setState, ref };
+};
+
+const UserAvatar = memo(({p, size=48, ring=false, T}: {p:Partial<Profile>; size?:number; ring?:boolean; T:Theme}) => {
+  const bg = p.avatar_color||"#6C8EF5";
+  const ringStyle = ring?{outline:`3px solid ${T.accent}`,outlineOffset:2}:{};
+  const hasPhoto = p.photo_mode==="photo"&&!!p.photo_url;
+  const { state, setState, ref } = useCachedImg(hasPhoto ? p.photo_url : null);
+  if (hasPhoto&&state!=="error") return (
+    <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",flexShrink:0,boxShadow:"0 3px 14px rgba(0,0,0,0.15)",position:"relative",background:bg,color:"#fff",fontWeight:700,fontSize:size*0.31,...ringStyle}}>
+      <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>{initials(p.name||"")}</span>
+      <img ref={ref} src={p.photo_url!} alt={p.name?`${p.name}'s photo`:"Photo"} width={size} height={size} decoding="async" style={{position:"relative",width:"100%",height:"100%",objectFit:"cover",opacity:state==="loaded"?1:0,transition:"opacity 0.25s"}} onLoad={()=>setState("loaded")} onError={()=>setState("error")}/>
+    </div>
+  );
+  return <FallbackCircle name={p.name||""} color={bg} size={size} ringStyle={ringStyle}/>;
+});
+
+const Avatar = memo(({s, size=48, T}: {s:Profile; size?:number; T:Theme}) => {
+  const hasPhoto = s.photo_mode==="photo"&&!!s.photo_url;
+  const { state, setState, ref } = useCachedImg(hasPhoto ? s.photo_url : null);
+  const bg = s.avatar_color||"#6C8EF5";
+  return (
+  <div style={{position:"relative",flexShrink:0}}>
+    {hasPhoto&&state!=="error" ? (
+      <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",boxShadow:"0 3px 14px rgba(0,0,0,0.15)",position:"relative",background:bg,color:"#fff",fontWeight:700,fontSize:size*0.3}}>
+        <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>{initials(s.name)}</span>
+        <img ref={ref} src={s.photo_url!} alt={s.name?`${s.name}'s photo`:"Photo"} width={size} height={size} decoding="async" style={{position:"relative",width:"100%",height:"100%",objectFit:"cover",opacity:state==="loaded"?1:0,transition:"opacity 0.25s"}} onLoad={()=>setState("loaded")} onError={()=>setState("error")}/>
+      </div>
+    ) : (
+      <div style={{width:size,height:size,borderRadius:"50%",background:bg,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:size*0.3,boxShadow:`0 3px 14px ${bg}55`}}>
+        {initials(s.name)}
+      </div>
+    )}
+    {s.online&&<div style={{position:"absolute",bottom:1,right:1,width:size*0.23,height:size*0.23,background:T.green,borderRadius:"50%",border:"2px solid "+T.surface}}/>}
+  </div>
+  );
+});
+
+const CourseSearch = memo(({value, onChange, placeholder, T}: {value:string; onChange:(v:string)=>void; uniFilter?:string; majorFilter?:string; placeholder?:string; T:Theme}) => {
+  const [csSearch, setCsSearch] = useState("");
+  const [csOpen, setCsOpen] = useState(false);
+  const csRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (csRef.current && !csRef.current.contains(e.target as Node)) setCsOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+  const allCourses = useMemo(() => {
+    const raw = getCourseGroups().flatMap(([group, courses]) => courses.map(c => ({course:c, group})));
+    const seen = new Set<string>();
+    return raw.filter(c => { if (seen.has(c.course)) return false; seen.add(c.course); return true; });
+  }, []);
+  const filtered = useMemo(() => {
+    if (!csSearch) return allCourses.slice(0, 80);
+    const q = csSearch.toLowerCase();
+    const starts: typeof allCourses = [];
+    const wordStarts: typeof allCourses = [];
+    const contains: typeof allCourses = [];
+    for (const opt of allCourses) {
+      const name = opt.course.toLowerCase();
+      if (name.startsWith(q)) starts.push(opt);
+      else if (name.split(/[\s(&]/).some(w => w.startsWith(q))) wordStarts.push(opt);
+      else if (name.includes(q)) contains.push(opt);
+    }
+    return [...starts, ...wordStarts, ...contains].slice(0, 80);
+  }, [csSearch, allCourses]);
+  const grouped = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const item of filtered) {
+      if (!map.has(item.group)) map.set(item.group, []);
+      map.get(item.group)!.push(item.course);
+    }
+    return Array.from(map.entries());
+  }, [filtered]);
+  return (
+    <div ref={csRef} style={{position:"relative"}}>
+      <div style={{display:"flex",alignItems:"center",border:`1.5px solid ${csOpen?T.accent:T.border}`,borderRadius:12,padding:"0 12px",background:T.bg,transition:"border-color 0.15s"}}>
+        <span style={{fontSize:14,marginRight:6,opacity:0.5}}>🔍</span>
+        <input placeholder={placeholder||"Search any course..."} value={csOpen?csSearch:value}
+          onChange={e=>{setCsSearch(e.target.value);setCsOpen(true);}}
+          onFocus={()=>setCsOpen(true)}
+          style={{border:"none",outline:"none",background:"transparent",flex:1,fontSize:16,padding:"11px 0",color:T.text,minWidth:0,width:"100%"}}/>
+        {(csSearch||value)&&<span style={{cursor:"pointer",fontSize:16,color:T.muted,padding:4}} onMouseDown={e=>{e.preventDefault();setCsSearch("");onChange("");}}>×</span>}
+      </div>
+      {csOpen&&(
+        <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.12)",maxHeight:260,overflowY:"auto",zIndex:50}}>
+          {grouped.length===0?(
+            <div style={{padding:"16px 14px",textAlign:"center",fontSize:13,color:T.muted}}>{csSearch?`No courses match "${csSearch}"`:"No courses available"}</div>
+          ):(
+            grouped.map(([cat, courses])=>(
+              <div key={cat}>
+                <div style={{padding:"8px 14px 4px",fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",position:"sticky",top:0,background:T.surface,zIndex:1}}>{cat}</div>
+                {courses.map(course=>(
+                  <div key={course} onMouseDown={e=>{e.preventDefault();onChange(course);setCsSearch("");setCsOpen(false);}}
+                    style={{padding:"8px 14px 8px 24px",cursor:"pointer",fontSize:13,color:course===value?T.accent:T.text,fontWeight:course===value?700:400,background:course===value?T.accentSoft:"transparent"}}
+                    onMouseEnter={e=>{if(course!==value)(e.currentTarget as HTMLDivElement).style.background=T.border;}}
+                    onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.background=course===value?T.accentSoft:"transparent";}}>
+                    {course}
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const timeAgo = (dateStr: string) => {
+  const d = new Date(dateStr);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff/60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins/60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs/24)}d ago`;
+};
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function BasUdrus() {
@@ -33,6 +175,7 @@ export default function BasUdrus() {
   const xp = profile.xp ?? 0;
   const earnedBadges: string[] = profile.badges ?? [];
   const [newBadge, setNewBadge] = useState<typeof BADGES_DEF[0] | null>(null);
+  const [passwordModal, setPasswordModal] = useState(false);
 
   const {
     notifications, setNotifications,
@@ -65,6 +208,8 @@ export default function BasUdrus() {
   const dragStart = useRef(0);
   const dragScroll = useRef(0);
   const dragMoved = useRef(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const aiChatScrollRef = useRef<HTMLDivElement>(null);
 
   // ── Network status (offline detection) ──────────────────────────────
   const [showOfflineBanner, setShowOfflineBanner] = useState(false);
@@ -116,7 +261,6 @@ export default function BasUdrus() {
     }
     el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
-  const initials = (n: string) => n ? n.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase() : "ME";
 
   // ── Auth listener ────────────────────────────────────────────────────
   useEffect(() => {
@@ -261,8 +405,13 @@ export default function BasUdrus() {
     if (!b) return;
     try {
       const newBadges = [...earnedBadges, id];
-      const latestXp = (profile.xp || 0) + b.xp;
-      setProfile(p => ({ ...p, badges: newBadges, xp: (p.xp || 0) + b.xp }));
+      let latestXp = 0;
+      setProfile(p => {
+        latestXp = (p.xp || 0) + b.xp;
+        return { ...p, badges: newBadges, xp: latestXp };
+      });
+      // Use setTimeout(0) to ensure setProfile updater has run and latestXp is populated
+      await new Promise(r => setTimeout(r, 0));
       const { error } = await supabase.from("profiles").update({ badges: newBadges, xp: latestXp }).eq("id", user.id);
       if (!error) setNewBadge(b);
     } catch { }
@@ -295,12 +444,23 @@ export default function BasUdrus() {
   } = useMessages(awardBadge);
 
   // ── Chat scroll + realtime (must be after useMessages) ──
-  useEffect(() => { smartScroll(chatEndRef); }, [activeChat, messages]);
+  const activeChatMsgCount = (activeChat ? (messages[activeChat.id] || []).length : 0);
+  useEffect(() => { smartScroll(chatEndRef); }, [activeChat, activeChatMsgCount]);
 
   useEffect(() => {
     if (!user || !activeChat) return;
-    loadMessages(activeChat.id);
-  }, [user?.id, activeChat]);
+    loadMessages(activeChat.id).then(() => {
+      // Force scroll to bottom when opening a conversation
+      setTimeout(() => { chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" }); }, 50);
+    });
+  }, [user?.id, activeChat?.id]);
+
+  // Reload connections when switching to connect tab (catches new connections from other users)
+  useEffect(() => {
+    if (screen === "connect" && user) {
+      loadConnections();
+    }
+  }, [screen, user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -313,8 +473,16 @@ export default function BasUdrus() {
         filter: `receiver_id=eq.${user.id}`,
       }, (payload) => {
         const msg = payload.new as Message;
+        const partnerId = msg.sender_id;
+        // If this sender isn't in our connections, reload connections
+        setConnections(prev => {
+          if (!prev.some(c => c.id === partnerId)) {
+            // Trigger a full reload to get the new connection's profile
+            loadConnections();
+          }
+          return prev;
+        });
         setMessages(prev => {
-          const partnerId = msg.sender_id;
           const existing = prev[partnerId] || [];
           if (existing.some(m => m.id === msg.id)) return prev;
           return { ...prev, [partnerId]: [...existing, msg] };
@@ -353,6 +521,15 @@ export default function BasUdrus() {
           }
           return { ...prev, [partnerId]: [...existing, msg] };
         });
+      })
+      // Also listen for new connections added to this user
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "connections",
+        filter: `user_id=eq.${user.id}`,
+      }, () => {
+        loadConnections();
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -493,8 +670,11 @@ export default function BasUdrus() {
         setConnections(prev => prev.some(c=>(c as any).id===s.id||(c as any).partner_id===s.id) ? prev : [...prev, s]);
         setDismissed(prev=>({...prev,[key]:true}));
         setFlyCard(null);
-        setProfile(p => ({ ...p, xp: (p.xp || 0) + 20 }));
-        supabase.from("profiles").update({ xp: (profile.xp || 0) + 20 }).eq("id", user.id).then(() => {});
+        setProfile(p => {
+          const newXp = (p.xp || 0) + 20;
+          supabase.from("profiles").update({ xp: newXp }).eq("id", user.id).then(() => {});
+          return { ...p, xp: newXp };
+        });
         showNotif(`You matched with ${s.name}! 🎉`);
         trackEvent("connect", { partner_id: s.id });
         setActiveChat(s);
@@ -610,7 +790,7 @@ export default function BasUdrus() {
   const completionFields = [profile.name, profile.uni, profile.major, profile.year, profile.bio];
   const completionPct = Math.round((completionFields.filter(Boolean).length / completionFields.length) * 100);
 
-  // ── Sub-components ─────────────────────────────────────────────────────
+  // ── Sub-components (stateless, kept in render for closure access to T/user/profile) ──
   const Logo = ({size=21, compact=false}: {size?:number; compact?:boolean}) => {
     const scale = size / 21;
     const w = Math.round(160 * scale);
@@ -620,112 +800,6 @@ export default function BasUdrus() {
       <span style={{cursor:"pointer",display:"inline-flex",alignItems:"center"}} onClick={()=>!user&&setScreen("landing")}>
         <svg width={w} height={h} viewBox={vb}><text x="200" y="88" textAnchor="middle" fontFamily="Georgia, serif" fontWeight="500" fontSize="52" fill={T.navy} letterSpacing="-1">Bas Udrus</text><circle cx="318" cy="50" r="5" fill="#4F7EF7"/><line x1="130" y1="105" x2="270" y2="105" stroke="#4F7EF7" strokeWidth="2"/>{!compact && <text x="200" y="124" textAnchor="middle" fontFamily="Arial, sans-serif" fontSize="11" fill="#888888" letterSpacing="4">STUDY SMARTER</text>}</svg>
       </span>
-    );
-  };
-
-  const FallbackCircle = ({name, color, size, ringStyle}: {name:string; color:string; size:number; ringStyle?:React.CSSProperties}) => (
-    <div style={{width:size,height:size,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:size*0.31,boxShadow:`0 3px 14px ${color}55`,flexShrink:0,...(ringStyle||{})}}>
-      {initials(name||"")}
-    </div>
-  );
-
-  const UserAvatar = ({p, size=48, ring=false}: {p:Partial<Profile>; size?:number; ring?:boolean}) => {
-    const [imgErr, setImgErr] = useState(false);
-    const bg = p.avatar_color||"#6C8EF5";
-    const ringStyle = ring?{outline:`3px solid ${T.accent}`,outlineOffset:2}:{};
-    if (p.photo_mode==="photo"&&p.photo_url&&!imgErr) return (
-      <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",flexShrink:0,boxShadow:"0 3px 14px rgba(0,0,0,0.15)",...ringStyle}}>
-        <img src={p.photo_url} alt={p.name ? `${p.name}'s profile photo` : "Profile photo"} width={size} height={size} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={()=>setImgErr(true)}/>
-      </div>
-    );
-    return <FallbackCircle name={p.name||""} color={bg} size={size} ringStyle={ringStyle}/>;
-  };
-
-  const Avatar = ({s, size=48}: {s:Profile; size?:number}) => {
-    const [imgErr, setImgErr] = useState(false);
-    return (
-    <div style={{position:"relative",flexShrink:0}}>
-      {s.photo_mode==="photo"&&s.photo_url&&!imgErr ? (
-        <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",boxShadow:`0 3px 14px rgba(0,0,0,0.15)`}}>
-          <img src={s.photo_url} alt={s.name ? `${s.name}'s profile photo` : "Profile photo"} width={size} height={size} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={()=>setImgErr(true)}/>
-        </div>
-      ) : (
-        <div style={{width:size,height:size,borderRadius:"50%",background:s.avatar_color||"#6C8EF5",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:size*0.3,boxShadow:`0 3px 14px ${s.avatar_color||"#6C8EF5"}55`}}>
-          {initials(s.name)}
-        </div>
-      )}
-      {s.online&&<div style={{position:"absolute",bottom:1,right:1,width:size*0.23,height:size*0.23,background:T.green,borderRadius:"50%",border:"2px solid "+T.surface}}/>}
-    </div>
-    );
-  };
-
-  const CourseSearch = ({value, onChange, placeholder}: {value:string; onChange:(v:string)=>void; uniFilter?:string; majorFilter?:string; placeholder?:string}) => {
-    const [csSearch, setCsSearch] = useState("");
-    const [csOpen, setCsOpen] = useState(false);
-    const csRef = useRef<HTMLDivElement>(null);
-    useEffect(() => {
-      const handler = (e: MouseEvent) => { if (csRef.current && !csRef.current.contains(e.target as Node)) setCsOpen(false); };
-      document.addEventListener("mousedown", handler);
-      return () => document.removeEventListener("mousedown", handler);
-    }, []);
-    // Global course list — not tied to major
-    const allCoursesRaw = getCourseGroups().flatMap(([group, courses]) => courses.map(c => ({course:c, group})));
-    const seenCs = new Set<string>(); const allCourses = allCoursesRaw.filter(c => { if (seenCs.has(c.course)) return false; seenCs.add(c.course); return true; });
-    const filtered = useMemo(() => {
-      if (!csSearch) return allCourses.slice(0, 80);
-      const q = csSearch.toLowerCase();
-      const starts: typeof allCourses = [];
-      const wordStarts: typeof allCourses = [];
-      const contains: typeof allCourses = [];
-      for (const opt of allCourses) {
-        const name = opt.course.toLowerCase();
-        if (name.startsWith(q)) starts.push(opt);
-        else if (name.split(/[\s(&]/).some(w => w.startsWith(q))) wordStarts.push(opt);
-        else if (name.includes(q)) contains.push(opt);
-      }
-      return [...starts, ...wordStarts, ...contains].slice(0, 80);
-    }, [csSearch, allCourses]);
-    // Group the filtered results by category for display
-    const grouped = useMemo(() => {
-      const map = new Map<string, string[]>();
-      for (const item of filtered) {
-        if (!map.has(item.group)) map.set(item.group, []);
-        map.get(item.group)!.push(item.course);
-      }
-      return Array.from(map.entries());
-    }, [filtered]);
-    return (
-      <div ref={csRef} style={{position:"relative"}}>
-        <div style={{display:"flex",alignItems:"center",border:`1.5px solid ${csOpen?T.accent:T.border}`,borderRadius:12,padding:"0 12px",background:T.bg,transition:"border-color 0.15s"}}>
-          <span style={{fontSize:14,marginRight:6,opacity:0.5}}>🔍</span>
-          <input placeholder={placeholder||"Search any course..."} value={csOpen?csSearch:value}
-            onChange={e=>{setCsSearch(e.target.value);setCsOpen(true);}}
-            onFocus={()=>setCsOpen(true)}
-            style={{border:"none",outline:"none",background:"transparent",flex:1,fontSize:16,padding:"11px 0",color:T.text,minWidth:0,width:"100%"}}/>
-          {(csSearch||value)&&<span style={{cursor:"pointer",fontSize:16,color:T.muted,padding:4}} onMouseDown={e=>{e.preventDefault();setCsSearch("");onChange("");}}>×</span>}
-        </div>
-        {csOpen&&(
-          <div style={{position:"absolute",top:"100%",left:0,right:0,marginTop:4,background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,0.12)",maxHeight:260,overflowY:"auto",zIndex:50}}>
-            {grouped.length===0?(
-              <div style={{padding:"16px 14px",textAlign:"center",fontSize:13,color:T.muted}}>{csSearch?`No courses match "${csSearch}"`:"No courses available"}</div>
-            ):(
-              grouped.map(([cat, courses])=>(
-                <div key={cat}>
-                  <div style={{padding:"8px 14px 4px",fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",position:"sticky",top:0,background:T.surface,zIndex:1}}>{cat}</div>
-                  {courses.map(course=>(
-                    <div key={course} onMouseDown={e=>{e.preventDefault();onChange(course);setCsSearch("");setCsOpen(false);}}
-                      style={{padding:"8px 14px 8px 24px",cursor:"pointer",fontSize:13,color:course===value?T.accent:T.text,fontWeight:course===value?700:400,background:course===value?T.accentSoft:"transparent"}}
-                      onMouseEnter={e=>{if(course!==value)(e.currentTarget as HTMLDivElement).style.background=T.border;}}
-                      onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.background=course===value?T.accentSoft:"transparent";}}>
-                      {course}
-                    </div>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
     );
   };
 
@@ -749,16 +823,6 @@ export default function BasUdrus() {
         <span style={{fontSize:11,color:T.muted,fontWeight:600}}>{xp||0} XP</span>
       </div>
     );
-  };
-
-  const timeAgo = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const diff = Date.now() - d.getTime();
-    const mins = Math.floor(diff/60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins/60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs/24)}d ago`;
   };
 
   if (loading) return (
@@ -1196,7 +1260,7 @@ export default function BasUdrus() {
   // MAIN APP
   // ═══════════════════════════════════════════════════════════════════════════════
   return (
-    <div style={{minHeight:"100dvh",background:T.bg,display:"flex",flexDirection:"column",transition:"background-color 0.3s"}}>
+    <div style={{height:"100dvh",background:T.bg,display:"flex",flexDirection:"column",transition:"background-color 0.3s",overflow:"hidden"}}>
       <style>{makeCSS(T)}</style>
 
       {notif&&<div className="notif" style={{background:notif.type==="err"?T.red:T.navy,color:"#fff"}}>{notif.msg}</div>}
@@ -1214,6 +1278,25 @@ export default function BasUdrus() {
           <div>
             <div style={{fontWeight:700,fontSize:14,color:T.navy}}>Badge Unlocked! 🎉</div>
             <div style={{fontSize:13,color:T.textSoft}}>{newBadge.name} — +{newBadge.xp} XP</div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Password change modal ── */}
+      {passwordModal&&(
+        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setPasswordModal(false)}>
+          <div className="modal" style={{maxWidth:380}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <h3 style={{fontSize:17,fontWeight:700,color:T.navy}}>🔑 Change Password</h3>
+              <button onClick={()=>setPasswordModal(false)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
+            </div>
+            <div className="field"><label>New Password</label><input type="password" placeholder="Min 6 characters" value={newPassword} onChange={e=>setNewPassword(e.target.value)} autoFocus/></div>
+            <button className="btn-primary" style={{width:"100%",marginTop:12}} onClick={async ()=>{
+              if(newPassword.trim().length<6){showNotif("Password must be at least 6 characters","err");return;}
+              const{error}=await supabase.auth.updateUser({password:newPassword.trim()});
+              if(error)showNotif("Error: "+error.message,"err");
+              else{showNotif("Password updated!");setPasswordModal(false);setNewPassword("");}
+            }}>Update Password</button>
           </div>
         </div>
       )}
@@ -1343,7 +1426,7 @@ export default function BasUdrus() {
               <button onClick={()=>setViewingProfile(null)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:18}}>
-              <UserAvatar p={viewingProfile} size={72} ring/>
+              <UserAvatar p={viewingProfile} size={72} ring T={T}/>
               <div style={{flex:1}}>
                 <div style={{fontWeight:800,fontSize:20,color:T.navy}}>{viewingProfile.name}</div>
                 <div style={{fontSize:14,color:T.textSoft,marginTop:3}}>{viewingProfile.uni} · {viewingProfile.year}</div>
@@ -1496,38 +1579,54 @@ export default function BasUdrus() {
 
       {showReqModal&&(
         <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setShowReqModal(false)}>
-          <div className="modal">
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-              <div><h3 style={{fontSize:17,fontWeight:700,color:T.navy}}>📢 Post a Study Request</h3><p style={{fontSize:12,color:T.muted,marginTop:2}}>Let others know you need help</p></div>
-              <button onClick={()=>setShowReqModal(false)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
+          <div className="modal" style={{maxWidth:420}}>
+            {/* Header with accent icon */}
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+              <div style={{width:42,height:42,borderRadius:13,background:"linear-gradient(135deg,#4F7EF7,#6C8EF5)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <span style={{fontSize:20,color:"#fff",fontWeight:700,lineHeight:1}}>+</span>
+              </div>
+              <div style={{flex:1}}>
+                <h3 style={{fontSize:17,fontWeight:700,color:T.navy,margin:0}}>Post a Study Request</h3>
+                <p style={{fontSize:12,color:T.muted,marginTop:2}}>Students in your course will see this</p>
+              </div>
+              <button onClick={()=>setShowReqModal(false)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted,padding:4}}>×</button>
             </div>
-            <div className="field">
+
+            {/* Course field */}
+            <div className="field" style={{marginBottom:14}}>
               <label style={{display:"flex",alignItems:"center",gap:5}}>
                 Course <span style={{color:T.red,fontSize:13,fontWeight:700}}>*</span>
-                {!newReq.subject&&<span style={{fontSize:11,color:T.red,fontWeight:500,marginLeft:2}}>required</span>}
               </label>
-              <CourseSearch value={newReq.subject} onChange={v=>setNewReq(p=>({...p,subject:v}))} uniFilter={profile.uni||""} majorFilter={profile.major||""} placeholder="Search for a course..."/>
+              <CourseSearch T={T} value={newReq.subject} onChange={v=>setNewReq(p=>({...p,subject:v}))} uniFilter={profile.uni||""} majorFilter={profile.major||""} placeholder="e.g. Calculus 2, Data Structures..."/>
             </div>
-            <div className="field">
+
+            {/* Detail field */}
+            <div className="field" style={{marginBottom:14}}>
               <label style={{display:"flex",alignItems:"center",gap:5}}>
-                What do you need help with? <span style={{color:T.red,fontSize:13,fontWeight:700}}>*</span>
-                {!newReq.detail?.trim()&&<span style={{fontSize:11,color:T.red,fontWeight:500,marginLeft:2}}>required</span>}
+                What do you need? <span style={{color:T.red,fontSize:13,fontWeight:700}}>*</span>
               </label>
-              <textarea rows={3} placeholder="e.g. Struggling with integration by parts before Friday's exam." value={newReq.detail} onChange={e=>setNewReq(p=>({...p,detail:e.target.value}))} maxLength={500}/>
+              <textarea rows={2} placeholder="e.g. Struggling with integration by parts before Friday's exam" value={newReq.detail} onChange={e=>setNewReq(p=>({...p,detail:e.target.value}))} maxLength={500} style={{lineHeight:1.5}}/>
             </div>
-            <div className="field"><label>Meet preference</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                {[["online","🎥","Online"],["face","📍","Campus"],["flexible","💬","Flexible"]].map(([val,icon,lbl])=>(
-                  <div key={val} className={`meet-opt ${newReq.meetType===val?"active":""}`} onClick={()=>setNewReq(p=>({...p,meetType:val}))}>
-                    <div style={{fontSize:18}}>{icon}</div><div style={{fontSize:11,fontWeight:700,marginTop:3,color:newReq.meetType===val?T.accent:T.textSoft}}>{lbl}</div>
-                  </div>
+
+            {/* Meet preference — compact */}
+            <div style={{marginBottom:18}}>
+              <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>How do you want to meet?</div>
+              <div style={{display:"flex",gap:8}}>
+                {[["online","🎥","Online"],["face","📍","Campus"],["flexible","💬","Either"]].map(([val,icon,lbl])=>(
+                  <button key={val} onClick={()=>setNewReq(p=>({...p,meetType:val}))}
+                    style={{flex:1,padding:"10px 8px",borderRadius:12,border:`1.5px solid ${newReq.meetType===val?T.accent:T.border}`,background:newReq.meetType===val?T.accentSoft:"transparent",cursor:"pointer",textAlign:"center",transition:"all 0.15s"}}>
+                    <div style={{fontSize:16}}>{icon}</div>
+                    <div style={{fontSize:11,fontWeight:newReq.meetType===val?700:500,marginTop:3,color:newReq.meetType===val?T.accent:T.textSoft}}>{lbl}</div>
+                  </button>
                 ))}
               </div>
             </div>
-            <div style={{display:"flex",gap:10}}>
-              <button className="btn-ghost" style={{flex:0.45}} onClick={()=>setShowReqModal(false)}>Cancel</button>
-              <button className="btn-primary" style={{flex:1,padding:13,borderRadius:14,opacity:(newReq.subject&&newReq.detail?.trim())?1:0.45,cursor:(newReq.subject&&newReq.detail?.trim())?"pointer":"not-allowed"}} onClick={(newReq.subject&&newReq.detail?.trim())?submitRequest:undefined}>Post 📢</button>
-            </div>
+
+            {/* Submit */}
+            <button className="btn-primary" onClick={(newReq.subject&&newReq.detail?.trim())?submitRequest:undefined}
+              style={{width:"100%",padding:14,borderRadius:14,fontSize:15,fontWeight:700,opacity:(newReq.subject&&newReq.detail?.trim())?1:0.45,cursor:(newReq.subject&&newReq.detail?.trim())?"pointer":"not-allowed",background:(newReq.subject&&newReq.detail?.trim())?"linear-gradient(135deg,#4F7EF7,#6C8EF5)":undefined,boxShadow:(newReq.subject&&newReq.detail?.trim())?"0 4px 20px rgba(74,124,247,0.3)":"none"}}>
+              {postLoading?"Posting...":"Post Request"}
+            </button>
           </div>
         </div>
       )}
@@ -1541,7 +1640,7 @@ export default function BasUdrus() {
               <button onClick={()=>setShowSubModal(false)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
             </div>
             <div className="field"><label>Subject *</label>
-              <CourseSearch value={newSub.subject} onChange={v=>setNewSub(p=>({...p,subject:v}))} uniFilter={profile.uni||""} majorFilter={profile.major||""} placeholder="Search for a subject..."/>
+              <CourseSearch T={T} value={newSub.subject} onChange={v=>setNewSub(p=>({...p,subject:v}))} uniFilter={profile.uni||""} majorFilter={profile.major||""} placeholder="Search for a subject..."/>
             </div>
             <div className="field"><label>Status</label>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
@@ -1570,7 +1669,7 @@ export default function BasUdrus() {
               <button onClick={()=>setShowGrpModal(false)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
             </div>
             <div className="field"><label>Subject *</label>
-              <CourseSearch value={newGrp.subject} onChange={v=>setNewGrp(p=>({...p,subject:v}))} placeholder="Search for a subject..."/>
+              <CourseSearch T={T} value={newGrp.subject} onChange={v=>setNewGrp(p=>({...p,subject:v}))} placeholder="Search for a subject..."/>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div className="field"><label>Date *</label><input type="date" value={newGrp.date} onChange={e=>setNewGrp(p=>({...p,date:e.target.value}))}/></div>
@@ -1606,7 +1705,7 @@ export default function BasUdrus() {
               <button onClick={()=>setEditingRoom(null)} aria-label="Close" style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted}}>×</button>
             </div>
             <div className="field"><label>Subject *</label>
-              <CourseSearch value={editGrp.subject} onChange={v=>setEditGrp(p=>({...p,subject:v}))} placeholder="Search for a subject..."/>
+              <CourseSearch T={T} value={editGrp.subject} onChange={v=>setEditGrp(p=>({...p,subject:v}))} placeholder="Search for a subject..."/>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div className="field"><label>Date *</label><input type="date" value={editGrp.date} onChange={e=>setEditGrp(p=>({...p,date:e.target.value}))}/></div>
@@ -1652,24 +1751,26 @@ export default function BasUdrus() {
         </div>
       )}
 
-      {/* ── FLOATING BUTTONS ── */}
+      {/* ── FLOATING ACTION BUTTON — Post a study request ── */}
       {["discover","connections","chat","rooms"].includes(curTab)&&(
-        canPost?(
+        <>
+        {canPost?(
           <button className="fab-post" onClick={openReqModal} aria-label="Post a study request"
-            style={{position:"fixed",bottom:28,right:24,background:T.accent,color:"#fff",border:"none",width:56,height:56,borderRadius:"50%",fontSize:26,fontWeight:700,cursor:"pointer",boxShadow:"0 6px 28px rgba(74,124,247,0.45)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",transition:"transform 0.2s,box-shadow 0.2s"}}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1.08) translateY(-2px)";}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1)";}}>
-            ✏️
+            style={{position:"fixed",bottom:28,right:24,background:"linear-gradient(135deg,#4F7EF7,#6C8EF5)",color:"#fff",border:"none",width:56,height:56,borderRadius:18,fontSize:26,fontWeight:300,cursor:"pointer",boxShadow:"0 6px 28px rgba(74,124,247,0.4),0 2px 8px rgba(0,0,0,0.1)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",transition:"transform 0.2s,box-shadow 0.2s",lineHeight:1}}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1.08) translateY(-2px)";(e.currentTarget as HTMLElement).style.boxShadow="0 10px 36px rgba(74,124,247,0.5),0 3px 12px rgba(0,0,0,0.15)";}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1)";(e.currentTarget as HTMLElement).style.boxShadow="0 6px 28px rgba(74,124,247,0.4),0 2px 8px rgba(0,0,0,0.1)";}}>
+            +
           </button>
         ):(
           <button className="fab-post" onClick={enablePosting} aria-label="Enable posting to help others"
-            style={{position:"fixed",bottom:28,right:24,background:"linear-gradient(135deg,#2ECC8D,#00B894)",color:"#fff",border:"none",width:56,height:56,borderRadius:"50%",fontSize:26,fontWeight:700,cursor:"pointer",boxShadow:"0 6px 28px rgba(46,204,141,0.45)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",transition:"transform 0.2s,box-shadow 0.2s"}}
-            title="I can help others!"
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1.08) translateY(-2px)";}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1)";}}>
-            🤝
+            style={{position:"fixed",bottom:28,right:24,background:"linear-gradient(135deg,#2ECC8D,#00B894)",color:"#fff",border:"none",width:56,height:56,borderRadius:18,fontSize:26,fontWeight:300,cursor:"pointer",boxShadow:"0 6px 28px rgba(46,204,141,0.4),0 2px 8px rgba(0,0,0,0.1)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",transition:"transform 0.2s,box-shadow 0.2s",lineHeight:1}}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1.08) translateY(-2px)";(e.currentTarget as HTMLElement).style.boxShadow="0 10px 36px rgba(46,204,141,0.5),0 3px 12px rgba(0,0,0,0.15)";}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1)";(e.currentTarget as HTMLElement).style.boxShadow="0 6px 28px rgba(46,204,141,0.4),0 2px 8px rgba(0,0,0,0.1)";}}>
+            +
           </button>
-        )
+        )}
+        <div className="fab-tooltip">{canPost?"Post a study request":"Start helping others"}</div>
+        </>
       )}
 
       {/* ── TOP NAV ── */}
@@ -1724,7 +1825,7 @@ export default function BasUdrus() {
               </div>
             )}
           </div>
-          <div style={{cursor:"pointer"}} onClick={()=>setScreen("profile")}><UserAvatar p={profile} size={32} ring={curTab==="profile"}/></div>
+          <div style={{cursor:"pointer"}} onClick={()=>setScreen("profile")}><UserAvatar p={profile} size={32} ring={curTab==="profile"} T={T}/></div>
         </div>
       </nav>
 
@@ -1750,7 +1851,8 @@ export default function BasUdrus() {
         <div className="dis-page" style={{flex:1,paddingTop:16,display:"flex",flexDirection:"column",overflow:"hidden",minHeight:0}}>
           <div className="dis-header" style={{maxWidth:560,margin:"0 auto",padding:"20px 18px 14px",flexShrink:0}}>
             <h2 style={{fontSize:22,fontWeight:800,color:T.navy,marginBottom:4,letterSpacing:"-0.02em"}}>Study Feed</h2>
-            <p style={{fontSize:14,color:T.muted,marginBottom:16}}>Students looking for study partners — connect or post your own</p>
+            <p style={{fontSize:14,color:T.muted,marginBottom:12}}>Students looking for study partners — connect or post your own</p>
+            {canPost&&<button onClick={openReqModal} style={{marginBottom:14,padding:"10px 20px",borderRadius:99,background:T.accentSoft,border:`1.5px solid ${T.accent}33`,color:T.accent,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6}} onMouseEnter={e=>{(e.currentTarget).style.background=T.accent;(e.currentTarget).style.color="#fff";}} onMouseLeave={e=>{(e.currentTarget).style.background=T.accentSoft;(e.currentTarget).style.color=T.accent;}}>Need help with a course? Post a request →</button>}
             <div className="dis-filter-row" style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
               <select className="dis-filter-sel" value={uniFilter} style={{flex:"1 1 160px",minWidth:160,padding:"9px 12px",border:`1.5px solid ${uniFilter?T.accent:T.border}`,borderRadius:12,fontSize:16,fontWeight:600,color:T.text,background:T.surface,cursor:"pointer",outline:"none"}}
                 onChange={e=>{setUniFilter(e.target.value);setMajorFilter("");setSubjectFilter("");setCourseSearch("");setCourseDropOpen(false);}}>
@@ -1866,10 +1968,20 @@ export default function BasUdrus() {
           <div style={{height:6}}/>
           {allStudents.length === 0 ? (
             <div style={{textAlign:"center",padding:"60px 24px"}} className="fade-in">
-              <div style={{fontSize:44,marginBottom:12}}>📭</div>
-              <div style={{fontWeight:700,fontSize:17,color:T.navy,marginBottom:8}}>No posts yet</div>
-              <div style={{fontSize:13,color:T.muted,marginBottom:20}}>Be the first to post a study request and find partners!</div>
-              {canPost?<button className="btn-primary" onClick={openReqModal}>Post a Study Request →</button>:<button className="btn-primary" onClick={enablePosting}>Start Posting 🤝</button>}
+              <div style={{width:72,height:72,borderRadius:18,background:"linear-gradient(135deg,#4F7EF7,#6C8EF5)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",boxShadow:"0 6px 24px rgba(74,124,247,0.25)"}}>
+                <span style={{fontSize:32,color:"#fff",fontWeight:300,lineHeight:1}}>+</span>
+              </div>
+              <div style={{fontWeight:700,fontSize:18,color:T.navy,marginBottom:6}}>No posts yet</div>
+              <div style={{fontSize:13,color:T.muted,marginBottom:20,maxWidth:280,margin:"0 auto 20px",lineHeight:1.5}}>Be the first to post a study request and find partners in your course!</div>
+              {canPost?(
+                <button className="btn-primary" onClick={openReqModal} style={{background:"linear-gradient(135deg,#4F7EF7,#6C8EF5)",boxShadow:"0 4px 20px rgba(74,124,247,0.3)",padding:"14px 32px",fontSize:15}}>
+                  + Post a Study Request
+                </button>
+              ):(
+                <button className="btn-primary" onClick={enablePosting} style={{padding:"14px 32px",fontSize:15}}>
+                  Get Started
+                </button>
+              )}
             </div>
           ) : noFilterResults ? (
             <div style={{textAlign:"center",padding:"60px 24px"}} className="fade-in">
@@ -1904,7 +2016,7 @@ export default function BasUdrus() {
                   <div key={cardKey} className={`s-card ${flying?(flyCard?.dir==="up"?"fly-up":"fly-down"):""}`} style={isOwn?{border:`2px solid ${T.accent}40`}:undefined}>
                     <div className="dis-card-hdr" style={{background:isOwn?`linear-gradient(135deg,${T.accent}15,${T.accent}25)`:`linear-gradient(135deg,${s.avatar_color||"#6C8EF5"}20,${s.avatar_color||"#6C8EF5"}40)`,padding:"20px 24px 16px",borderBottom:`1px solid ${T.border}`,cursor:isOwn?undefined:"pointer"}} onClick={()=>{if(dragMoved.current||isOwn)return;openStudentProfile(s.id, s as Profile);}}>
                       <div style={{display:"flex",alignItems:"center",gap:14}}>
-                        <div className="dis-avatar" style={{flexShrink:0}}><Avatar s={s} size={58}/></div>
+                        <div className="dis-avatar" style={{flexShrink:0}}><Avatar s={s} size={58} T={T}/></div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <div className="dis-name" style={{fontWeight:700,fontSize:16,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
@@ -1999,7 +2111,7 @@ export default function BasUdrus() {
                   <div key={s.id} className={`conn-row conn-row-mini ${activeChat?.id===s.id?"active":""}`}
                     style={{padding:"10px 12px",borderRadius:12,marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}
                     onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
-                    <Avatar s={s} size={38}/>
+                    <Avatar s={s} size={38} T={T}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:600,color:T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
                       <div style={{fontSize:11,color:s.online?T.green:T.muted,marginTop:1}}>{s.online?"● Online":"● Offline"}{parseCourses(s.course ?? "").length > 0 ? ` · ${parseCourses(s.course ?? "")[0]}` : ""}</div>
@@ -2029,7 +2141,7 @@ export default function BasUdrus() {
                     {connections.map(s=>(
                       <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer"}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                          <Avatar s={s} size={42}/>
+                          <Avatar s={s} size={42} T={T}/>
                           <div style={{flex:1}}>
                             <div style={{fontWeight:700,fontSize:13,color:T.navy,cursor:"pointer"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>{s.name}</div>
                             <div style={{fontSize:11,color:T.muted}}>{s.uni}</div>
@@ -2048,7 +2160,7 @@ export default function BasUdrus() {
               <>
                 <div style={{background:T.navBg,padding:"12px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
                   <button onClick={()=>setActiveChat(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:T.muted,padding:"2px 6px",display:"flex",alignItems:"center"}}>←</button>
-                  <Avatar s={activeChat} size={38}/>
+                  <Avatar s={activeChat} size={38} T={T}/>
                   <div style={{flex:1,cursor:"pointer"}} onClick={()=>openStudentProfile(activeChat.id, activeChat)}>
                     <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{activeChat.name}</div>
                     <div style={{fontSize:11,color:activeChat.online?T.green:T.muted,fontWeight:500}}>{activeChat.online?"● Online now":"● Offline"}{parseCourses(activeChat.course ?? "").length > 0 ? ` · ${parseCourses(activeChat.course ?? "")[0]}` : ""}</div>
@@ -2140,56 +2252,31 @@ export default function BasUdrus() {
 
       {/* ══════════════ AI HUB — Smart Study Companion ══════════════ */}
       {curTab==="ai"&&(
+        !aiTab ? (
+        /* ── SELECTION VIEW — dark header + 4 cards + quick start + footer ── */
         <div className="page-scroll" style={{background:T.bg}}>
-
-          {/* ── Hero Section — Dark immersive header ── */}
-          <div style={{background:"linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)",paddingBottom:aiTab?12:24}}>
+          <div style={{background:"linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)",paddingBottom:24}}>
           <div style={{padding:"28px 20px 0",maxWidth:720,margin:"0 auto"}}>
-            <div style={{textAlign:"center",paddingBottom:aiTab?0:20}}>
-              {/* Orb — AI's living face */}
-              {!aiTab&&(
-                <div className="fade-in" style={{marginBottom:20}}>
-                  <div style={{
-                    width:80,height:80,borderRadius:"50%",margin:"0 auto 16px",
-                    background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
-                    boxShadow:"0 0 60px rgba(251,146,60,0.3),0 0 120px rgba(139,92,246,0.15),0 8px 32px rgba(0,0,0,0.3)",
-                    animation:"orbPulse 4s ease-in-out infinite",
-                  }}/>
-                  <h2 style={{fontSize:26,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:6}}>
-                    {(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; })()}{profile.name ? `, ${profile.name.split(" ")[0]}` : ""} ✨
-                  </h2>
-                  <p style={{fontSize:15,color:"rgba(255,255,255,0.6)",maxWidth:360,margin:"0 auto",lineHeight:1.6}}>
-                    Your AI-powered study companion. What would you like to do?
-                  </p>
-                </div>
-              )}
-              {aiTab&&(
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:12}}>
-                  <button onClick={()=>setAiTab("")} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.1)",border:"none",borderRadius:99,padding:"8px 16px",color:"rgba(255,255,255,0.8)",fontSize:13,fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)",transition:"all 0.15s"}}
-                    onMouseEnter={e=>{(e.currentTarget).style.background="rgba(255,255,255,0.2)";}}
-                    onMouseLeave={e=>{(e.currentTarget).style.background="rgba(255,255,255,0.1)";}}>
-                    ← Back
-                  </button>
-                  <div style={{display:"flex",gap:4}}>
-                    {([["auto","🔄"],["en","🇬🇧"],["ar","🇯🇴"]] as const).map(([val,flag])=>(
-                      <button key={val} onClick={()=>setAiLang(val)}
-                        style={{padding:"6px 12px",borderRadius:99,fontSize:12,fontWeight:aiLang===val?700:400,
-                          background:aiLang===val?"rgba(255,255,255,0.2)":"transparent",
-                          border:"1px solid rgba(255,255,255,0.15)",
-                          color:aiLang===val?"#fff":"rgba(255,255,255,0.5)",
-                          cursor:"pointer",transition:"all 0.15s",backdropFilter:"blur(8px)"}}>
-                        {flag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+            <div style={{textAlign:"center",paddingBottom:20}}>
+              <div className="fade-in" style={{marginBottom:20}}>
+                <div style={{
+                  width:80,height:80,borderRadius:"50%",margin:"0 auto 16px",
+                  background:"radial-gradient(circle at 35% 30%,#fb923c 0%,#f97316 12%,#f43f5e 28%,#c026d3 48%,#8b5cf6 68%,#6366f1 88%,#4f46e5 100%)",
+                  boxShadow:"0 0 60px rgba(251,146,60,0.3),0 0 120px rgba(139,92,246,0.15),0 8px 32px rgba(0,0,0,0.3)",
+                  animation:"orbPulse 4s ease-in-out infinite",
+                }}/>
+                <h2 style={{fontSize:26,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:6}}>
+                  {(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; })()}{profile.name ? `, ${profile.name.split(" ")[0]}` : ""} ✨
+                </h2>
+                <p style={{fontSize:15,color:"rgba(255,255,255,0.6)",maxWidth:360,margin:"0 auto",lineHeight:1.6}}>
+                  Your AI-powered study companion. What would you like to do?
+                </p>
+              </div>
             </div>
           </div>
           </div>
 
-          {/* ── Action Cards — Glassmorphism floating cards ── */}
-          {!aiTab&&(
+          {/* ── Action Cards ── */}
             <div style={{maxWidth:720,margin:"0 auto",padding:"20px 20px 24px"}}>
               <div className="ai-tab-row fade-in" style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>
                 {([
@@ -2218,8 +2305,6 @@ export default function BasUdrus() {
                   </button>
                 ))}
               </div>
-
-              {/* Quick suggestions */}
               <div style={{marginTop:20,textAlign:"center"}}>
                 <div style={{fontSize:11,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quick Start</div>
                 <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
@@ -2233,180 +2318,162 @@ export default function BasUdrus() {
                   ))}
                 </div>
               </div>
-
-              {/* Footer */}
               <div style={{marginTop:28,textAlign:"center",padding:"0 10px"}}>
                 <div style={{fontSize:11,color:T.muted,opacity:0.5,lineHeight:1.8}}>
                   Powered by Dulaimi AI · Privacy first · Never stored · Built for Jordan 🇯🇴
                 </div>
               </div>
             </div>
-          )}
+        </div>
+        ) : (aiTab==="tutor"||aiTab==="wellbeing") ? (
+        /* ── IMMERSIVE CHAT VIEW — full height, topbar + messages + input ── */
+        <div className="ai-chat-wrap">
+          <div className="ai-chat-topbar" style={{flexWrap:"wrap"}}>
+            <button onClick={()=>setAiTab("")} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:T.muted,padding:4,display:"flex",alignItems:"center"}}>←</button>
+            <div style={{width:28,height:28,borderRadius:9,background:aiTab==="tutor"?"linear-gradient(135deg,#6366f1,#4f46e5)":"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{aiTab==="tutor"?"🎓":"🌿"}</div>
+            <div style={{flex:1,minWidth:60}}>
+              <div style={{fontWeight:700,fontSize:14,color:T.navy,lineHeight:1.2}}>{aiTab==="tutor"?"AI Tutor":"Noor"}</div>
+            </div>
+            {aiTab==="tutor"&&(
+              <select value={tutorSubject} onChange={e=>setTutorSubject(e.target.value)}
+                style={{padding:"5px 8px",border:`1.5px solid ${T.border}`,borderRadius:8,fontSize:11,fontWeight:600,color:T.text,background:T.bg,outline:"none",maxWidth:120,flexShrink:1}}>
+                <option value="">General</option>
+                {getCourseGroups().map(([cat,list])=>(
+                  <optgroup key={cat} label={cat}>{list.map((c,i)=><option key={i} value={c}>{c}</option>)}</optgroup>
+                ))}
+              </select>
+            )}
+            <div style={{display:"flex",gap:2}}>
+              {([["auto","🔄"],["en","🇬🇧"],["ar","🇯🇴"]] as const).map(([val,flag])=>(
+                <button key={val} onClick={()=>setAiLang(val)}
+                  style={{padding:"4px 8px",borderRadius:99,fontSize:11,fontWeight:aiLang===val?700:400,
+                    background:aiLang===val?T.accentSoft:"transparent",
+                    border:`1px solid ${aiLang===val?T.accent+"44":T.border}`,
+                    color:aiLang===val?T.accent:T.muted,
+                    cursor:"pointer",transition:"all 0.15s"}}>
+                  {flag}
+                </button>
+              ))}
+            </div>
+            {((aiTab==="wellbeing"&&wellbeingMsgs.length>0)||(aiTab==="tutor"&&tutorMsgs.length>0))&&(
+              <button onClick={()=>{if(aiTab==="wellbeing"){setWellbeingMsgs([]);setWellbeingMood("");setWellbeingMode("");}else{setTutorMsgs([]);}}} style={{padding:"4px 10px",borderRadius:99,border:`1px solid ${T.border}`,background:"transparent",color:T.muted,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>↺ New</button>
+            )}
+          </div>
 
-          {/* ── Feature Content ── */}
-          {aiTab&&(
-          <div style={{maxWidth:720,margin:"0 auto",padding:"0 16px 20px"}}>
+          {/* ── Messages area (shared scroll container for both tutor & wellbeing) ── */}
+          <div className="ai-chat-messages chat-scroll" ref={aiChatScrollRef} style={{position:"relative"}}
+            onScroll={e=>{const el=e.currentTarget;const dist=el.scrollHeight-el.scrollTop-el.clientHeight;setShowScrollBottom(dist>200);}}>
 
-            {/* ── MENTAL HEALTH AI ── */}
-            {aiTab==="wellbeing"&&(
-              <div className="slide-in">
-                {/* Compact intro */}
-                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"0 2px"}}>
-                  <div style={{width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#10b981,#059669)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,boxShadow:"0 4px 14px rgba(16,185,129,0.25)"}}>🌿</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:15,color:T.navy}}>Noor — Wellbeing Companion</div>
-                    <div style={{fontSize:12,color:T.muted}}>Bilingual · Arabic & English</div>
+            {aiTab==="wellbeing" ? (
+              <>
+                {wellbeingMsgs.length===0&&(wellbeingMood||wellbeingMode)&&(
+                  <div style={{padding:"8px 14px",background:darkMode?"rgba(16,185,129,0.1)":"linear-gradient(135deg,#f0fdf4,#ecfdf5)",borderRadius:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    {wellbeingMood&&<span style={{padding:"4px 12px",borderRadius:99,background:darkMode?"rgba(16,185,129,0.2)":"#d1fae5",fontSize:12,fontWeight:700,color:darkMode?"#6ee7b7":"#065f46"}}>Feeling: {wellbeingMood}</span>}
+                    {wellbeingMode&&<span style={{padding:"4px 12px",borderRadius:99,background:darkMode?"rgba(16,185,129,0.25)":"#a7f3d0",fontSize:12,fontWeight:700,color:darkMode?"#6ee7b7":"#064e3b"}}>{wellbeingMode}</span>}
+                    <span style={{fontSize:12,color:darkMode?"#6ee7b7":"#047857",fontWeight:500}}>Ready when you are</span>
                   </div>
-                </div>
-
-                {/* ── CHAT AREA ── */}
-                <div style={{background:T.surface,borderRadius:24,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(16,185,129,0.06)",marginBottom:14}}>
-                  {wellbeingMsgs.length===0&&(wellbeingMood||wellbeingMode)&&(
-                    <div style={{padding:"12px 20px",background:darkMode?"rgba(16,185,129,0.1)":"linear-gradient(135deg,#f0fdf4,#ecfdf5)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                      {wellbeingMood&&<span style={{padding:"4px 12px",borderRadius:99,background:darkMode?"rgba(16,185,129,0.2)":"#d1fae5",fontSize:12,fontWeight:700,color:darkMode?"#6ee7b7":"#065f46"}}>Feeling: {wellbeingMood}</span>}
-                      {wellbeingMode&&<span style={{padding:"4px 12px",borderRadius:99,background:darkMode?"rgba(16,185,129,0.25)":"#a7f3d0",fontSize:12,fontWeight:700,color:darkMode?"#6ee7b7":"#064e3b"}}>{wellbeingMode}</span>}
-                      <span style={{fontSize:12,color:darkMode?"#6ee7b7":"#047857",fontWeight:500}}>Ready when you are — type below 💚</span>
-                    </div>
-                  )}
-                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:14,background:T.bg,position:"relative"}}>
-                    {wellbeingMsgs.length===0&&(()=>{
-                      const quotes=[
-                        {q:"\"الصبر مفتاح الفرج\"",t:"Patience is the key to relief — Arabic proverb"},
-                        {q:"\"In the middle of difficulty lies opportunity\"",t:"Albert Einstein"},
-                        {q:"\"You are stronger than you think, braver than you feel\"",t:"A. A. Milne"},
-                        {q:"\"ما كلّفَ اللهُ نفساً إلا وسعها\"",t:"Allah does not burden a soul beyond what it can bear — Quran 2:286"},
-                        {q:"\"Be gentle with yourself — you are a child of the universe\"",t:"Desiderata"},
-                        {q:"\"الجرح اللي ما بيقتلك بيقويك\"",t:"What doesn't break you, makes you stronger — Arab saying"},
-                      ];
-                      const q=quotes[Math.floor(Date.now()/86400000)%quotes.length];
-                      return (
-                        <div style={{textAlign:"center",padding:"30px 20px",color:T.muted,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
-                          {/* Orb */}
-                          <div style={{
-                            width:72,height:72,borderRadius:"50%",marginBottom:20,
-                            background:"radial-gradient(circle at 35% 30%,#34d399 0%,#10b981 30%,#059669 60%,#047857 100%)",
-                            boxShadow:"0 0 40px rgba(16,185,129,0.2),0 8px 24px rgba(16,185,129,0.15)",
-                            animation:"orbPulse 4s ease-in-out infinite",
-                          }}/>
-                          <div style={{fontSize:20,fontWeight:800,color:T.navy,letterSpacing:"-0.02em"}}>How are you feeling?</div>
-                          <div style={{fontSize:14,color:T.muted,marginTop:8,maxWidth:300,lineHeight:1.6}}>I'm Noor — your wellbeing companion. Type anything, in Arabic or English.</div>
-                          <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
-                            {["I'm stressed","Feeling anxious","Need to vent","Help me relax"].map(q=>(
-                              <button key={q} onClick={()=>setWellbeingInput(q)}
-                                style={{padding:"10px 18px",borderRadius:99,border:"none",background:darkMode?"rgba(16,185,129,0.15)":"#ecfdf5",fontSize:13,color:darkMode?"#6ee7b7":"#065f46",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
-                                onMouseEnter={e=>{(e.currentTarget).style.background=darkMode?"rgba(16,185,129,0.25)":"#d1fae5";}}
-                                onMouseLeave={e=>{(e.currentTarget).style.background=darkMode?"rgba(16,185,129,0.15)":"#ecfdf5";}}>
-                                {q}
+                )}
+                {wellbeingMsgs.length===0&&(()=>{
+                  return (
+                    <div style={{textAlign:"center",padding:"30px 20px",color:T.muted,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1}}>
+                      <div style={{
+                        width:72,height:72,borderRadius:"50%",marginBottom:20,
+                        background:"radial-gradient(circle at 35% 30%,#34d399 0%,#10b981 30%,#059669 60%,#047857 100%)",
+                        boxShadow:"0 0 40px rgba(16,185,129,0.2),0 8px 24px rgba(16,185,129,0.15)",
+                        animation:"orbPulse 4s ease-in-out infinite",
+                      }}/>
+                      <div style={{fontSize:20,fontWeight:800,color:T.navy,letterSpacing:"-0.02em"}}>How are you feeling?</div>
+                      <div style={{fontSize:14,color:T.muted,marginTop:8,maxWidth:300,lineHeight:1.6}}>I'm Noor — your wellbeing companion. Type anything, in Arabic or English.</div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
+                        {["I'm stressed","Feeling anxious","Need to vent","Help me relax"].map(q=>(
+                          <button key={q} onClick={()=>setWellbeingInput(q)}
+                            style={{padding:"10px 18px",borderRadius:99,border:"none",background:darkMode?"rgba(16,185,129,0.15)":"#ecfdf5",fontSize:13,color:darkMode?"#6ee7b7":"#065f46",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
+                            onMouseEnter={e=>{(e.currentTarget).style.background=darkMode?"rgba(16,185,129,0.25)":"#d1fae5";}}
+                            onMouseLeave={e=>{(e.currentTarget).style.background=darkMode?"rgba(16,185,129,0.15)":"#ecfdf5";}}>
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Mood & Mode selectors inside empty state */}
+                      <div style={{width:"100%",maxWidth:500,marginTop:24,background:T.surface,borderRadius:18,border:`1px solid ${T.border}`,padding:18,textAlign:"left"}}>
+                        <div style={{marginBottom:16}}>
+                          <div style={{fontSize:13,fontWeight:700,color:T.navy,marginBottom:10}}>How are you feeling right now?</div>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                            {[["😊","Good"],["😐","Okay"],["😔","Down"],["😰","Anxious"],["😤","Frustrated"],["😩","Exhausted"],["😶","Numb"]].map(([emoji,label])=>(
+                              <button key={label} onClick={()=>setWellbeingMood(wellbeingMood===label?"":label)}
+                                style={{padding:"8px 14px",borderRadius:12,border:`1.5px solid ${wellbeingMood===label?"#059669":"#6ee7b755"}`,background:wellbeingMood===label?(darkMode?"rgba(16,185,129,0.2)":"#d1fae5"):"transparent",fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:58,transition:"border-color 0.15s,background-color 0.15s"}}>
+                                <span style={{fontSize:22}}>{emoji}</span>
+                                <span style={{fontSize:10,fontWeight:wellbeingMood===label?700:400,color:wellbeingMood===label?(darkMode?"#6ee7b7":"#065f46"):T.muted}}>{label}</span>
                               </button>
                             ))}
                           </div>
                         </div>
-                      );
-                    })()}
-                    {wellbeingMsgs.map((m,i)=>(
-                      <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",alignItems:"flex-end",gap:8}}>
-                        {m.role==="assistant"&&(
-                          <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginBottom:2}}>🌿</div>
-                        )}
-                        <div style={{maxWidth:"78%",padding:"14px 18px",borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",background:m.role==="user"?"linear-gradient(135deg,#059669,#10b981)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",fontSize:15,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 4px rgba(0,0,0,0.04)":"0 2px 8px rgba(5,150,105,0.15)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
-                          {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.4}}>▌</span>}
+                        <div>
+                          <div style={{fontSize:13,fontWeight:700,color:T.navy,marginBottom:10}}>What kind of support do you need?</div>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                            {[["💭","I want to vent","Just listen, I need to get this out"],["💡","I want advice","Help me think through a problem"],["🧘","Coping tool","Guide me through a calming exercise"]].map(([icon,label,desc])=>(
+                              <button key={label} onClick={()=>setWellbeingMode(wellbeingMode===label?"":label)}
+                                style={{flex:1,minWidth:120,padding:"10px 12px",borderRadius:13,border:`1.5px solid ${wellbeingMode===label?"#059669":"#6ee7b755"}`,background:wellbeingMode===label?(darkMode?"rgba(16,185,129,0.2)":"#d1fae5"):T.bg,cursor:"pointer",textAlign:"left",transition:"border-color 0.15s,background-color 0.15s"}}>
+                                <div style={{fontSize:18,marginBottom:3}}>{icon}</div>
+                                <div style={{fontSize:12,fontWeight:700,color:wellbeingMode===label?(darkMode?"#6ee7b7":"#065f46"):T.navy}}>{label}</div>
+                                <div style={{fontSize:10,color:T.muted,marginTop:2,lineHeight:1.4}}>{desc}</div>
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    ))}
-                    {wellbeingLoading&&wellbeingMsgs[wellbeingMsgs.length-1]?.role==="user"&&(
-                      <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
-                        <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🌿</div>
-                        <div style={{display:"flex",gap:5,padding:"13px 18px",background:T.surface,border:`1px solid #6ee7b733`,borderRadius:"18px 18px 18px 4px"}}>
-                          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#10b981",animation:`pulse ${0.8+i*0.15}s ease-in-out infinite`}}/>)}
+                      {/* Quick prompts inside empty state */}
+                      <div style={{width:"100%",maxWidth:500,marginTop:16,textAlign:"left"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Tap something that feels real to you</div>
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                          {[
+                            ["📚 Study pressure","I've been staring at my notes for hours and nothing is going in — I feel like everyone else gets it but me"],
+                            ["😰 Exam panic","My exams are coming and I'm convinced I'm going to fail and disappoint my family"],
+                            ["😶 Lonely on campus","I feel invisible at university — like I don't belong here and nobody would notice if I disappeared"],
+                            ["👨‍👩‍👦 Family weight","بابا وماما بشوفوا فيني كل أملهم — that pressure is suffocating me and I don't know how to talk to them"],
+                            ["🔋 Empty","I'm running on empty. I can't find a single reason to open my books today."],
+                            ["🌬️ Help me breathe","I'm overwhelmed right now — guide me through a calming exercise"],
+                            ["💭 Just vent","بدي أحكي بس ما في حدا يسمعني — I just need someone to listen, no advice"],
+                            ["🤔 Wrong major","I think I chose the wrong major and I'm terrified to tell my family"],
+                            ["😴 Post-tawjihi","I worked so hard for tawjihi but university feels even harder — I'm losing confidence"],
+                            ["💔 Comparison","Everyone around me seems to have it together and I keep wondering what's wrong with me"],
+                          ].map(([label,msg])=>(
+                            <button key={label} onClick={()=>setWellbeingInput(msg)}
+                              style={{padding:"7px 13px",borderRadius:99,border:"1.5px solid #6ee7b755",background:darkMode?"rgba(16,185,129,0.1)":"#f0fdf4",fontSize:12,color:darkMode?"#6ee7b7":"#047857",cursor:"pointer",fontWeight:500,textAlign:"left",lineHeight:1.4}}>
+                              {label}
+                            </button>
+                          ))}
                         </div>
                       </div>
+                      {/* Privacy notice */}
+                      <div style={{width:"100%",maxWidth:500,marginTop:16,padding:"11px 14px",borderRadius:13,background:T.bg,border:`1px solid ${T.border}`,fontSize:11,color:T.muted,lineHeight:1.7,display:"flex",gap:8,alignItems:"flex-start",textAlign:"left"}}>
+                        <span style={{flexShrink:0}}>🔒</span>
+                        <span><strong>Private &amp; confidential.</strong> This AI uses CBT, MI, DBT &amp; ACT frameworks and is a supportive companion — not a licensed therapist. For serious difficulties, please reach out to a professional.</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {wellbeingMsgs.map((m,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",alignItems:"flex-end",gap:8}}>
+                    {m.role==="assistant"&&(
+                      <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginBottom:2}}>🌿</div>
                     )}
-                    <div ref={wellbeingEndRef}/>
-                  </div>
-                  <div style={{padding:"16px 20px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",gap:10,alignItems:"flex-end"}}>
-                    <textarea value={wellbeingInput} onChange={e=>setWellbeingInput(e.target.value)}
-                      onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendWellbeingMessage())}
-                      placeholder={wellbeingMode==="Coping tool"?"خبرني شو حاسس — guide me through a calming technique...":wellbeingMode==="I want to vent"?"بحكيلك — this is your space. Start wherever.":"اكتب / Type — Arabic, English, or both."}
-                      rows={2}
-                      style={{flex:1,padding:"14px 18px",border:`1.5px solid ${T.border}`,borderRadius:16,fontSize:16,color:T.text,background:T.bg,outline:"none",resize:"none",lineHeight:1.6,fontFamily:"inherit",transition:"border-color 0.2s,box-shadow 0.2s"}}
-                      onFocus={e=>{(e.target as HTMLTextAreaElement).style.borderColor="#10b981";(e.target as HTMLTextAreaElement).style.boxShadow="0 0 0 3px rgba(16,185,129,0.1)";}}
-                      onBlur={e=>{(e.target as HTMLTextAreaElement).style.borderColor=T.border;(e.target as HTMLTextAreaElement).style.boxShadow="none";}}
-                      maxLength={2000}/>
-                    <button type="button" onClick={sendWellbeingMessage} disabled={wellbeingLoading||!wellbeingInput.trim()}
-                      style={{width:46,height:46,borderRadius:14,background:wellbeingLoading||!wellbeingInput.trim()?T.border:"linear-gradient(135deg,#059669,#10b981)",color:wellbeingLoading||!wellbeingInput.trim()?T.muted:"#fff",border:"none",cursor:wellbeingLoading||!wellbeingInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:wellbeingLoading||!wellbeingInput.trim()?"none":"0 3px 12px rgba(16,185,129,0.25)"}}>
-                      {wellbeingLoading?"···":"↑"}
-                    </button>
-                  </div>
-                </div>
-
-                {wellbeingMsgs.length>0&&(
-                  <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center"}}>
-                    <button onClick={()=>{setWellbeingMsgs([]);setWellbeingMood("");setWellbeingMode("");}} style={{padding:"7px 16px",borderRadius:99,border:`1px solid ${T.border}`,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-                      ↺ New conversation
-                    </button>
-                    <span style={{fontSize:11,color:T.muted}}>Private — only you can see your conversations.</span>
-                  </div>
-                )}
-
-                {/* ── MOOD & MODE SELECTORS (below chat) ── */}
-                {wellbeingMsgs.length===0&&(
-                  <div style={{background:T.surface,borderRadius:18,border:`1px solid ${T.border}`,padding:18,marginBottom:14}}>
-                    <div style={{marginBottom:16}}>
-                      <div style={{fontSize:13,fontWeight:700,color:T.navy,marginBottom:10}}>How are you feeling right now?</div>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                        {[["😊","Good"],["😐","Okay"],["😔","Down"],["😰","Anxious"],["😤","Frustrated"],["😩","Exhausted"],["😶","Numb"]].map(([emoji,label])=>(
-                          <button key={label} onClick={()=>setWellbeingMood(wellbeingMood===label?"":label)}
-                            style={{padding:"8px 14px",borderRadius:12,border:`1.5px solid ${wellbeingMood===label?"#059669":"#6ee7b755"}`,background:wellbeingMood===label?(darkMode?"rgba(16,185,129,0.2)":"#d1fae5"):"transparent",fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:58,transition:"border-color 0.15s,background-color 0.15s"}}>
-                            <span style={{fontSize:22}}>{emoji}</span>
-                            <span style={{fontSize:10,fontWeight:wellbeingMood===label?700:400,color:wellbeingMood===label?(darkMode?"#6ee7b7":"#065f46"):T.muted}}>{label}</span>
-                          </button>
-                        ))}
-                      </div>
+                    <div style={{maxWidth:"80%",padding:"14px 18px",borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",background:m.role==="user"?"linear-gradient(135deg,#059669,#10b981)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",fontSize:15,lineHeight:1.7,boxShadow:m.role==="assistant"?"0 1px 4px rgba(0,0,0,0.04)":"0 2px 8px rgba(5,150,105,0.15)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
+                      {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.4}}>▌</span>}
                     </div>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:700,color:T.navy,marginBottom:10}}>What kind of support do you need?</div>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                        {[["💭","I want to vent","Just listen, I need to get this out"],["💡","I want advice","Help me think through a problem"],["🧘","Coping tool","Guide me through a calming exercise"]].map(([icon,label,desc])=>(
-                          <button key={label} onClick={()=>setWellbeingMode(wellbeingMode===label?"":label)}
-                            style={{flex:1,minWidth:120,padding:"10px 12px",borderRadius:13,border:`1.5px solid ${wellbeingMode===label?"#059669":"#6ee7b755"}`,background:wellbeingMode===label?(darkMode?"rgba(16,185,129,0.2)":"#d1fae5"):T.bg,cursor:"pointer",textAlign:"left",transition:"border-color 0.15s,background-color 0.15s"}}>
-                            <div style={{fontSize:18,marginBottom:3}}>{icon}</div>
-                            <div style={{fontSize:12,fontWeight:700,color:wellbeingMode===label?(darkMode?"#6ee7b7":"#065f46"):T.navy}}>{label}</div>
-                            <div style={{fontSize:10,color:T.muted,marginTop:2,lineHeight:1.4}}>{desc}</div>
-                          </button>
-                        ))}
-                      </div>
+                  </div>
+                ))}
+                {wellbeingLoading&&wellbeingMsgs[wellbeingMsgs.length-1]?.role==="user"&&(
+                  <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+                    <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#059669,#10b981)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🌿</div>
+                    <div style={{display:"flex",gap:5,padding:"13px 18px",background:T.surface,border:`1px solid #6ee7b733`,borderRadius:"18px 18px 18px 4px"}}>
+                      {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#10b981",animation:`pulse ${0.8+i*0.15}s ease-in-out infinite`}}/>)}
                     </div>
                   </div>
                 )}
-
-                {/* Quick prompts */}
-                {wellbeingMsgs.length===0&&(
-                  <div style={{marginBottom:14}}>
-                    <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Tap something that feels real to you</div>
-                    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                      {[
-                        ["📚 Study pressure","I've been staring at my notes for hours and nothing is going in — I feel like everyone else gets it but me"],
-                        ["😰 Exam panic","My exams are coming and I'm convinced I'm going to fail and disappoint my family"],
-                        ["😶 Lonely on campus","I feel invisible at university — like I don't belong here and nobody would notice if I disappeared"],
-                        ["👨‍👩‍👦 Family weight","بابا وماما بشوفوا فيني كل أملهم — that pressure is suffocating me and I don't know how to talk to them"],
-                        ["🔋 Empty","I'm running on empty. I can't find a single reason to open my books today."],
-                        ["🌬️ Help me breathe","I'm overwhelmed right now — guide me through a calming exercise"],
-                        ["💭 Just vent","بدي أحكي بس ما في حدا يسمعني — I just need someone to listen, no advice"],
-                        ["🤔 Wrong major","I think I chose the wrong major and I'm terrified to tell my family"],
-                        ["😴 Post-tawjihi","I worked so hard for tawjihi but university feels even harder — I'm losing confidence"],
-                        ["💔 Comparison","Everyone around me seems to have it together and I keep wondering what's wrong with me"],
-                      ].map(([label,msg])=>(
-                        <button key={label} onClick={()=>setWellbeingInput(msg)}
-                          style={{padding:"7px 13px",borderRadius:99,border:"1.5px solid #6ee7b755",background:darkMode?"rgba(16,185,129,0.1)":"#f0fdf4",fontSize:12,color:darkMode?"#6ee7b7":"#047857",cursor:"pointer",fontWeight:500,textAlign:"left",lineHeight:1.4}}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* ── RESOURCES (collapsible, at bottom) ── */}
-                <details style={{marginTop:4}}>
+                <div ref={wellbeingEndRef}/>
+                {/* ── Crisis Resources (scrolls with messages) ── */}
+                <details style={{marginTop:16}}>
                   <summary style={{fontSize:13,fontWeight:700,color:T.navy,cursor:"pointer",padding:"10px 0",display:"flex",alignItems:"center",gap:8}}>
                     <span>🆘</span> Crisis Resources &amp; Self-Care Toolkit
                   </summary>
@@ -2469,117 +2536,145 @@ export default function BasUdrus() {
                     </div>
                   </div>
                 </details>
-
                 <div style={{marginTop:10,padding:"11px 14px",borderRadius:13,background:T.bg,border:`1px solid ${T.border}`,fontSize:11,color:T.muted,lineHeight:1.7,display:"flex",gap:8,alignItems:"flex-start"}}>
                   <span style={{flexShrink:0}}>🔒</span>
                   <span><strong>Private &amp; confidential.</strong> This AI uses CBT, MI, DBT &amp; ACT frameworks and is a supportive companion — not a licensed therapist. For serious difficulties, please reach out to a professional. You deserve real support.</span>
                 </div>
-              </div>
-            )}
-
-            {/* ── AI TUTOR ── */}
-            {aiTab==="tutor"&&(
-              <div className="slide-in">
-                <div style={{background:T.surface,borderRadius:24,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04),0 8px 40px rgba(99,102,241,0.06)"}}>
-                  <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,boxShadow:"0 4px 12px rgba(99,102,241,0.25)"}}>🎓</div>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:15,color:T.navy}}>AI Study Tutor</div>
-                      <div style={{fontSize:12,color:T.muted}}>Ask anything — concepts, problems, explanations</div>
-                    </div>
-                    <select value={tutorSubject} onChange={e=>setTutorSubject(e.target.value)}
-                      style={{padding:"8px 12px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:12,fontWeight:600,color:T.text,background:T.bg,outline:"none",maxWidth:180}}>
-                      <option value="">📚 General</option>
-                      {getCourseGroups().map(([cat,list])=>(
-                        <optgroup key={cat} label={cat}>{list.map((c,i)=><option key={i} value={c}>{c}</option>)}</optgroup>
+              </>
+            ) : (
+              /* ── Tutor messages (immersive layout) ── */
+              <>
+                {tutorMsgs.length===0&&(
+                  <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"30px 20px"}}>
+                    {/* Orb */}
+                    <div style={{
+                      width:72,height:72,borderRadius:"50%",marginBottom:20,
+                      background:"radial-gradient(circle at 35% 30%,#818cf8 0%,#6366f1 40%,#4f46e5 80%)",
+                      boxShadow:"0 0 40px rgba(99,102,241,0.2),0 8px 24px rgba(99,102,241,0.15)",
+                      animation:"orbPulse 4s ease-in-out infinite",
+                    }}/>
+                    <div style={{fontSize:20,fontWeight:800,color:T.navy,letterSpacing:"-0.02em"}}>What do you need help with?</div>
+                    <div style={{fontSize:14,color:T.muted,textAlign:"center",maxWidth:320,marginTop:8,lineHeight:1.6}}>I'm Ustaz — your AI tutor. Ask about any concept, problem, or course material.</div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
+                      {["Explain recursion","Solve integrals","Newton's 2nd law","Ohm's Law"].map(q=>(
+                        <button key={q} onClick={()=>setTutorInput(q)}
+                          style={{padding:"10px 18px",borderRadius:99,border:"none",background:darkMode?"rgba(99,102,241,0.15)":"#eef2ff",fontSize:13,color:darkMode?"#a5b4fc":"#4338ca",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
+                          onMouseEnter={e=>{(e.currentTarget).style.background=darkMode?"rgba(99,102,241,0.25)":"#e0e7ff";}}
+                          onMouseLeave={e=>{(e.currentTarget).style.background=darkMode?"rgba(99,102,241,0.15)":"#eef2ff";}}>
+                          {q}
+                        </button>
                       ))}
-                    </select>
-                  </div>
-
-                  <div style={{minHeight:420,maxHeight:"72vh",overflowY:"auto",padding:"24px 22px",display:"flex",flexDirection:"column",gap:12,background:T.bg,position:"relative"}}>
-                    {tutorMsgs.length===0&&(
-                      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"30px 20px"}}>
-                        {/* Orb */}
-                        <div style={{
-                          width:72,height:72,borderRadius:"50%",marginBottom:20,
-                          background:"radial-gradient(circle at 35% 30%,#818cf8 0%,#6366f1 40%,#4f46e5 80%)",
-                          boxShadow:"0 0 40px rgba(99,102,241,0.2),0 8px 24px rgba(99,102,241,0.15)",
-                          animation:"orbPulse 4s ease-in-out infinite",
-                        }}/>
-                        <div style={{fontSize:20,fontWeight:800,color:T.navy,letterSpacing:"-0.02em"}}>What do you need help with?</div>
-                        <div style={{fontSize:14,color:T.muted,textAlign:"center",maxWidth:320,marginTop:8,lineHeight:1.6}}>I'm Ustaz — your AI tutor. Ask about any concept, problem, or course material.</div>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:20}}>
-                          {["Explain recursion","Solve integrals","Newton's 2nd law","Ohm's Law"].map(q=>(
-                            <button key={q} onClick={()=>setTutorInput(q)}
-                              style={{padding:"10px 18px",borderRadius:99,border:"none",background:darkMode?"rgba(99,102,241,0.15)":"#eef2ff",fontSize:13,color:darkMode?"#a5b4fc":"#4338ca",cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}
-                              onMouseEnter={e=>{(e.currentTarget).style.background=darkMode?"rgba(99,102,241,0.25)":"#e0e7ff";}}
-                              onMouseLeave={e=>{(e.currentTarget).style.background=darkMode?"rgba(99,102,241,0.15)":"#eef2ff";}}>
-                              {q}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {tutorMsgs.map((m,i)=>(
-                      <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-                        {m.role==="assistant"&&(
-                          <div style={{width:32,height:32,borderRadius:10,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,marginRight:8,flexShrink:0,alignSelf:"flex-end",marginBottom:2,boxShadow:"0 2px 8px rgba(99,102,241,0.2)"}}>🎓</div>
-                        )}
-                        <div className="ai-msg" style={{background:m.role==="user"?"linear-gradient(135deg,#6366f1,#4f46e5)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",boxShadow:m.role==="user"?"0 2px 8px rgba(99,102,241,0.15)":"0 1px 4px rgba(0,0,0,0.04)",fontSize:15,...(m.role==="user"?{}:{whiteSpace:"normal" as const})}}>
-                          {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.5}}>▌</span>}
-                        </div>
-                      </div>
-                    ))}
-                    {tutorLoading&&tutorMsgs[tutorMsgs.length-1]?.role==="user"&&(
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:28,height:28,borderRadius:9,background:T.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🤖</div>
-                        <div style={{display:"flex",gap:4,padding:"12px 16px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:16}}>
-                          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.accent,animation:`aiTyping 1.4s ${i*0.2}s ease-in-out infinite`}}/>)}
-                        </div>
-                      </div>
-                    )}
-                    <div ref={tutorEndRef}/>
-                  </div>
-
-                  {tutorFile&&(
-                    <div style={{padding:"8px 16px",borderTop:`1px solid ${T.border}`,background:T.accentSoft,display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:16}}>📎</span>
-                      <span style={{fontSize:12,fontWeight:600,color:T.accent,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tutorFile.name}</span>
-                      <span style={{fontSize:11,color:T.muted}}>{tutorFile.text.length>500?`${(tutorFile.text.length/1000).toFixed(1)}k chars`:`${tutorFile.text.length} chars`}</span>
-                      <button onClick={()=>setTutorFile(null)} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:16,padding:2}} aria-label="Remove file">×</button>
                     </div>
-                  )}
-                  <div style={{padding:"16px 20px",borderTop:`1px solid ${T.border}`,background:T.surface,display:"flex",gap:10,alignItems:"flex-end"}}>
-                    <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css" style={{display:"none"}}
-                      onChange={e=>{
-                        const f=e.target.files?.[0];if(!f)return;
-                        if(f.size>500000){showNotif("File too large (max 500KB)","err");return;}
-                        const reader=new FileReader();
-                        reader.onload=()=>{setTutorFile({name:f.name,text:reader.result as string});};
-                        reader.readAsText(f);
-                        e.target.value="";
-                      }}/>
-                    <button onClick={()=>tutorFileRef.current?.click()} title="Upload course material"
-                      style={{width:46,height:46,borderRadius:14,border:`1.5px solid ${T.border}`,background:tutorFile?T.accentSoft:T.bg,color:tutorFile?T.accent:T.muted,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
-                      📎
-                    </button>
-                    <input value={tutorInput} onChange={e=>setTutorInput(e.target.value)}
-                      onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendTutorMessage()}
-                      placeholder={tutorFile?"Ask about the uploaded file...":"Ask your AI tutor anything..."} maxLength={2000}
-                      style={{flex:1,padding:"14px 18px",border:`1.5px solid ${T.border}`,borderRadius:16,fontSize:16,color:T.text,background:T.bg,outline:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}
-                      onFocus={e=>{(e.target as HTMLInputElement).style.borderColor="#6366f1";(e.target as HTMLInputElement).style.boxShadow="0 0 0 3px rgba(99,102,241,0.1)";}}
-                      onBlur={e=>{(e.target as HTMLInputElement).style.borderColor=T.border;(e.target as HTMLInputElement).style.boxShadow="none";}}/>
-                    <button type="button" onClick={sendTutorMessage} disabled={tutorLoading||!tutorInput.trim()}
-                      style={{width:46,height:46,borderRadius:14,background:tutorLoading||!tutorInput.trim()?T.border:"linear-gradient(135deg,#6366f1,#4f46e5)",color:tutorLoading||!tutorInput.trim()?T.muted:"#fff",border:"none",cursor:tutorLoading||!tutorInput.trim()?"not-allowed":"pointer",fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:tutorLoading||!tutorInput.trim()?"none":"0 3px 12px rgba(99,102,241,0.25)"}}>
-                      {tutorLoading?"···":"↑"}
-                    </button>
                   </div>
-                </div>
-                {tutorMsgs.length>0&&(
-                  <button onClick={()=>setTutorMsgs([])} style={{marginTop:10,padding:"7px 16px",borderRadius:99,border:`1px solid ${T.border}`,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer"}}>Clear conversation</button>
                 )}
-              </div>
+                {tutorMsgs.map((m,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",alignItems:"flex-end",gap:8}}>
+                    {m.role==="assistant"&&(
+                      <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,marginBottom:2,boxShadow:"0 2px 8px rgba(99,102,241,0.2)"}}>🎓</div>
+                    )}
+                    <div style={{maxWidth:"80%",padding:"14px 18px",borderRadius:m.role==="user"?"20px 20px 4px 20px":"20px 20px 20px 4px",background:m.role==="user"?"linear-gradient(135deg,#6366f1,#4f46e5)":T.surface,color:m.role==="user"?"#fff":T.text,border:m.role==="assistant"?`1px solid ${T.border}`:"none",fontSize:15,lineHeight:1.7,boxShadow:m.role==="user"?"0 2px 8px rgba(99,102,241,0.15)":"0 1px 4px rgba(0,0,0,0.04)",...(m.role==="user"?{whiteSpace:"pre-wrap" as const}:{})}}>
+                      {m.content ? (m.role==="assistant" ? renderMarkdown(m.content) : m.content) : <span style={{opacity:0.5}}>▌</span>}
+                    </div>
+                  </div>
+                ))}
+                {tutorLoading&&tutorMsgs[tutorMsgs.length-1]?.role==="user"&&(
+                  <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+                    <div style={{width:32,height:32,borderRadius:11,background:"linear-gradient(135deg,#6366f1,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎓</div>
+                    <div style={{display:"flex",gap:5,padding:"13px 18px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:"18px 18px 18px 4px"}}>
+                      {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#6366f1",animation:`pulse ${0.8+i*0.15}s ease-in-out infinite`}}/>)}
+                    </div>
+                  </div>
+                )}
+                <div ref={tutorEndRef}/>
+              </>
             )}
+
+            {showScrollBottom&&<button className="scroll-to-bottom" onClick={()=>{(aiTab==="wellbeing"?wellbeingEndRef:tutorEndRef).current?.scrollIntoView({behavior:"smooth"});}}>↓</button>}
+          </div>
+
+          {/* File attachment bar for tutor */}
+          {aiTab==="tutor"&&tutorFile&&(
+            <div style={{padding:"8px 16px",borderTop:`1px solid ${T.border}`,background:T.accentSoft,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:16}}>📎</span>
+              <span style={{fontSize:12,fontWeight:600,color:T.accent,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tutorFile.name}</span>
+              <span style={{fontSize:11,color:T.muted}}>{tutorFile.text.length>500?`${(tutorFile.text.length/1000).toFixed(1)}k chars`:`${tutorFile.text.length} chars`}</span>
+              <button onClick={()=>setTutorFile(null)} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:16,padding:2}} aria-label="Remove file">×</button>
+            </div>
+          )}
+
+          {/* ── Input bar ── */}
+          <div className="ai-chat-input">
+            {aiTab==="tutor"&&(
+              <>
+                <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css" style={{display:"none"}}
+                  onChange={e=>{
+                    const f=e.target.files?.[0];if(!f)return;
+                    if(f.size>500000){showNotif("File too large (max 500KB)","err");return;}
+                    const reader=new FileReader();
+                    reader.onload=()=>{setTutorFile({name:f.name,text:reader.result as string});};
+                    reader.readAsText(f);
+                    e.target.value="";
+                  }}/>
+                <button onClick={()=>tutorFileRef.current?.click()} title="Upload course material"
+                  style={{width:46,height:46,borderRadius:14,border:`1.5px solid ${T.border}`,background:tutorFile?T.accentSoft:T.bg,color:tutorFile?T.accent:T.muted,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
+                  📎
+                </button>
+              </>
+            )}
+            {aiTab==="tutor" ? (
+              <input value={tutorInput} onChange={e=>setTutorInput(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendTutorMessage()}
+                placeholder={tutorFile?"Ask about the uploaded file...":"Ask your AI tutor anything..."} maxLength={2000}
+                style={{flex:1,padding:"12px 16px",border:`1.5px solid ${T.border}`,borderRadius:16,fontSize:16,color:T.text,background:T.bg,outline:"none",transition:"border-color 0.2s,box-shadow 0.2s",lineHeight:1.6,fontFamily:"inherit"}}
+                onFocus={e=>{(e.target as HTMLInputElement).style.borderColor="#6366f1";(e.target as HTMLInputElement).style.boxShadow="0 0 0 3px rgba(99,102,241,0.1)";}}
+                onBlur={e=>{(e.target as HTMLInputElement).style.borderColor=T.border;(e.target as HTMLInputElement).style.boxShadow="none";}}/>
+            ) : (
+              <textarea value={wellbeingInput} onChange={e=>setWellbeingInput(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),sendWellbeingMessage())}
+                placeholder={wellbeingMode==="Coping tool"?"Guide me through a calming technique...":wellbeingMode==="I want to vent"?"This is your space. Start wherever.":"Type — Arabic, English, or both."}
+                rows={2}
+                style={{flex:1,padding:"12px 16px",border:`1.5px solid ${T.border}`,borderRadius:16,fontSize:16,color:T.text,background:T.bg,outline:"none",resize:"none",lineHeight:1.6,fontFamily:"inherit",transition:"border-color 0.2s,box-shadow 0.2s"}}
+                onFocus={e=>{(e.target as HTMLTextAreaElement).style.borderColor="#10b981";(e.target as HTMLTextAreaElement).style.boxShadow="0 0 0 3px rgba(16,185,129,0.1)";}}
+                onBlur={e=>{(e.target as HTMLTextAreaElement).style.borderColor=T.border;(e.target as HTMLTextAreaElement).style.boxShadow="none";}}
+                maxLength={2000}/>
+            )}
+            <button type="button"
+              onClick={aiTab==="tutor"?sendTutorMessage:sendWellbeingMessage}
+              disabled={aiTab==="tutor"?(tutorLoading||!tutorInput.trim()):(wellbeingLoading||!wellbeingInput.trim())}
+              style={{width:46,height:46,borderRadius:14,
+                background:(aiTab==="tutor"?(tutorLoading||!tutorInput.trim()):(wellbeingLoading||!wellbeingInput.trim()))?T.border:(aiTab==="tutor"?"linear-gradient(135deg,#6366f1,#4f46e5)":"linear-gradient(135deg,#059669,#10b981)"),
+                color:(aiTab==="tutor"?(tutorLoading||!tutorInput.trim()):(wellbeingLoading||!wellbeingInput.trim()))?T.muted:"#fff",
+                border:"none",
+                cursor:(aiTab==="tutor"?(tutorLoading||!tutorInput.trim()):(wellbeingLoading||!wellbeingInput.trim()))?"not-allowed":"pointer",
+                fontSize:18,fontWeight:700,transition:"all 0.2s",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                boxShadow:(aiTab==="tutor"?(tutorLoading||!tutorInput.trim()):(wellbeingLoading||!wellbeingInput.trim()))?"none":(aiTab==="tutor"?"0 3px 12px rgba(99,102,241,0.25)":"0 3px 12px rgba(16,185,129,0.25)")}}>
+              {(aiTab==="tutor"?tutorLoading:wellbeingLoading)?"···":"↑"}
+            </button>
+          </div>
+        </div>
+        ) : (
+        /* ── MATCH / PLAN — page-scroll layout with topbar ── */
+        <div className="page-scroll" style={{background:T.bg}}>
+          <div style={{background:"linear-gradient(180deg,#0f172a 0%,#1e1b4b 100%)",padding:"16px 20px 20px",display:"flex",alignItems:"center",gap:12}}>
+            <button onClick={()=>setAiTab("")} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"rgba(255,255,255,0.7)",padding:4,display:"flex",alignItems:"center"}}>←</button>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:16,color:"#fff"}}>{aiTab==="match"?"Smart Match":"Study Planner"}</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,0.5)"}}>{aiTab==="match"?"Find your ideal study partner":"AI-powered weekly schedule"}</div>
+            </div>
+            <div style={{display:"flex",gap:3}}>
+              {([["auto","🔄"],["en","🇬🇧"],["ar","🇯🇴"]] as const).map(([val,flag])=>(
+                <button key={val} onClick={()=>setAiLang(val)}
+                  style={{padding:"5px 10px",borderRadius:99,fontSize:11,fontWeight:aiLang===val?700:400,
+                    background:aiLang===val?"rgba(255,255,255,0.15)":"transparent",
+                    border:`1px solid ${aiLang===val?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.1)"}`,
+                    color:aiLang===val?"#fff":"rgba(255,255,255,0.5)",
+                    cursor:"pointer",transition:"all 0.15s"}}>
+                  {flag}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{maxWidth:720,margin:"0 auto",padding:"20px 20px 24px"}}>
 
             {/* ── SMART MATCH ── */}
             {aiTab==="match"&&(
@@ -2814,15 +2909,13 @@ export default function BasUdrus() {
               </div>
             )}
 
-
             {/* ── Minimal footer inside feature view ── */}
             <div style={{marginTop:20,textAlign:"center",padding:"10px 0"}}>
               <div style={{fontSize:11,color:T.muted,opacity:0.7}}>Bas Udrus AI · {aiVersion} · Private & secure</div>
             </div>
-
           </div>
-          )}
         </div>
+        )
       )}
 
       {/* ══════════════ PROFILE ══════════════ */}
@@ -2831,7 +2924,7 @@ export default function BasUdrus() {
           <div style={{maxWidth:680,margin:"0 auto",padding:"24px 20px"}}>
             <div style={{background:T.surface,borderRadius:22,padding:24,border:`1px solid ${T.border}`,marginBottom:18,boxShadow:"0 2px 20px rgba(0,0,0,0.05)"}}>
               <div className="prof-hdr" style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
-                <div className="profile-avatar-wrap"><UserAvatar p={editProfile||profile} size={64} ring/></div>
+                <div className="profile-avatar-wrap"><UserAvatar p={editProfile||profile} size={64} ring T={T}/></div>
                 <div style={{flex:1,minWidth:0}}>
                   <div className="prof-name" style={{fontWeight:800,fontSize:18,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",letterSpacing:"-0.01em"}}>{profile.name||"Your Name"}</div>
                   <div style={{fontSize:13,color:T.muted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{profile.major||"--"} · {profile.uni||"--"}</div>
@@ -2898,7 +2991,7 @@ export default function BasUdrus() {
                     <div style={{marginBottom:20}}>
                       <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Profile Photo</div>
                       <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
-                        <UserAvatar p={editProfile||profile} size={64} ring/>
+                        <UserAvatar p={editProfile||profile} size={64} ring T={T}/>
                         <div>
                           <button className="btn-primary" style={{padding:"8px 16px",fontSize:12,borderRadius:10,marginBottom:6}} onClick={()=>photoInputRef.current?.click()}>Upload Photo</button>
                           {(editProfile?.photo_mode==="photo"||profile.photo_mode==="photo")&&(
@@ -3117,7 +3210,7 @@ export default function BasUdrus() {
                 <div className="card" style={{padding:24}}>
                   {/* User summary header */}
                   <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:24,padding:"18px 20px",background:`linear-gradient(135deg,${T.accentSoft},${T.surface})`,borderRadius:16,border:`1px solid ${T.border}`}}>
-                    <UserAvatar p={profile} size={56} ring/>
+                    <UserAvatar p={profile} size={56} ring T={T}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontWeight:800,fontSize:17,color:T.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{profile.name||"Your Name"}</div>
                       <div style={{fontSize:13,color:T.textSoft,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</div>
@@ -3188,7 +3281,7 @@ export default function BasUdrus() {
                         <span style={{width:40,height:40,borderRadius:12,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>📧</span>
                         <div><div style={{fontWeight:600,fontSize:13,color:T.navy}}>Change Email</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>Update your email address</div></div>
                       </button>
-                      <button className="btn-ghost" style={{width:"100%",textAlign:"left",padding:"14px 18px",borderRadius:14,display:"flex",alignItems:"center",gap:12}} onClick={()=>{const newPass=prompt("Enter your new password (min 6 characters):");if(newPass&&newPass.trim().length>=6){supabase.auth.updateUser({password:newPass.trim()}).then(({error})=>{if(error)showNotif("Error: "+error.message,"err");else showNotif("Password updated!");});}else if(newPass){showNotif("Password must be at least 6 characters.","err");}}}>
+                      <button className="btn-ghost" style={{width:"100%",textAlign:"left",padding:"14px 18px",borderRadius:14,display:"flex",alignItems:"center",gap:12}} onClick={()=>{setPasswordModal(true);setNewPassword("");}}>
                         <span style={{width:40,height:40,borderRadius:12,background:T.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>🔑</span>
                         <div><div style={{fontWeight:600,fontSize:13,color:T.navy}}>Change Password</div><div style={{fontSize:11,color:T.muted,marginTop:2}}>Set a new secure password</div></div>
                       </button>

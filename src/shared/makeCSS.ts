@@ -8,18 +8,18 @@ export const makeCSS = (T: Theme) => `
     input, textarea, select { font-size:16px !important; }
   }
   * { touch-action:manipulation; }
-  .s-card,.card,.request-card,.modal,.notif { will-change:auto; contain:layout style; }
+  .s-card,.card,.request-card,.notif { will-change:auto; contain:layout style; }
+  .modal { will-change:auto; contain:style; }
   @supports(-webkit-touch-callout:none){ input,select,textarea { font-size:max(16px,1em); } }
   input,select,textarea,button { font-family:'Plus Jakarta Sans',sans-serif; }
   input:focus,select:focus,textarea:focus { outline:none; border-color:${T.accent}!important; box-shadow:0 0 0 3px ${T.accentSoft}!important; }
   ::-webkit-scrollbar { width:4px; height:4px; }
   ::-webkit-scrollbar-track { background:transparent; }
   ::-webkit-scrollbar-thumb { background:${T.border}; border-radius:99px; }
-  .scroll-col { display:flex; flex-direction:column; gap:16px; overflow-y:auto; overflow-x:hidden; padding:8px 16px 120px; scroll-snap-type:y mandatory; -webkit-overflow-scrolling:touch; cursor:grab; flex:1; min-height:0; }
-  .scroll-col:active { cursor:grabbing; }
+  .scroll-col { display:flex; flex-direction:column; gap:16px; overflow-y:auto; overflow-x:hidden; padding:8px 16px 120px; scroll-snap-type:y proximity; -webkit-overflow-scrolling:touch; flex:1; min-height:0; overscroll-behavior:contain; }
   .page-scroll { overflow-y:auto; height:calc(100dvh - 62px); }
-  .s-card { flex:0 0 auto; width:100%; max-width:500px; margin:0 auto; scroll-snap-align:start; background:${T.surface}; border-radius:22px; border:1px solid ${T.border}; box-shadow:0 8px 24px rgba(0,0,0,0.06); overflow:hidden; transition:all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-  .s-card:hover { box-shadow:0 22px 50px rgba(0,0,0,0.12); transform: translateY(-6px) scale(1.02); border:1px solid ${T.accent}44; }
+  .s-card { flex:0 0 auto; width:100%; max-width:500px; margin:0 auto; scroll-snap-align:start; background:${T.surface}; border-radius:22px; border:1px solid ${T.border}; box-shadow:0 8px 24px rgba(0,0,0,0.06); overflow:hidden; transition:box-shadow 0.3s ease, border-color 0.3s ease; }
+  @media (hover: hover) { .s-card:hover { box-shadow:0 22px 50px rgba(0,0,0,0.12); border:1px solid ${T.accent}44; } }
   @keyframes flyUp    { to { transform:translateY(-130%) scale(0.85); opacity:0; } }
   @keyframes flyDown  { to { transform:translateY(130%) scale(0.85); opacity:0; } }
   @keyframes fadeIn   { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
@@ -67,10 +67,10 @@ export const makeCSS = (T: Theme) => `
   .meet-opt.active { border-color:${T.accent}; background:${T.accentSoft}; }
   .color-dot { width:28px; height:28px; border-radius:50%; cursor:pointer; border:2.5px solid transparent; transition:border-color 0.15s,transform 0.15s; }
   .color-dot:hover,.color-dot.sel { border-color:${T.text}; transform:scale(1.18); }
-  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-  .card:hover { box-shadow:0 16px 40px rgba(0,0,0,0.08); transform:translateY(-4px) scale(1.01); }
-  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-  .request-card:hover { box-shadow:0 12px 32px rgba(0,0,0,0.08); transform:translateY(-3px) scale(1.01); }
+  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition:box-shadow 0.3s ease; }
+  @media (hover: hover) { .card:hover { box-shadow:0 16px 40px rgba(0,0,0,0.08); } }
+  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:box-shadow 0.3s ease; }
+  @media (hover: hover) { .request-card:hover { box-shadow:0 12px 32px rgba(0,0,0,0.08); } }
   .streak-badge { display:inline-flex; align-items:center; gap:5px; background:linear-gradient(135deg,#C44D1A,#B07D00); color:#fff; padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; }
   .ai-msg { padding:16px 20px; border-radius:24px; font-size:15px; line-height:1.6; max-width:85%; animation:fadeIn 0.3s ease; word-break:break-word; border:1px solid rgba(255,255,255,0.4); box-shadow: 0 4px 16px rgba(0,0,0,0.03); }
   .ai-msg b { font-weight:700; }
@@ -83,6 +83,100 @@ export const makeCSS = (T: Theme) => `
   button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2.5px solid ${T.accent}; outline-offset:2px; }
   @media(prefers-reduced-motion:reduce){ *,*::before,*::after { animation-duration:0.01ms!important; transition-duration:0.01ms!important; } }
   .nav-inner { backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .scroll-to-bottom {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: ${T.navy};
+    color: ${T.bg};
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeInUp 0.2s ease;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .scroll-to-bottom:hover {
+    transform: translateX(-50%) scale(1.1);
+  }
+  @keyframes fabTooltip {
+    0% { opacity: 0; transform: translateX(8px); }
+    10% { opacity: 1; transform: translateX(0); }
+    80% { opacity: 1; transform: translateX(0); }
+    100% { opacity: 0; transform: translateX(8px); }
+  }
+  .fab-tooltip {
+    position: fixed;
+    bottom: 36px;
+    right: 86px;
+    background: ${T.navy};
+    color: ${T.bg};
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    z-index: 89;
+    animation: fabTooltip 5s ease forwards;
+    pointer-events: none;
+  }
+  .fab-tooltip::after {
+    content: '';
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    border-left-color: ${T.navy};
+  }
+  .ai-chat-wrap {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 62px);
+    background: ${T.bg};
+    overflow: hidden;
+  }
+  .ai-chat-topbar {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    gap: 12px;
+    border-bottom: 1px solid ${T.border};
+    background: ${T.surface};
+    flex-shrink: 0;
+  }
+  .ai-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+  }
+  .ai-chat-input {
+    padding: 12px 16px;
+    border-top: 1px solid ${T.border};
+    background: ${T.surface};
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
   @keyframes orbPulse {
     0%,100% { transform:scale(1); box-shadow:0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15); }
     50%     { transform:scale(1.08); box-shadow:0 0 70px rgba(251,146,60,0.28),0 0 120px rgba(168,85,247,0.18),0 12px 40px rgba(139,92,246,0.22); }
@@ -131,8 +225,8 @@ export const makeCSS = (T: Theme) => `
   .star { font-size:18px; cursor:pointer; transition:transform 0.1s; }
   .star:hover { transform:scale(1.2); }
   .notif { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:13px 26px; border-radius:99px; font-size:14px; font-weight:600; z-index:9999; white-space:nowrap; box-shadow:0 6px 30px rgba(0,0,0,0.18); animation:popIn 0.28s ease; max-width:90vw; overflow:hidden; text-overflow:ellipsis; }
-  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:300; display:flex; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(4px); animation:fadeIn 0.2s ease; }
-  .modal { background:${T.surface}; border-radius:24px; padding:28px; width:100%; max-width:460px; box-shadow:0 24px 80px rgba(0,0,0,0.25); animation:popIn 0.28s ease; max-height:92dvh; overflow-y:auto; border:1px solid ${T.border}; }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:300; display:flex; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(4px); animation:fadeIn 0.2s ease; overscroll-behavior:contain; }
+  .modal { background:${T.surface}; border-radius:24px; padding:28px; width:100%; max-width:460px; box-shadow:0 24px 80px rgba(0,0,0,0.25); animation:popIn 0.28s ease; max-height:92dvh; overflow-y:auto; border:1px solid ${T.border}; overscroll-behavior:contain; }
   .progress-track { background:${T.border}; border-radius:99px; height:6px; overflow:hidden; }
   .bot-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:${T.navBg}; border-top:1.5px solid ${T.border}; z-index:200; padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px)); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
   .bot-tab { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:6px 2px; background:none; border:none; cursor:pointer; font-size:10px; font-weight:600; color:${T.muted}; transition:color 0.15s; line-height:1; }
@@ -194,7 +288,9 @@ export const makeCSS = (T: Theme) => `
     .dis-bio { font-size:13px!important; line-height:1.55!important; margin-bottom:10px!important; }
     .dis-card-btns .btn-danger  { font-size:13px!important; padding:11px 0!important; }
     .dis-card-btns .btn-success { font-size:13px!important; padding:11px 0!important; }
-    .fab-post  { bottom:82px!important; right:14px!important; width:50px!important; height:50px!important; border-radius:50%!important; font-size:22px!important; padding:0!important; }
+    .fab-post  { bottom:82px!important; right:14px!important; width:50px!important; height:50px!important; border-radius:14px!important; font-size:22px!important; padding:0!important; }
+    .ai-chat-wrap { height: calc(100dvh - 120px); }
+    .fab-tooltip { bottom: 90px; right: 72px; }
     .sub-tab   { padding:9px 14px!important; font-size:13px!important; }
     .modal     { padding:22px 18px; border-radius:20px; }
     .btn-primary,.btn-ghost,.btn-accent { font-size:13px!important; padding:11px 20px!important; }

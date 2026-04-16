@@ -61,7 +61,7 @@ export function RoomsScreen({
                   )}
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <button
-                      style={{background:joined?T.greenSoft:full?T.border:T.navy,color:joined?T.green:full?T.muted:"#fff",border:"none",padding:"10px 20px",borderRadius:99,fontSize:13,fontWeight:700,cursor:full&&!joined?"not-allowed":"pointer",transition:"background-color 0.2s,color 0.2s"}}
+                      style={{background:joined?T.greenSoft:full?T.border:T.navy,color:joined?T.green:full?T.muted:T.bg,border:"none",padding:"10px 20px",borderRadius:99,fontSize:13,fontWeight:700,cursor:full&&!joined?"not-allowed":"pointer",transition:"background-color 0.2s,color 0.2s"}}
                       disabled={!!(full&&!joined)}
                       onClick={()=>toggleJoinGroup(g.id, !!joined)}>
                       {joined?"✓ Joined — Leave":full?"Session Full":"Join Session →"}

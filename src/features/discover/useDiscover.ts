@@ -104,9 +104,10 @@ export function useDiscover(
       if (requestsRes.error) { logError("loadHelpRequests", requestsRes.error); return; }
       if (requestsRes.data) {
         setHelpRequests(requestsRes.data as HelpRequest[]);
-        if (user && (requestsRes.data as HelpRequest[]).some((r: HelpRequest) => r.user_id === user.id)) setCanPost(true);
       }
-      if ((canPostRes as any).data?.can_post) setCanPost(true);
+      // canPost is determined by the profile flag OR by having posted before
+      const hasExistingPost = user && requestsRes.data && (requestsRes.data as HelpRequest[]).some((r: HelpRequest) => r.user_id === user.id);
+      if ((canPostRes as any).data?.can_post || hasExistingPost) setCanPost(true);
     } catch (e) { logError("loadHelpRequests", e); }
   };
 

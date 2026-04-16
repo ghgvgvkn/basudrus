@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Message } from "@/lib/supabase";
 import { BADGES_DEF } from "@/lib/constants";
@@ -231,6 +231,17 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       showNotif("Microphone access denied. Check browser permissions.", "err");
     }
   };
+
+  // Cleanup recording timer and media on unmount
+  useEffect(() => {
+    return () => {
+      if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        try { mediaRecorderRef.current.stop(); } catch {}
+        mediaRecorderRef.current = null;
+      }
+    };
+  }, []);
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {

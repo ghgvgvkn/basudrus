@@ -45,7 +45,7 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
         year: profile.year || "", course: profile.course || "", meet_type: profile.meet_type || "flexible",
         bio: profile.bio || "", avatar_emoji: profile.avatar_emoji || "🫶", avatar_color: profile.avatar_color || "#6C8EF5",
         photo_mode: profile.photo_mode || "initials", photo_url: profile.photo_url || null,
-        streak: profile.streak ?? 4, xp: profile.xp ?? 0, badges: profile.badges ?? [], online: true,
+        streak: profile.streak ?? 0, xp: profile.xp ?? 0, badges: profile.badges ?? [], online: true,
         sessions: profile.sessions ?? 0, rating: profile.rating ?? 0, subjects: profile.subjects ?? [],
       }, { onConflict: "id" });
       const { data, error } = await supabase.from("group_rooms").insert({
