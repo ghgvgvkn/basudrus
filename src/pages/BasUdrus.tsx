@@ -1,13 +1,11 @@
-import { useState, useEffect, useRef, useMemo, memo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Connection, Message, HelpRequest, GroupRoom, SubjectHistory, Report, Notification } from "@/lib/supabase";
 import { clearAllMemory } from "@/lib/ai-memory";
-import { COURSE_CATEGORIES, ALL_COURSES, getCategoryForCourse } from "@/lib/courses";
 import { logError, setErrorUserId, trackEvent, trackClick } from "@/services/analytics";
 import { useApp } from "@/context/AppContext";
 import { loadUniData, isUniDataReady, getUniversities, normalizeUni, uniMatches, majorMatches, getAllMajors, getMajorsForUni, getCourseGroups, getUniCards } from "@/services/uniData";
-import type { UniRow, MajorRow, CourseRow } from "@/services/uniData";
 import { renderMarkdown } from "@/shared/renderMarkdown";
 import { makeCSS } from "@/shared/makeCSS";
 import { useAdmin } from "@/features/admin/useAdmin";
