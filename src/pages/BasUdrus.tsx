@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
-import type { Profile, Connection, Message, HelpRequest, GroupRoom, SubjectHistory, Report, Notification } from "@/lib/supabase";
+import type { Profile, Message, HelpRequest } from "@/lib/supabase";
 import { clearAllMemory } from "@/lib/ai-memory";
 import { logError, setErrorUserId, trackEvent, trackClick } from "@/services/analytics";
 import { useApp } from "@/context/AppContext";
@@ -17,6 +17,8 @@ import { useProfile } from "@/features/profile/useProfile";
 import { useDiscover } from "@/features/discover/useDiscover";
 import { useMessages } from "@/features/messaging/useMessages";
 import { useAuth } from "@/features/auth/useAuth";
+import { usePomodoro } from "@/features/pomodoro/usePomodoro";
+import { useNotifications } from "@/features/notifications/useNotifications";
 
 import {
   AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel,
@@ -32,11 +34,16 @@ export default function BasUdrus() {
   const earnedBadges: string[] = profile.badges ?? [];
   const [newBadge, setNewBadge] = useState<typeof BADGES_DEF[0] | null>(null);
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
-  const notifPanelRef = useRef<HTMLDivElement>(null);
+  const {
+    notifications, setNotifications,
+    showNotifPanel, setShowNotifPanel,
+    notifPanelRef,
+    unreadCount,
+    loadNotifications, sendNotification, markNotifRead,
+  } = useNotifications();
   const connectTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const connectingRef = useRef(false);
+  const resetAIRef = useRef<() => void>(() => {});
   const [uniDataReady, setUniDataReady] = useState(isUniDataReady());
 
   // Load university/major/course data from Supabase on mount
@@ -45,14 +52,14 @@ export default function BasUdrus() {
     loadUniData().then(() => setUniDataReady(true)).catch((e) => logError("loadUniData", e));
   }, []);
 
-  // ── Pomodoro Timer state ──
-  const [pomodoroActive, setPomodoroActive] = useState(false);
-  const [pomodoroRunning, setPomodoroRunning] = useState(false);
-  const [pomodoroSeconds, setPomodoroSeconds] = useState(25 * 60);
-  const [pomodoroMode, setPomodoroMode] = useState<"work"|"break"|"longbreak">("work");
-  const [pomodoroCount, setPomodoroCount] = useState(0);
-  const pomodoroRef = useRef<ReturnType<typeof setInterval>|null>(null);
-  const pomodoroModeRef = useRef<"work"|"break"|"longbreak">("work");
+  const {
+    pomodoroActive, setPomodoroActive,
+    pomodoroRunning, pomodoroSeconds, setPomodoroSeconds,
+    pomodoroMode, setPomodoroMode,
+    pomodoroCount,
+    pomodoroConfig, pomodoroProgress, formatTime,
+    startPomodoro, pausePomodoro, resetPomodoro,
+  } = usePomodoro();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef(0);
@@ -168,6 +175,10 @@ export default function BasUdrus() {
         setNotifications([]);
         setCanPost(false);
         setActiveChat(null);
+        setDismissed({});
+        setRatings({});
+        resetAIRef.current();
+        try { clearAllMemory(); } catch (_) {}
         setScreen("landing");
       }
     });
@@ -222,12 +233,6 @@ export default function BasUdrus() {
     ]).catch((e) => logError("initialDataLoad", e));
   }, [user?.id]);
 
-  // Cleanup timers on unmount (prevents memory leaks)
-  useEffect(() => {
-    return () => {
-      if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
-    };
-  }, []);
 
   // ── Data loaders ─────────────────────────────────────────────────────
   const loadProfile = async (userId: string) => {
@@ -462,6 +467,7 @@ export default function BasUdrus() {
     sendTutorMessage, sendWellbeingMessage, loadMatchScores, generateStudyPlan,
     resetAI,
   } = useAI(allStudents);
+  resetAIRef.current = resetAI;
 
   useEffect(() => { smartScroll(tutorEndRef); }, [tutorMsgs]);
   useEffect(() => { smartScroll(wellbeingEndRef); }, [wellbeingMsgs]);
@@ -510,62 +516,6 @@ export default function BasUdrus() {
   };
 
 
-  // ── Pomodoro Timer ──────────────────────────────────────────────────
-  const pomodoroConfig = { work: 25 * 60, break: 5 * 60, longbreak: 15 * 60 };
-
-  const startPomodoro = () => {
-    if (pomodoroRef.current) clearInterval(pomodoroRef.current);
-    setPomodoroRunning(true);
-    pomodoroRef.current = setInterval(() => {
-      setPomodoroSeconds(prev => {
-        if (prev <= 1) {
-          // Timer done
-          if (pomodoroRef.current) clearInterval(pomodoroRef.current);
-          setPomodoroRunning(false);
-          const mode = pomodoroModeRef.current;
-          try { new Audio("data:audio/wav;base64,UklGRiQDAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQADAAB/f39/f39/f4B/gH+Af4F/gn+Df4R/hn+If4p/jH+Pf5J/ln+af55/on+mf6p/rn+yf7Z/un++f8J/xn/Jf8x/z3/Sf9V/13/Zf9t/3X/ef99/4H/hf+J/43/kf+V/5n/nf+h/6X/qf+t/7H/tf+5/73/wf/F/8n/zf/R/9X/2f/d/+H/5f/p/+3/8f/1//n//fwCAA").play(); } catch {}
-          showNotif(mode === "work" ? "⏰ Break time! Great focus session." : "💪 Break over — back to studying!", "ok");
-          setPomodoroCount(prev => {
-            const next = mode === "work" ? prev + 1 : prev;
-            // Auto-switch mode
-            if (mode === "work") {
-              const newMode = (next) % 4 === 0 ? "longbreak" : "break";
-              pomodoroModeRef.current = newMode;
-              setPomodoroMode(newMode);
-              setPomodoroSeconds(pomodoroConfig[newMode]);
-            } else {
-              pomodoroModeRef.current = "work";
-              setPomodoroMode("work");
-              setPomodoroSeconds(pomodoroConfig.work);
-            }
-            return next;
-          });
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const pausePomodoro = () => {
-    setPomodoroRunning(false);
-    if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
-  };
-
-  const resetPomodoro = () => {
-    pausePomodoro();
-    pomodoroModeRef.current = "work";
-    setPomodoroMode("work");
-    setPomodoroSeconds(pomodoroConfig.work);
-    setPomodoroCount(0);
-    setPomodoroActive(false);
-  };
-
-  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
-  const pomodoroProgress = (() => {
-    const total = pomodoroConfig[pomodoroMode];
-    return ((total - pomodoroSeconds) / total) * 100;
-  })();
 
   // ── Schedule session ──────────────────────────────────────────────────
   const submitSchedule = async () => {
@@ -598,64 +548,6 @@ export default function BasUdrus() {
     } catch { showNotif("Failed to schedule", "err"); }
   };
 
-  const loadNotifications = async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*, from_profile:profiles!notifications_from_id_fkey(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) { return; }
-      if (data) setNotifications(data as Notification[]);
-    } catch { }
-  };
-
-  const sendNotification = async (toUserId: string, fromId: string, type: string, subject: string, postId: string | null) => {
-    if (toUserId === fromId) return;
-    try {
-      const { error } = await supabase.from("notifications").insert({
-        user_id: toUserId,
-        from_id: fromId,
-        type,
-        subject,
-        post_id: postId,
-        read: false,
-      });
-      if (error) return;
-    } catch { }
-  };
-
-  const markNotifRead = async (notifId: string) => {
-    try {
-      const { error } = await supabase.from("notifications").update({ read: true }).eq("id", notifId);
-      if (!error) setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
-    } catch { }
-  };
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  useEffect(() => {
-    if (!user) return;
-    loadNotifications();
-    const channel = supabase.channel("notif-" + user.id)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, async (payload) => {
-        const newNotif = payload.new as Notification;
-        const { data: fromProfile } = await supabase.from("profiles").select("*").eq("id", newNotif.from_id).maybeSingle();
-        setNotifications(prev => [{ ...newNotif, from_profile: fromProfile } as Notification, ...prev]);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user?.id]);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target as Node)) setShowNotifPanel(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   useEffect(() => {
     if (!newBadge) return;
@@ -2836,7 +2728,7 @@ export default function BasUdrus() {
                       </div>
                     </div>
                     {!pomodoroActive&&(
-                      <button onClick={()=>{setPomodoroActive(true);setPomodoroMode("work");setPomodoroSeconds(25*60);setPomodoroCount(0);}}
+                      <button onClick={()=>{setPomodoroActive(true);setPomodoroMode("work");setPomodoroSeconds(25*60);}}
                         className="btn-primary" style={{padding:"10px 20px",borderRadius:99,fontSize:13,background:"linear-gradient(135deg,#ef4444,#f97316)",boxShadow:"0 3px 14px rgba(239,68,68,0.25)"}}>
                         Start Session ▶
                       </button>
