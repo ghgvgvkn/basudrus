@@ -9,7 +9,6 @@ import { useApp } from "@/context/AppContext";
 import { loadUniData, isUniDataReady, getUniversities, normalizeUni, uniMatches, majorMatches, getAllMajors, getMajorsForUni, getCourseGroups, getUniCards } from "@/services/uniData";
 import type { UniRow, MajorRow, CourseRow } from "@/services/uniData";
 import { renderMarkdown } from "@/shared/renderMarkdown";
-import { generateClientId } from "@/shared/useNetworkStatus";
 import { makeCSS } from "@/shared/makeCSS";
 import { useAdmin } from "@/features/admin/useAdmin";
 import { AdminScreen } from "@/features/admin/AdminScreen";
@@ -18,6 +17,7 @@ import { RoomsScreen } from "@/features/rooms/RoomsScreen";
 import { useAI } from "@/features/ai/useAI";
 import { useProfile } from "@/features/profile/useProfile";
 import { useDiscover } from "@/features/discover/useDiscover";
+import { useMessages } from "@/features/messaging/useMessages";
 
 import {
   AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel,
@@ -44,18 +44,6 @@ export default function BasUdrus() {
   const earnedBadges: string[] = profile.badges ?? [];
   const [newBadge, setNewBadge] = useState<typeof BADGES_DEF[0] | null>(null);
 
-  const [connections, setConnections] = useState<Profile[]>([]);
-  const [ratings, setRatings] = useState<Record<string,number>>({});
-  const [rateModal, setRateModal] = useState<Profile | null>(null);
-  const [hoverStar, setHoverStar] = useState(0);
-
-  const [activeChat, setActiveChat] = useState<Profile | null>(null);
-  const [messages, setMessages] = useState<Record<string, Message[]>>({});
-  const [newMsg, setNewMsg] = useState("");
-
-  const [schedModal, setSchedModal] = useState<Profile | null>(null);
-  const [schedForm, setSchedForm] = useState({ date:"", time:"", type:"online", note:"" });
-
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const notifPanelRef = useRef<HTMLDivElement>(null);
@@ -69,14 +57,6 @@ export default function BasUdrus() {
     loadUniData().then(() => setUniDataReady(true)).catch((e) => logError("loadUniData", e));
   }, []);
 
-  // ── Voice & File sharing state ──
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder|null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordTimerRef = useRef<ReturnType<typeof setInterval>|null>(null);
-  const chatFileRef = useRef<HTMLInputElement>(null);
-
   // ── Pomodoro Timer state ──
   const [pomodoroActive, setPomodoroActive] = useState(false);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
@@ -87,7 +67,6 @@ export default function BasUdrus() {
   const pomodoroModeRef = useRef<"work"|"break"|"longbreak">("work");
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef(0);
   const dragScroll = useRef(0);
   const dragMoved = useRef(false);
@@ -102,8 +81,6 @@ export default function BasUdrus() {
     }
   }, [isOnline]);
 
-  // ── Pending messages map: clientId → tempId (for robust dedup) ─────
-  const pendingMsgs = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
@@ -144,8 +121,6 @@ export default function BasUdrus() {
     }
     el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
-  useEffect(() => { smartScroll(chatEndRef); }, [activeChat, messages]);
-
   const initials = (n: string) => n ? n.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase() : "ME";
 
   // ── Auth listener ────────────────────────────────────────────────────
@@ -263,82 +238,8 @@ export default function BasUdrus() {
   useEffect(() => {
     return () => {
       if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
-      if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
     };
   }, []);
-
-  // Real-time messages — load when chat opens
-  useEffect(() => {
-    if (!user || !activeChat) return;
-    loadMessages(activeChat.id);
-  }, [user?.id, activeChat]);
-
-  // Real-time messages — subscribe to BOTH incoming AND sent (for multi-tab sync)
-  useEffect(() => {
-    if (!user) return;
-    const channel = supabase
-      .channel(`msgs-all-${user.id}`)
-      .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
-        filter: `receiver_id=eq.${user.id}`,
-      }, (payload) => {
-        const msg = payload.new as Message;
-        setMessages(prev => {
-          const partnerId = msg.sender_id;
-          const existing = prev[partnerId] || [];
-          if (existing.some(m => m.id === msg.id)) return prev;
-          return { ...prev, [partnerId]: [...existing, msg] };
-        });
-      })
-      .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
-        filter: `sender_id=eq.${user.id}`,
-      }, (payload) => {
-        const msg = payload.new as Message & { client_id?: string };
-        setMessages(prev => {
-          const partnerId = msg.receiver_id;
-          const existing = prev[partnerId] || [];
-          // 1. Skip if we already have this exact DB message
-          if (existing.some(m => m.id === msg.id)) return prev;
-          // 2. If this message has a client_id, match it to the corresponding temp message
-          if (msg.client_id) {
-            const expectedTempId = `temp-${msg.client_id}`;
-            if (pendingMsgs.current.has(msg.client_id)) {
-              // Realtime arrived before insert callback — replace temp with real
-              pendingMsgs.current.delete(msg.client_id);
-              if (existing.some(m => m.id === expectedTempId)) {
-                return { ...prev, [partnerId]: existing.map(m => m.id === expectedTempId ? msg : m) };
-              }
-              return prev;
-            }
-            // Insert callback already resolved — check if temp was already replaced
-            // If the real msg ID is already present (insert callback put it there), skip
-            // If the temp ID is still present (shouldn't happen but defensive), replace it
-            if (existing.some(m => m.id === expectedTempId)) {
-              return { ...prev, [partnerId]: existing.map(m => m.id === expectedTempId ? msg : m) };
-            }
-            return prev; // Already handled by insert callback
-          }
-          // 3. Fallback for messages without client_id (file/voice msgs, or from other tabs)
-          //    Use FIRST matching temp message only (prevents replacing wrong temp on identical texts)
-          const tempIdx = existing.findIndex(m => m.id.startsWith("temp-") && m.text === msg.text);
-          if (tempIdx >= 0) {
-            const updated = [...existing];
-            updated[tempIdx] = msg;
-            return { ...prev, [partnerId]: updated };
-          }
-          // 4. Truly new message (from another tab) — append
-          return { ...prev, [partnerId]: [...existing, msg] };
-        });
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, [user?.id]);
 
   // ── Data loaders ─────────────────────────────────────────────────────
   const loadProfile = async (userId: string) => {
@@ -349,53 +250,6 @@ export default function BasUdrus() {
       setProfile(data);
       return data;
     } catch (e) { logError("loadProfile", e); return null; }
-  };
-
-  const loadConnections = async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from("connections")
-        .select("partner_id, rating, partner:profiles!connections_partner_id_fkey(*)")
-        .eq("user_id", user.id);
-      if (error) { logError("loadConnections", error); return; }
-      if (data) {
-        setConnections(data.map((c: any) => c.partner).filter(Boolean));
-        const r: Record<string,number> = {};
-        data.forEach((c: any) => { if (c.rating) r[c.partner_id] = c.rating; });
-        setRatings(r);
-      }
-    } catch (e) { logError("loadConnections", e); }
-  };
-
-  const loadMessages = async (partnerId: string) => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user.id})`)
-        .order("created_at", { ascending: true })
-        .limit(100);
-      if (error) { logError("loadMessages", error); return; }
-      if (data) {
-        // Merge: keep any in-flight optimistic (temp-*) messages that aren't in the DB response yet
-        setMessages(prev => {
-          const existing = prev[partnerId] || [];
-          const pendingOptimistic = existing.filter(m => m.id.startsWith("temp-"));
-          // If no pending messages, just use DB data directly
-          if (pendingOptimistic.length === 0) return { ...prev, [partnerId]: data };
-          // Merge: DB messages + any temp messages not yet confirmed
-          const dbIds = new Set(data.map(m => m.id));
-          const stillPending = pendingOptimistic.filter(m => {
-            // Check if this temp message's real version is in the DB response (by client_id or text)
-            const clientId = m.id.replace("temp-", "");
-            return !data.some((d: any) => d.client_id === clientId);
-          });
-          return { ...prev, [partnerId]: [...data, ...stillPending] };
-        });
-      }
-    } catch (e) { logError("loadMessages", e); }
   };
 
   const loadSubjectHistory = async () => {
@@ -564,6 +418,89 @@ export default function BasUdrus() {
   } = useRooms(awardBadge);
 
   const {
+    connections, setConnections,
+    ratings, setRatings,
+    rateModal, setRateModal,
+    hoverStar, setHoverStar,
+    activeChat, setActiveChat,
+    messages, setMessages,
+    newMsg, setNewMsg,
+    chatEndRef,
+    schedModal, setSchedModal,
+    schedForm, setSchedForm,
+    isRecording, recordingTime,
+    chatFileRef,
+    pendingMsgs,
+    loadConnections, loadMessages,
+    sendMessage, startRecording, stopRecording,
+    handleChatFileSelect, submitRating,
+  } = useMessages(awardBadge);
+
+  // ── Chat scroll + realtime (must be after useMessages) ──
+  useEffect(() => { smartScroll(chatEndRef); }, [activeChat, messages]);
+
+  useEffect(() => {
+    if (!user || !activeChat) return;
+    loadMessages(activeChat.id);
+  }, [user?.id, activeChat]);
+
+  useEffect(() => {
+    if (!user) return;
+    const channel = supabase
+      .channel(`msgs-all-${user.id}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `receiver_id=eq.${user.id}`,
+      }, (payload) => {
+        const msg = payload.new as Message;
+        setMessages(prev => {
+          const partnerId = msg.sender_id;
+          const existing = prev[partnerId] || [];
+          if (existing.some(m => m.id === msg.id)) return prev;
+          return { ...prev, [partnerId]: [...existing, msg] };
+        });
+      })
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `sender_id=eq.${user.id}`,
+      }, (payload) => {
+        const msg = payload.new as Message & { client_id?: string };
+        setMessages(prev => {
+          const partnerId = msg.receiver_id;
+          const existing = prev[partnerId] || [];
+          if (existing.some(m => m.id === msg.id)) return prev;
+          if (msg.client_id) {
+            const expectedTempId = `temp-${msg.client_id}`;
+            if (pendingMsgs.current.has(msg.client_id)) {
+              pendingMsgs.current.delete(msg.client_id);
+              if (existing.some(m => m.id === expectedTempId)) {
+                return { ...prev, [partnerId]: existing.map(m => m.id === expectedTempId ? msg : m) };
+              }
+              return prev;
+            }
+            if (existing.some(m => m.id === expectedTempId)) {
+              return { ...prev, [partnerId]: existing.map(m => m.id === expectedTempId ? msg : m) };
+            }
+            return prev;
+          }
+          const tempIdx = existing.findIndex(m => m.id.startsWith("temp-") && m.text === msg.text);
+          if (tempIdx >= 0) {
+            const updated = [...existing];
+            updated[tempIdx] = msg;
+            return { ...prev, [partnerId]: updated };
+          }
+          return { ...prev, [partnerId]: [...existing, msg] };
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id]);
+
+  const {
     editProfile, setEditProfile,
     editCourseSearch, setEditCourseSearch,
     editCourseDropOpen, setEditCourseDropOpen,
@@ -705,179 +642,6 @@ export default function BasUdrus() {
   };
 
 
-  // ── Chat ──────────────────────────────────────────────────────────────
-  const sendMessage = async (partnerId: string) => {
-    if (!newMsg.trim() || !user) return;
-    // Offline guard — fail fast with clear feedback
-    if (!navigator.onLine) { showNotif("You're offline — message not sent. Check your connection.", "err"); return; }
-    const text = newMsg;
-    const clientId = generateClientId();
-    setNewMsg("");
-    // Optimistic UI — show message instantly before DB confirms
-    const tempId = `temp-${clientId}`;
-    const optimistic: Message = { id: tempId, sender_id: user.id, receiver_id: partnerId, text, message_type: "text", file_url: null, file_name: null, created_at: new Date().toISOString() };
-    pendingMsgs.current.set(clientId, tempId);
-    setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId]||[]), optimistic] }));
-    try {
-      const { data, error } = await supabase.from("messages").insert({
-        sender_id: user.id,
-        receiver_id: partnerId,
-        text,
-        message_type: "text",
-        client_id: clientId,
-      }).select().single();
-      if (error || !data) {
-        logError("sendMessage", error);
-        trackEvent("msg_fail", { reason: error?.code || "unknown", network: !navigator.onLine });
-        pendingMsgs.current.delete(clientId);
-        setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
-        setNewMsg(text);
-        const isNetworkErr = !navigator.onLine || (error?.message && /fetch|network|timeout|abort/i.test(error.message));
-        showNotif(isNetworkErr ? "No connection — message not sent. Try again when online." : "Couldn't send message — please try again.", "err");
-        return;
-      }
-      pendingMsgs.current.delete(clientId);
-      // Replace temp with real DB message
-      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).map(m => m.id === tempId ? data : m) }));
-      trackEvent("msg_sent", { type: "text" });
-      if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
-      const partner = connections.find(c => c.id === partnerId);
-      if (partner?.email) {
-        const partnerMsgs = messages[partnerId] || [];
-        const lastPartnerMsg = partnerMsgs.filter((m: Message) => m.sender_id === partnerId).pop();
-        const receiverRecentlyActive = lastPartnerMsg && (Date.now() - new Date(lastPartnerMsg.created_at).getTime()) < 30_000;
-        if (!receiverRecentlyActive) {
-          fetch("/api/notify/chat-message", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              senderId: user.id,
-              senderName: profile.name,
-              receiverEmail: partner.email,
-              receiverName: partner.name?.split(" ")[0] || "",
-              messagePreview: text,
-            }),
-          }).catch(() => {});
-        }
-      }
-    } catch (err) {
-      logError("sendMessage", err);
-      trackEvent("msg_fail", { reason: "exception", network: !navigator.onLine });
-      pendingMsgs.current.delete(clientId);
-      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId]||[]).filter(m => m.id !== tempId) }));
-      setNewMsg(text);
-      const isNet = !navigator.onLine || (err instanceof TypeError && /fetch|network/i.test(err.message));
-      showNotif(isNet ? "No connection — message not sent. Check your internet." : "Couldn't send message — please try again.", "err");
-    }
-  };
-
-  // ── Voice Recording ─────────────────────────────────────────────────
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Pick best supported mime type (varies by browser/device)
-      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg", ""].find(m => !m || MediaRecorder.isTypeSupported(m)) || "";
-      const options = mimeType ? { mimeType } : undefined;
-      const mediaRecorder = new MediaRecorder(stream, options);
-      const actualMime = mediaRecorder.mimeType || "audio/webm";
-      audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
-        try {
-          const blob = new Blob(audioChunksRef.current, { type: actualMime });
-          if (blob.size < 500) { showNotif("Recording too short", "err"); setIsRecording(false); setRecordingTime(0); return; }
-          const ext = actualMime.includes("mp4") ? "m4a" : actualMime.includes("ogg") ? "ogg" : "webm";
-          await uploadAndSendFile(blob, `voice-${Date.now()}.${ext}`, "voice");
-        } catch (err) {
-          logError("recording:onstop", err);
-          showNotif("Failed to send voice message", "err");
-        }
-        setIsRecording(false);
-        setRecordingTime(0);
-      };
-      mediaRecorder.onerror = () => {
-        stream.getTracks().forEach(t => t.stop());
-        if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null; }
-        setIsRecording(false);
-        setRecordingTime(0);
-        showNotif("Recording error — try again", "err");
-      };
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-      recordTimerRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
-    } catch (err) {
-      logError("startRecording", err);
-      showNotif("Microphone access denied. Check browser permissions.", "err");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null; // Prevent double-stop
-    }
-  };
-
-  // ── File Upload in Chat ─────────────────────────────────────────────
-  const handleChatFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { showNotif("File too large — max 10MB", "err"); return; }
-    const isImage = file.type.startsWith("image/");
-    const msgType = isImage ? "image" : "file";
-    await uploadAndSendFile(file, file.name, msgType);
-    if (chatFileRef.current) chatFileRef.current.value = "";
-  };
-
-  const uploadAndSendFile = async (fileOrBlob: File | Blob, fileName: string, msgType: "voice" | "image" | "file") => {
-    if (!user || !activeChat) return;
-    if (!navigator.onLine) { showNotif(`You're offline — ${msgType === "voice" ? "voice message" : "file"} not sent.`, "err"); return; }
-    const partnerId = activeChat.id;  // Capture early to avoid stale closure
-    const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
-    // Optimistic: show "uploading" message immediately
-    const tempId = `temp-upload-${Date.now()}`;
-    const optimistic: Message = { id: tempId, sender_id: user.id, receiver_id: partnerId, text: `⏳ Sending ${msgType}...`, message_type: msgType, file_url: null, file_name: fileName, created_at: new Date().toISOString() };
-    setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId] || []), optimistic] }));
-    try {
-      const ext = fileName.split(".").pop() || "bin";
-      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : (fileOrBlob.type || "audio/webm") });
-      if (upErr) {
-        logError("uploadChatFile", upErr);
-        setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
-        showNotif(!navigator.onLine ? "No connection — upload failed." : "Upload failed — try again", "err");
-        return;
-      }
-      const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
-      const { data, error } = await supabase.from("messages").insert({
-        sender_id: user.id,
-        receiver_id: partnerId,
-        text: displayText,
-        message_type: msgType,
-        file_url: urlData.publicUrl,
-        file_name: fileName,
-      }).select().single();
-      if (error || !data) {
-        logError("sendFileMsg", error);
-        setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
-        showNotif(!navigator.onLine ? "Connection lost — message not sent." : "Couldn't send — try again", "err");
-        return;
-      }
-      // Replace optimistic with real DB message
-      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).map(m => m.id === tempId ? data : m) }));
-      trackEvent(msgType === "voice" ? "voice_sent" : "msg_sent", { type: msgType });
-    } catch (err) {
-      logError("uploadAndSendFile", err);
-      trackEvent(msgType === "voice" ? "voice_fail" : "msg_fail", { type: msgType, network: !navigator.onLine });
-      setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));
-      showNotif(!navigator.onLine ? "No connection — upload failed. Check your internet." : "Upload failed — try again", "err");
-    }
-  };
-
   // ── Pomodoro Timer ──────────────────────────────────────────────────
   const pomodoroConfig = { work: 25 * 60, break: 5 * 60, longbreak: 15 * 60 };
 
@@ -964,34 +728,6 @@ export default function BasUdrus() {
       setSchedForm({date:"",time:"",type:"online",note:""});
       showNotif("Session scheduled! ✅");
     } catch { showNotif("Failed to schedule", "err"); }
-  };
-
-  // ── Rate partner ──────────────────────────────────────────────────────
-  const submitRating = async (partnerId: string, stars: number) => {
-    if (!user) return;
-    try {
-      const { error } = await supabase.from("connections")
-        .update({ rating: stars })
-        .eq("user_id", user.id)
-        .eq("partner_id", partnerId);
-      if (error) { showNotif("Rating failed — try again", "err"); return; }
-      setRatings(prev=>({...prev,[partnerId]:stars}));
-      setRateModal(null);
-      // Award top_rated badge to the partner who received the 5-star rating
-      if (stars===5) {
-        try {
-          const { data: partnerProfile } = await supabase.from("profiles").select("badges,xp").eq("id", partnerId).maybeSingle();
-          if (partnerProfile && !(partnerProfile.badges || []).includes("top_rated")) {
-            const b = BADGES_DEF.find(b=>b.id==="top_rated");
-            if (b) {
-              const newBadges = [...(partnerProfile.badges || []), "top_rated"];
-              await supabase.from("profiles").update({ badges: newBadges, xp: (partnerProfile.xp || 0) + b.xp }).eq("id", partnerId);
-            }
-          }
-        } catch {}
-      }
-      showNotif("Thanks for rating! ⭐");
-    } catch { showNotif("Rating failed", "err"); }
   };
 
   const loadNotifications = async () => {
