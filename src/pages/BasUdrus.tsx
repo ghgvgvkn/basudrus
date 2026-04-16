@@ -1,785 +1,38 @@
-import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
+import { useState, useEffect, useRef, useMemo, memo } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import type { Profile, Connection, Message, HelpRequest, GroupRoom, SubjectHistory, Report, Notification } from "@/lib/supabase";
-import { getMemory, saveMemory, getStats, incrementStats, getTokenTier, formatMemoryForPrompt, saveTrendingTopic, clearAllMemory } from "@/lib/ai-memory";
+import { clearAllMemory } from "@/lib/ai-memory";
 import { COURSE_CATEGORIES, ALL_COURSES, getCategoryForCourse } from "@/lib/courses";
-
-const ADMIN_EMAIL = "ahm20250898@std.psut.edu.jo";
+import { logError, setErrorUserId, trackEvent, trackClick } from "@/services/analytics";
+import { useApp } from "@/context/AppContext";
+import { loadUniData, isUniDataReady, getUniversities, normalizeUni, uniMatches, majorMatches, getAllMajors, getMajorsForUni, getCourseGroups, getUniCards } from "@/services/uniData";
+import type { UniRow, MajorRow, CourseRow } from "@/services/uniData";
+import { renderMarkdown } from "@/shared/renderMarkdown";
+import { generateClientId } from "@/shared/useNetworkStatus";
+import { useDebounce } from "@/shared/useDebounce";
+import { makeCSS } from "@/shared/makeCSS";
+import { useAdmin } from "@/features/admin/useAdmin";
+import { AdminScreen } from "@/features/admin/AdminScreen";
+import { useRooms } from "@/features/rooms/useRooms";
+import { RoomsScreen } from "@/features/rooms/RoomsScreen";
+import { useAI } from "@/features/ai/useAI";
 
 import {
   AVATAR_COLORS, BADGES_DEF, getMeetIcon, getMeetLabel,
-  statusColor, LIGHT, DARK, type Theme
+  statusColor
 } from "@/lib/constants";
-// ─── MARKDOWN RENDERER ──────────────────────────────────────────────────────
-function renderMarkdown(text: string) {
-  if (!text) return null;
-  const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
-  let listItems: string[] = [];
-  let listType: "ul"|"ol"|null = null;
-  let keyIdx = 0;
-
-  function flushList() {
-    if (listItems.length === 0) return;
-    const Tag = listType === "ol" ? "ol" : "ul";
-    elements.push(
-      <Tag key={keyIdx++} style={{margin:"6px 0",paddingLeft:22,lineHeight:1.75}}>
-        {listItems.map((li,i) => <li key={i} style={{marginBottom:2}}>{inlineFormat(li)}</li>)}
-      </Tag>
-    );
-    listItems = [];
-    listType = null;
-  }
-
-  function inlineFormat(s: string): React.ReactNode {
-    const parts: React.ReactNode[] = [];
-    // Process inline: bold, italic, code, links
-    const regex = /(\*\*(.+?)\*\*|__(.+?)__|`(.+?)`|\*(.+?)\*|_(.+?)_)/g;
-    let last = 0;
-    let match;
-    let pKey = 0;
-    while ((match = regex.exec(s)) !== null) {
-      if (match.index > last) parts.push(s.slice(last, match.index));
-      if (match[2] || match[3]) {
-        parts.push(<strong key={pKey++}>{match[2] || match[3]}</strong>);
-      } else if (match[4]) {
-        parts.push(<code key={pKey++} style={{background:"rgba(128,128,128,0.15)",padding:"1px 5px",borderRadius:4,fontSize:"0.9em",fontFamily:"monospace"}}>{match[4]}</code>);
-      } else if (match[5] || match[6]) {
-        parts.push(<em key={pKey++}>{match[5] || match[6]}</em>);
-      }
-      last = match.index + match[0].length;
-    }
-    if (last < s.length) parts.push(s.slice(last));
-    return parts.length === 1 ? parts[0] : <>{parts}</>;
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Headers
-    const h3 = line.match(/^###\s+(.+)/);
-    if (h3) { flushList(); elements.push(<div key={keyIdx++} style={{fontWeight:700,fontSize:15,marginTop:10,marginBottom:4}}>{inlineFormat(h3[1])}</div>); continue; }
-    const h2 = line.match(/^##\s+(.+)/);
-    if (h2) { flushList(); elements.push(<div key={keyIdx++} style={{fontWeight:800,fontSize:16,marginTop:12,marginBottom:4}}>{inlineFormat(h2[1])}</div>); continue; }
-    const h1 = line.match(/^#\s+(.+)/);
-    if (h1) { flushList(); elements.push(<div key={keyIdx++} style={{fontWeight:800,fontSize:17,marginTop:14,marginBottom:6}}>{inlineFormat(h1[1])}</div>); continue; }
-
-    // Horizontal rule
-    if (/^[-━─═]{3,}$/.test(line.trim())) { flushList(); elements.push(<hr key={keyIdx++} style={{border:"none",borderTop:"1px solid rgba(0,0,0,0.1)",margin:"8px 0"}}/>); continue; }
-
-    // Unordered list
-    const ul = line.match(/^\s*[-•*]\s+(.+)/);
-    if (ul) { if (listType === "ol") flushList(); listType = "ul"; listItems.push(ul[1]); continue; }
-
-    // Ordered list
-    const ol = line.match(/^\s*\d+[.)]\s+(.+)/);
-    if (ol) { if (listType === "ul") flushList(); listType = "ol"; listItems.push(ol[1]); continue; }
-
-    // Empty line
-    if (line.trim() === "") { flushList(); elements.push(<div key={keyIdx++} style={{height:6}}/>); continue; }
-
-    // Regular paragraph
-    flushList();
-    elements.push(<div key={keyIdx++} style={{marginBottom:2}}>{inlineFormat(line)}</div>);
-  }
-  flushList();
-  return <>{elements}</>;
-}
-
-// ─── ERROR LOGGING (production-safe + remote reporting) ─────────────────────
-let _errorUserId: string | null = null;
-function setErrorUserId(id: string | null) { _errorUserId = id; }
-
-function logError(context: string, error: unknown) {
-  const msg = error instanceof Error ? error.message : typeof error === "object" && error !== null ? JSON.stringify(error).slice(0, 200) : String(error);
-  if (import.meta.env.DEV) console.error(`[BasUdrus:${context}] ${msg}`);
-  // Report to DB (fire-and-forget, never blocks UI)
-  if (_errorUserId) {
-    supabase.from("client_errors").insert({
-      user_id: _errorUserId,
-      error_type: context.split(":")[0] || "unknown",
-      context,
-      message: msg.slice(0, 500),
-      user_agent: navigator.userAgent.slice(0, 200),
-    }).then(() => {}, () => {});  // Silent — never affects user
-  }
-}
-
-// ─── EVENT TRACKER (lean — batched + sampled to minimize DB writes) ──────────
-// Critical events (errors, failures): always logged immediately
-// High-frequency events (msg_sent, chat_open, post_click, ai_call): counted
-//   locally and flushed as a single summary row every 60 seconds
-const _eventQueue: { user_id: string | null; event: string; screen: string; meta: Record<string, unknown>; created_at: string }[] = [];
-let _flushTimer: ReturnType<typeof setTimeout> | null = null;
-let _currentScreen = "landing";
-
-// Counters for high-frequency events — flushed as one summary row
-const _counters: Record<string, number> = {};
-let _counterTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Events that are high-frequency and should be counted, not logged individually
-const COUNTED_EVENTS = new Set(["msg_sent", "chat_open", "post_click", "ai_call", "voice_sent"]);
-
-// ── Burst detection: sliding window timestamps per event type ────────────────
-const _burstLog: Record<string, number[]> = {};
-const _burstFired: Record<string, number> = {};  // cooldown: last spike alert time
-const BURST_RULES: Record<string, { limit: number; windowMs: number; spike: string }> = {
-  msg_sent:    { limit: 10, windowMs: 10_000, spike: "msg_spike" },
-  ai_call:     { limit: 5,  windowMs: 30_000, spike: "ai_spike" },
-  post_click:  { limit: 8,  windowMs: 10_000, spike: "ux_spike" },
-  retry_click: { limit: 5,  windowMs: 15_000, spike: "ux_spike" },
-};
-
-function checkBurst(event: string) {
-  const rule = BURST_RULES[event];
-  if (!rule) return;
-  const now = Date.now();
-  // Record timestamp
-  if (!_burstLog[event]) _burstLog[event] = [];
-  _burstLog[event].push(now);
-  // Trim to window
-  const cutoff = now - rule.windowMs;
-  _burstLog[event] = _burstLog[event].filter(t => t > cutoff);
-  // Check threshold + cooldown (60s between alerts of same type)
-  if (_burstLog[event].length >= rule.limit && (now - (_burstFired[event] || 0)) > 60_000) {
-    _burstFired[event] = now;
-    // Log as individual critical event — bypasses summary
-    _eventQueue.push({
-      user_id: _errorUserId,
-      event: rule.spike,
-      screen: _currentScreen,
-      meta: { count: _burstLog[event].length, window_sec: rule.windowMs / 1000, source: event },
-      created_at: new Date().toISOString(),
-    });
-    // Flush immediately — spikes are urgent
-    flushEvents();
-    // Alert admin instantly via DB notification
-    const spikeMsg = `${rule.spike}: ${_burstLog[event].length} ${event} events in ${rule.windowMs / 1000}s`;
-    supabase.rpc("report_spike", {
-      spike_type: rule.spike,
-      spike_message: spikeMsg,
-      spike_meta: { count: _burstLog[event].length, window_sec: rule.windowMs / 1000, source: event, screen: _currentScreen },
-    }).then(() => {}, () => {});
-  }
-}
-
-function trackEvent(event: string, meta: Record<string, unknown> = {}) {
-  // High-frequency events: count locally + check for abnormal bursts
-  if (COUNTED_EVENTS.has(event)) {
-    _counters[event] = (_counters[event] || 0) + 1;
-    checkBurst(event);
-    if (!_counterTimer) _counterTimer = setTimeout(flushCounters, 60_000);
-    return;
-  }
-  // Check burst even for critical events that have rules (e.g. retry_click)
-  if (BURST_RULES[event]) checkBurst(event);
-  // Critical/low-frequency events: queue for DB insert
-  _eventQueue.push({
-    user_id: _errorUserId,
-    event,
-    screen: _currentScreen,
-    meta,
-    created_at: new Date().toISOString(),
-  });
-  // Flush after 10s of inactivity, or immediately if queue hits 15
-  if (_flushTimer) clearTimeout(_flushTimer);
-  if (_eventQueue.length >= 15) {
-    flushEvents();
-  } else {
-    _flushTimer = setTimeout(flushEvents, 10_000);
-  }
-}
-
-function flushCounters() {
-  _counterTimer = null;
-  const entries = Object.entries(_counters);
-  if (entries.length === 0) return;
-  // Single row with all counts as meta
-  const summary: Record<string, unknown> = {};
-  for (const [k, v] of entries) { summary[k] = v; _counters[k] = 0; }
-  // Only flush if there's actually activity
-  if (entries.some(([, v]) => v > 0)) {
-    supabase.from("events").insert({
-      user_id: _errorUserId,
-      event: "activity_summary",
-      screen: _currentScreen,
-      meta: summary,
-      created_at: new Date().toISOString(),
-    }).then(() => {}, () => {});
-  }
-  // Reset counters
-  for (const k of Object.keys(_counters)) _counters[k] = 0;
-}
-
-function flushEvents() {
-  if (_eventQueue.length === 0) return;
-  const batch = _eventQueue.splice(0, 50);
-  supabase.from("events").insert(batch).then(() => {}, () => {});
-}
-
-// Flush on tab close + global error catching
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => { flushCounters(); flushEvents(); });
-  window.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") { flushCounters(); flushEvents(); }
-  });
-  // Catch uncaught errors — always logged (critical)
-  window.addEventListener("error", (e) => {
-    trackEvent("js_error", { message: (e.message || "").slice(0, 300), file: (e.filename || "").split("/").pop(), line: e.lineno });
-  });
-  window.addEventListener("unhandledrejection", (e) => {
-    const msg = e.reason instanceof Error ? e.reason.message : String(e.reason || "");
-    trackEvent("js_error", { message: msg.slice(0, 300), type: "unhandled_promise" });
-  });
-}
-
-// UX signal: detect repeated rapid clicks (confusion/lag indicator)
-let _lastClickEvent = "";
-let _lastClickTime = 0;
-let _rapidClickCount = 0;
-
-function trackClick(event: string, meta: Record<string, unknown> = {}) {
-  const now = Date.now();
-  if (event === _lastClickEvent && now - _lastClickTime < 1500) {
-    _rapidClickCount++;
-    if (_rapidClickCount === 3) {
-      // This is critical UX signal — always log
-      trackEvent("retry_click", { ...meta, original_event: event, clicks: _rapidClickCount });
-      _rapidClickCount = 0;
-    }
-  } else {
-    _rapidClickCount = 1;
-  }
-  _lastClickEvent = event;
-  _lastClickTime = now;
-  trackEvent(event, meta);
-}
-
-// ─── NETWORK STATUS HOOK ────────────────────────────────────────────────────
-function useNetworkStatus() {
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
-  useEffect(() => {
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
-  }, []);
-  return online;
-}
-
-/** Generate a collision-resistant client ID for message dedup */
-function generateClientId(): string {
-  // crypto.randomUUID is available in all modern browsers (Chrome 92+, Safari 15.4+, Firefox 95+)
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  // Fallback: timestamp + random
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-// ─── PERFORMANCE UTILS ──────────────────────────────────────────────────────
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
-// ─── DATA (fetched from Supabase) ───────────────────────────────────────────
-type UniRow = { id: string; name: string; short_name: string; full_name: string; display_order: number };
-type MajorRow = { id: string; university_id: string; name: string; display_order: number };
-type CourseRow = { id: string; major_id: string; name: string; display_order: number };
-
-// Loaded at runtime; fallback to empty while loading
-let _uniList: UniRow[] = [];
-let _majorList: MajorRow[] = [];
-let _courseList: CourseRow[] = [];
-let _uniDataReady = false;
-
-async function loadUniData() {
-  const [uRes, mRes, cRes] = await Promise.all([
-    supabase.from("universities").select("*").order("display_order"),
-    supabase.from("uni_majors").select("*").order("display_order"),
-    supabase.from("uni_courses").select("*").order("display_order"),
-  ]);
-  _uniList = (uRes.data || []) as UniRow[];
-  _majorList = (mRes.data || []) as MajorRow[];
-  _courseList = (cRes.data || []) as CourseRow[];
-  _uniDataReady = true;
-}
-
-function getUniversities(): string[] {
-  return _uniList.map(u => u.name.trim());
-}
-
-/**
- * Normalize a user-entered university string to the canonical name from the DB.
- * Handles: short names (PSUT, GJU), partial names, trailing spaces, case mismatch.
- */
-function normalizeUni(raw: string): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  const lower = trimmed.toLowerCase();
-  // 1. Exact match (trimmed)
-  for (const u of _uniList) {
-    if (u.name.trim() === trimmed) return u.name.trim();
-  }
-  // 2. Case-insensitive match on name, short_name, full_name
-  for (const u of _uniList) {
-    const canonical = u.name.trim();
-    if (u.name.trim().toLowerCase() === lower) return canonical;
-    if (u.short_name?.toLowerCase() === lower) return canonical;
-    if (u.full_name?.toLowerCase() === lower) return canonical;
-  }
-  // 3. Partial / contains match (e.g., "Jordan University" matches "University of Jordan")
-  for (const u of _uniList) {
-    const canonical = u.name.trim();
-    const uLower = canonical.toLowerCase();
-    // Check if user input contains main keywords of the uni name
-    const keywords = uLower.split(/\s+/).filter(w => w.length > 2 && !["the","of","for","and"].includes(w));
-    const inputWords = lower.split(/\s+/);
-    const matchCount = keywords.filter(kw => inputWords.some(iw => iw.includes(kw) || kw.includes(iw))).length;
-    if (keywords.length > 0 && matchCount >= Math.ceil(keywords.length * 0.5)) return canonical;
-  }
-  // 4. No match — return trimmed original (so it still works for comparison)
-  return trimmed;
-}
-
-/**
- * Check if a profile's uni matches a filter value. Handles all variations.
- */
-function uniMatches(profileUni: string, filterUni: string): boolean {
-  if (!filterUni) return true;
-  if (!profileUni) return false;
-  const normProfile = normalizeUni(profileUni);
-  const normFilter = normalizeUni(filterUni);
-  if (normProfile === normFilter) return true;
-  // Fallback: case-insensitive trimmed compare
-  return normProfile.toLowerCase() === normFilter.toLowerCase();
-}
-
-/**
- * Check if a profile's major matches a filter value. Case-insensitive, trimmed.
- */
-function majorMatches(profileMajor: string, filterMajor: string): boolean {
-  if (!filterMajor) return true;
-  if (!profileMajor) return false;
-  return profileMajor.trim().toLowerCase() === filterMajor.trim().toLowerCase();
-}
-
-function getAllMajors(): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const m of _majorList) {
-    if (!seen.has(m.name)) { seen.add(m.name); result.push(m.name); }
-  }
-  result.push("Other");
-  return result;
-}
-
-function getMajorsForUni(uniFilter: string): string[] {
-  if (!uniFilter) return getAllMajors();
-  const uni = _uniList.find(u => u.name === uniFilter);
-  if (!uni) return getAllMajors();
-  return _majorList.filter(m => m.university_id === uni.id).map(m => m.name);
-}
-
-/**
- * Returns ALL courses grouped by category — global, NOT tied to major.
- * Merges DB courses with the comprehensive hardcoded fallback list.
- * Optional categoryFilter narrows to one category (for optional filtering, not enforced).
- */
-function getCourseGroups(_uniFilter?: string, _majorFilter?: string, categoryFilter?: string): [string, string[]][] {
-  // Start with the comprehensive global list
-  const merged: Record<string, Set<string>> = {};
-  for (const [cat, courses] of Object.entries(COURSE_CATEGORIES)) {
-    merged[cat] = new Set(courses);
-  }
-  // Add any DB courses that aren't in the hardcoded list
-  for (const c of _courseList) {
-    const cat = getCategoryForCourse(c.name);
-    if (!merged[cat]) merged[cat] = new Set();
-    merged[cat].add(c.name);
-  }
-  // Build result
-  const result: [string, string[]][] = [];
-  for (const [cat, courseSet] of Object.entries(merged)) {
-    if (categoryFilter && cat !== categoryFilter) continue;
-    const sorted = Array.from(courseSet).sort((a, b) => a.localeCompare(b));
-    if (sorted.length > 0) result.push([cat, sorted]);
-  }
-  // Sort categories alphabetically
-  result.sort((a, b) => a[0].localeCompare(b[0]));
-  return result;
-}
-
-function getUniCards(): {uni: string; full: string; emoji: string}[] {
-  const emojis: Record<string, string> = {
-    "PSUT": "🏛️", "UJ": "🎓", "GJU": "🌍", "AAU": "🏫", "ASU": "📘", "MEU": "🎯", "AUM": "🌿"
-  };
-  return _uniList.map(u => ({ uni: u.short_name, full: u.full_name, emoji: emojis[u.short_name] || "🏫" }));
-}
-
-
-// Constants imported from @/lib/constants
-
-const makeCSS = (T: Theme) => `
-  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
-  html { scroll-behavior:smooth; -webkit-text-size-adjust:100%; text-size-adjust:100%; touch-action:manipulation; }
-  body { font-family:'Plus Jakarta Sans',sans-serif; background:${T.bg}; color:${T.text}; -webkit-font-smoothing:antialiased; transition:background-color 0.3s,color 0.3s; overflow-x:hidden; touch-action:manipulation; }
-  /* Kill iOS auto-zoom on input focus — forces all inputs to 16px minimum on mobile */
-  @media (max-width: 768px) {
-    input, textarea, select { font-size:16px !important; }
-  }
-  /* Disable double-tap-to-zoom everywhere */
-  * { touch-action:manipulation; }
-  /* Performance: GPU compositing for animated elements */
-  .s-card,.card,.request-card,.modal,.notif { will-change:auto; contain:layout style; }
-  /* Prevent iOS zoom on input focus */
-  @supports(-webkit-touch-callout:none){ input,select,textarea { font-size:max(16px,1em); } }
-  input,select,textarea,button { font-family:'Plus Jakarta Sans',sans-serif; }
-  input:focus,select:focus,textarea:focus { outline:none; border-color:${T.accent}!important; box-shadow:0 0 0 3px ${T.accentSoft}!important; }
-  ::-webkit-scrollbar { width:4px; height:4px; }
-  ::-webkit-scrollbar-track { background:transparent; }
-  ::-webkit-scrollbar-thumb { background:${T.border}; border-radius:99px; }
-  .scroll-col { display:flex; flex-direction:column; gap:16px; overflow-y:auto; overflow-x:hidden; padding:8px 16px 120px; scroll-snap-type:y mandatory; -webkit-overflow-scrolling:touch; cursor:grab; flex:1; min-height:0; }
-  .scroll-col:active { cursor:grabbing; }
-  .page-scroll { overflow-y:auto; height:calc(100dvh - 62px); }
-  .s-card { flex:0 0 auto; width:100%; max-width:500px; margin:0 auto; scroll-snap-align:start; background:${T.surface}; border-radius:22px; border:1px solid ${T.border}; box-shadow:0 8px 24px rgba(0,0,0,0.06); overflow:hidden; transition:all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-  .s-card:hover { box-shadow:0 22px 50px rgba(0,0,0,0.12); transform: translateY(-6px) scale(1.02); border:1px solid ${T.accent}44; }
-  @keyframes flyUp    { to { transform:translateY(-130%) scale(0.85); opacity:0; } }
-  @keyframes flyDown  { to { transform:translateY(130%) scale(0.85); opacity:0; } }
-  @keyframes fadeIn   { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-  @keyframes slideIn  { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:translateX(0); } }
-  @keyframes popIn    { from { opacity:0; transform:scale(0.93); } to { opacity:1; transform:scale(1); } }
-  @keyframes shimmer  { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
-  @keyframes pulse    { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
-  @keyframes orbFloat { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-8px) scale(1.03)} }
-  @keyframes bounceIn { 0%{transform:scale(0.3);opacity:0} 60%{transform:scale(1.05)} 100%{transform:scale(1);opacity:1} }
-  @keyframes slideDown { 0%{transform:translateY(-100%)} 100%{transform:translateY(0)} }
-  .fly-up   { animation:flyUp   0.35s cubic-bezier(0.4,0,0.2,1) forwards; will-change:transform,opacity; }
-  .fly-down { animation:flyDown 0.3s cubic-bezier(0.4,0,0.2,1) forwards; will-change:transform,opacity; }
-  .fade-in  { animation:fadeIn  0.4s ease forwards; will-change:transform,opacity; }
-  .slide-in { animation:slideIn 0.32s ease forwards; will-change:transform,opacity; }
-  .pop-in   { animation:popIn   0.28s ease forwards; will-change:transform,opacity; }
-  .bounce-in{ animation:bounceIn 0.45s cubic-bezier(0.175,0.885,0.32,1.275) forwards; will-change:transform,opacity; }
-  .pulse    { animation:pulse 1.6s ease-in-out infinite; will-change:transform; }
-  .btn-primary { background:${T.navy}; color:${T.bg}; border:none; padding:13px 28px; border-radius:99px; font-size:15px; font-weight:600; cursor:pointer; transition:all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); letter-spacing:0.01em; box-shadow: 0 6px 16px rgba(15,27,45,0.15); border-bottom: 2px solid rgba(0,0,0,0.15); }
-  .btn-primary:hover { background:${T.navyLight}; transform:translateY(-3px); box-shadow:0 12px 28px rgba(15,27,45,0.25); border-bottom-width: 4px; }
-  .btn-primary:active { transform:translateY(1px); border-bottom-width: 0px; box-shadow:0 4px 10px rgba(15,27,45,0.1); }
-  .btn-accent  { background:${T.accent}; color:#fff; border:none; padding:13px 28px; border-radius:99px; font-size:15px; font-weight:600; cursor:pointer; transition:all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); box-shadow: 0 6px 16px rgba(74,124,247,0.2); border-bottom: 2px solid rgba(0,0,0,0.1); }
-  .btn-accent:hover  { filter:brightness(1.1); transform:translateY(-3px); box-shadow:0 12px 30px rgba(74,124,247,0.35); border-bottom-width: 4px; }
-  .btn-ghost   { background:transparent; color:${T.textSoft}; border:1.5px solid ${T.border}; padding:11px 24px; border-radius:99px; font-size:15px; font-weight:500; cursor:pointer; transition:border-color 0.2s,color 0.2s,background-color 0.2s; }
-  .btn-ghost:hover { border-color:${T.accent}; color:${T.accent}; background:${T.accentSoft}; }
-  .btn-danger  { background:${T.redSoft}; color:${T.red}; border:1.5px solid transparent; padding:12px 20px; border-radius:99px; font-size:14px; font-weight:700; cursor:pointer; transition:border-color 0.2s,transform 0.2s; }
-  .btn-danger:hover { border-color:${T.red}; transform:scale(1.02); }
-  .btn-success { background:${T.greenSoft}; color:${T.green}; border:1.5px solid transparent; padding:12px 20px; border-radius:99px; font-size:14px; font-weight:700; cursor:pointer; transition:border-color 0.2s,transform 0.2s; }
-  .btn-success:hover { border-color:${T.green}; transform:scale(1.02); }
-  .field { margin-bottom:18px; }
-  .field label { display:block; font-size:12px; font-weight:700; color:${T.muted}; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; }
-  .field input,.field select,.field textarea { width:100%; padding:13px 16px; border:1.5px solid ${T.border}; border-radius:13px; font-size:15px; color:${T.text}; background:${T.surface}; transition:border-color 0.2s,box-shadow 0.2s; }
-  .field textarea { resize:none; }
-  .tab-nav { display:flex; gap:2px; background:${T.bg}; padding:4px; border-radius:99px; border:1px solid ${T.border}; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
-  .tab-nav::-webkit-scrollbar { display:none; }
-  .tab-btn { padding:9px 14px; border-radius:99px; cursor:pointer; font-size:13px; font-weight:600; border:none; background:transparent; color:${T.muted}; transition:background-color 0.2s,color 0.2s,box-shadow 0.2s; white-space:nowrap; flex-shrink:0; }
-  .tab-btn.active { background:${T.navy}; color:${T.bg}; box-shadow:0 2px 10px rgba(15,27,45,0.2); }
-  .sub-tab { padding:9px 18px; border-radius:99px; cursor:pointer; font-size:13px; font-weight:600; border:none; background:transparent; color:${T.muted}; transition:background-color 0.2s,color 0.2s; white-space:nowrap; }
-  .sub-tab.active { background:${T.accentSoft}; color:${T.accent}; }
-  .msg-mine   { background:${T.accent}; color:#fff; border-bottom-right-radius:4px; }
-  .msg-theirs { background:${T.surface}; color:${T.text}; border:1px solid ${T.border}; border-bottom-left-radius:4px; }
-  .conn-row { padding:10px 12px; border-radius:13px; cursor:pointer; transition:background-color 0.15s; display:flex; align-items:center; gap:10px; }
-  .conn-row:hover,.conn-row.active { background:${T.accentSoft}; }
-  .meet-opt { border:1.5px solid ${T.border}; border-radius:13px; padding:14px 8px; cursor:pointer; text-align:center; transition:border-color 0.2s,background-color 0.2s; background:${T.surface}; }
-  .meet-opt:hover { border-color:${T.accent}; }
-  .meet-opt.active { border-color:${T.accent}; background:${T.accentSoft}; }
-  .color-dot { width:28px; height:28px; border-radius:50%; cursor:pointer; border:2.5px solid transparent; transition:border-color 0.15s,transform 0.15s; }
-  .color-dot:hover,.color-dot.sel { border-color:${T.text}; transform:scale(1.18); }
-  .card { background:${T.surface}; border-radius:18px; border:1px solid ${T.border}; box-shadow: 0 4px 16px rgba(0,0,0,0.04); transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-  .card:hover { box-shadow:0 16px 40px rgba(0,0,0,0.08); transform:translateY(-4px) scale(1.01); }
-  .request-card { background:${T.surface}; border-radius:16px; padding:18px; border:1px solid ${T.border}; box-shadow: 0 4px 14px rgba(0,0,0,0.03); transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-  .request-card:hover { box-shadow:0 12px 32px rgba(0,0,0,0.08); transform:translateY(-3px) scale(1.01); }
-  .streak-badge { display:inline-flex; align-items:center; gap:5px; background:linear-gradient(135deg,#C44D1A,#B07D00); color:#fff; padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; }
-  .ai-msg { padding:16px 20px; border-radius:24px; font-size:15px; line-height:1.6; max-width:85%; animation:fadeIn 0.3s ease; word-break:break-word; border:1px solid rgba(255,255,255,0.4); box-shadow: 0 4px 16px rgba(0,0,0,0.03); }
-  .ai-msg b { font-weight:700; }
-  .msg-mine, .ai-msg.user { background: linear-gradient(135deg, ${T.accent}, #6C8EF5); color: #fff; border-bottom-right-radius: 6px; border:none; box-shadow: 0 6px 20px rgba(74, 124, 247, 0.25); }
-  .msg-theirs, .ai-msg.assistant { background: linear-gradient(135deg, ${T.surface}, ${T.bg}); color: ${T.text}; border-bottom-left-radius: 6px; }
-  .match-score-high { background:linear-gradient(135deg,#0E7E5A,#0A6B4C); color:#fff; }
-  .match-score-mid { background:linear-gradient(135deg,#B07D00,#9B6E00); color:#fff; }
-  .match-score-low { background:linear-gradient(135deg,#6B7280,#596673); color:#fff; }
-  .plan-output { white-space:pre-wrap; font-size:14px; line-height:1.85; color:${T.text}; }
-  /* Psychology UX: focus-visible ring for keyboard users (accessibility) */
-  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:2.5px solid ${T.accent}; outline-offset:2px; }
-  /* Reduce motion for users who prefer it */
-  @media(prefers-reduced-motion:reduce){ *,*::before,*::after { animation-duration:0.01ms!important; transition-duration:0.01ms!important; } }
-  /* Nav glassmorphism */
-  .nav-inner { backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
-  /* Living AI: orbPulse + aiTyping */
-  @keyframes orbPulse {
-    0%,100% { transform:scale(1); box-shadow:0 0 50px rgba(251,146,60,0.18),0 0 100px rgba(168,85,247,0.1),0 8px 32px rgba(139,92,246,0.15); }
-    50%     { transform:scale(1.08); box-shadow:0 0 70px rgba(251,146,60,0.28),0 0 120px rgba(168,85,247,0.18),0 12px 40px rgba(139,92,246,0.22); }
-  }
-  @keyframes aiTyping {
-    0%,80%,100% { opacity:0.3; transform:scale(0.85); }
-    40%         { opacity:1;   transform:scale(1); }
-  }
-  /* Mesh glow (Siri-style orbit) */
-  @keyframes orbit {
-    0% { transform: rotate(0deg) translateX(30px) rotate(0deg); }
-    100% { transform: rotate(360deg) translateX(30px) rotate(-360deg); }
-  }
-  .mesh-glow {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: radial-gradient(ellipse 80% 60% at 25% 40%, rgba(74, 124, 247, 0.10), transparent 60%),
-                radial-gradient(ellipse 70% 50% at 75% 25%, rgba(67, 197, 158, 0.10), transparent 60%),
-                radial-gradient(ellipse 60% 40% at 50% 80%, rgba(232, 114, 42, 0.05), transparent 50%);
-    filter: blur(80px);
-    z-index: 0;
-    pointer-events: none;
-  }
-  /* Bento Box grid for Features */
-  .bento-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-  @media(min-width: 600px) {
-    .bento-grid { grid-template-columns: repeat(2, 1fr); }
-  }
-  @media(min-width: 800px) {
-    .bento-grid { grid-template-columns: repeat(3, 1fr); }
-    .landing-feat:nth-child(1) { grid-column: span 2; padding: 40px; }
-    .landing-feat:nth-child(1) .landing-feat-icon { font-size: 42px; margin-bottom: 18px; }
-    .landing-feat:nth-child(1) h3 { font-size: 22px; }
-    .landing-feat:nth-child(1) p { font-size: 15px; }
-    .landing-feat:nth-child(4) { grid-column: span 2; }
-    .landing-feat:nth-child(7) { grid-column: span 3; }
-  }
-  /* Smooth page transitions */
-  .page-scroll > div { animation:fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-  /* Better touch targets (Fitts' law — minimum 44px) */
-  details summary { min-height:44px; display:flex; align-items:center; }
-  details summary::-webkit-details-marker { display:none; }
-  details summary::before { content:"▸"; margin-right:8px; transition:transform 0.2s; font-size:12px; color:${T.muted}; }
-  details[open] summary::before { transform:rotate(90deg); }
-  .xp-bar-fill { background:linear-gradient(90deg,${T.accent},#6C8EF5); height:100%; border-radius:99px; transition:transform 0.8s cubic-bezier(0.4,0,0.2,1); transform-origin:left; will-change:transform; }
-  .star { font-size:18px; cursor:pointer; transition:transform 0.1s; }
-  .star:hover { transform:scale(1.2); }
-  .notif { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:13px 26px; border-radius:99px; font-size:14px; font-weight:600; z-index:9999; white-space:nowrap; box-shadow:0 6px 30px rgba(0,0,0,0.18); animation:popIn 0.28s ease; max-width:90vw; overflow:hidden; text-overflow:ellipsis; }
-  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:300; display:flex; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(4px); animation:fadeIn 0.2s ease; }
-  .modal { background:${T.surface}; border-radius:24px; padding:28px; width:100%; max-width:460px; box-shadow:0 24px 80px rgba(0,0,0,0.25); animation:popIn 0.28s ease; max-height:92dvh; overflow-y:auto; border:1px solid ${T.border}; }
-  .progress-track { background:${T.border}; border-radius:99px; height:6px; overflow:hidden; }
-  /* Bottom tab bar — hidden on desktop, shown on mobile */
-  .bot-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:${T.navBg}; border-top:1.5px solid ${T.border}; z-index:200; padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px)); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
-  .bot-tab { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:6px 2px; background:none; border:none; cursor:pointer; font-size:10px; font-weight:600; color:${T.muted}; transition:color 0.15s; line-height:1; }
-  .bot-tab .bi { font-size:22px; line-height:1; display:block; }
-  .bot-tab.active { color:${T.accent}; }
-  .bot-tab.active .bi { filter:drop-shadow(0 0 6px ${T.accent}44); }
-  @media(min-width:621px){
-    .top-tabs { display:flex!important; }
-    .bot-nav  { display:none!important; }
-  }
-  @media(max-width:620px){
-    .bot-nav  { display:none!important; }
-    .top-tabs { display:flex!important; order:3!important; flex-basis:100%!important; overflow-x:auto!important; scrollbar-width:none!important; -webkit-overflow-scrolling:touch!important; gap:2px!important; margin:8px 0 -4px!important; padding:4px!important; background:${T.bg}!important; border:1px solid ${T.border}!important; border-radius:14px!important; box-shadow:0 1px 6px rgba(0,0,0,0.04)!important; }
-    .top-tabs::-webkit-scrollbar { display:none; }
-    .top-tabs .tab-btn { font-size:13px!important; padding:9px 14px!important; white-space:nowrap!important; flex-shrink:0!important; flex:none!important; justify-content:center!important; border-radius:10px!important; font-weight:600!important; }
-    .top-tabs .tab-icon { display:none!important; }
-    .hide-mob { display:none!important; }
-    .nav-inner{ padding:8px 12px!important; flex-wrap:wrap!important; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
-    .hero-section{ padding:52px 20px 36px!important; }
-    .page-scroll { height:calc(100dvh - 52px); padding-bottom:16px; }
-    .chat-wrap{ flex-direction:column!important; height:calc(100dvh - 52px)!important; }
-    .chat-sidebar{ width:100%!important; max-height:110px!important; flex-direction:row!important; overflow-x:auto!important; overflow-y:hidden!important; border-right:none!important; border-bottom:1.5px solid ${T.border}!important; padding:6px 8px!important; min-height:unset!important; }
-    .chat-sidebar > div:first-child { display:none!important; }
-    .chat-sidebar > div:nth-child(2) { flex-direction:row!important; overflow-x:auto!important; gap:4px!important; padding:4px!important; }
-    .chat-sidebar-empty { display:none!important; height:0!important; border:none!important; padding:0!important; overflow:hidden!important; }
-    .conn-row-mini{ min-width:64px; flex-direction:column; gap:2px; padding:6px 4px!important; font-size:11px!important; }
-    .conn-row-mini > div { display:none!important; }
-    .chat-header-actions { flex-wrap:wrap!important; gap:4px!important; }
-    .chat-header-actions button { padding:5px 10px!important; font-size:11px!important; }
-    .chat-msg-input { padding:8px 12px!important; }
-    .chat-msg-input input { padding:10px 14px!important; font-size:16px!important; }
-    .chat-msg-input button { padding:10px 16px!important; font-size:12px!important; }
-    .chat-partner-cards { grid-template-columns:1fr!important; gap:8px!important; padding:12px!important; }
-    .conn-course-hide{ display:none; }
-    /* ── Discover page ── */
-    .dis-page  { height:calc(100dvh - 52px)!important; padding-top:0!important; }
-    .dis-header{ padding:8px 12px 4px!important; }
-    .dis-header h2 { font-size:15px!important; margin-bottom:1px!important; }
-    .dis-header p  { display:none!important; }
-    /* Filter: 2-column wrap — uni+major on row 1, course full-width on row 2, meet type full-width on row 3 */
-    .dis-filter-row{ display:flex!important; flex-wrap:wrap!important; overflow-x:unset!important; gap:6px!important; padding-bottom:0!important; }
-    .dis-filter-sel{ flex:0 0 calc(50% - 3px)!important; min-width:0!important; max-width:none!important; padding:9px 10px!important; font-size:12px!important; border-radius:11px!important; }
-    /* Course search box + meet type + clear button span full width */
-    .dis-course-box { flex:0 0 100%!important; }
-    .dis-filter-meet { flex:0 0 100%!important; }
-    .dis-clear-btn { flex:0 0 100%!important; }
-    .dis-count { padding:0 12px 2px!important; flex-shrink:0; }
-    .scroll-col{ min-height:0!important; padding:4px 10px 20px!important; gap:10px!important; }
-    /* ── Student card ── */
-    .s-card    { border-radius:16px!important; }
-    .dis-card-hdr{ padding:14px 14px 10px!important; }
-    .dis-card-body{ padding:10px 14px!important; }
-    .dis-card-btns{ padding:0 12px 12px!important; gap:8px!important; }
-    /* Avatar: slightly smaller */
-    .dis-avatar { width:50px!important; height:50px!important; flex-shrink:0!important; }
-    /* Name / uni / major text */
-    .dis-name  { font-size:15px!important; }
-    .dis-uni   { font-size:11px!important; margin-top:2px!important; }
-    .dis-major { font-size:11px!important; margin-top:1px!important; }
-    /* Online badge */
-    .dis-online{ font-size:11px!important; }
-    .dis-sessions{ font-size:10px!important; }
-    /* Meet-type pill + rating */
-    .dis-meet-pill { padding:4px 10px!important; font-size:11px!important; }
-    /* Course chips */
-    .dis-card-body > div:first-child { gap:5px!important; flex-wrap:wrap!important; }
-    .dis-chip { padding:4px 10px!important; font-size:11px!important; }
-    /* Bio text */
-    .dis-bio { font-size:13px!important; line-height:1.55!important; margin-bottom:10px!important; }
-    /* Action buttons */
-    .dis-card-btns .btn-danger  { font-size:13px!important; padding:11px 0!important; }
-    .dis-card-btns .btn-success { font-size:13px!important; padding:11px 0!important; }
-    .fab-post  { bottom:82px!important; right:14px!important; width:50px!important; height:50px!important; border-radius:50%!important; font-size:22px!important; padding:0!important; }
-    .sub-tab   { padding:9px 14px!important; font-size:13px!important; }
-    .modal     { padding:22px 18px; border-radius:20px; }
-    .btn-primary,.btn-ghost,.btn-accent { font-size:13px!important; padding:11px 20px!important; }
-    .field label { font-size:11px!important; }
-    .field input,.field select,.field textarea { font-size:16px!important; padding:11px 13px!important; }
-    .admin-kpi { grid-template-columns:repeat(2,1fr)!important; }
-    .admin-grid2 { grid-template-columns:1fr!important; }
-
-    /* ── AI Hub mobile ── */
-    .page-scroll>div { padding:16px 14px!important; }
-    .page-scroll h2 { font-size:16px!important; }
-    .page-scroll h3 { font-size:14px!important; }
-
-    /* ── Profile page mobile ── */
-    .profile-avatar-wrap { width:72px!important; height:72px!important; }
-    .profile-avatar-wrap>div,.profile-avatar-wrap>img { width:72px!important; height:72px!important; font-size:26px!important; }
-
-    /* ── Rooms mobile ── */
-    .request-card { padding:14px!important; }
-    .request-card h3 { font-size:14px!important; }
-
-    /* ── Connect/Chat mobile ── */
-    .chat-sidebar .conn-row { padding:8px 10px!important; }
-
-    /* ── Bottom nav icons ── */
-    .bot-tab .bi { font-size:22px!important; }
-    .bot-tab { font-size:9px!important; gap:2px!important; padding:6px 4px 4px!important; }
-
-    /* ── AI Hub sub-tabs — scroll instead of wrap ── */
-    .ai-tab-row { flex-wrap:nowrap!important; scrollbar-width:none!important; overflow-x:auto!important; -webkit-overflow-scrolling:touch!important; padding:5px!important; }
-    .ai-tab-row::-webkit-scrollbar { display:none; }
-    .ai-tab-row .sub-tab { padding:10px 14px!important; font-size:13px!important; white-space:nowrap!important; flex-shrink:0!important; font-weight:600!important; }
-
-    /* ── AI / Wellbeing / Tutor card headers ── */
-    .page-scroll [style*="borderRadius:20"] { border-radius:16px!important; }
-    .page-scroll [style*="padding:22"] { padding:16px!important; }
-    .page-scroll [style*="padding:24"] { padding:16px!important; }
-
-    /* ── Profile card on mobile ── */
-    .prof-hdr { gap:10px!important; }
-    .prof-name { font-size:15px!important; }
-
-    /* ── Compact nav bar ── */
-    .nav-inner .logo { font-size:20px!important; }
-
-    /* ══════ LANDING PAGE MOBILE ══════ */
-    .landing-nav { padding:10px 14px!important; }
-    .landing-nav .btn-ghost { padding:7px 12px!important; font-size:11px!important; }
-    .landing-nav .btn-primary { padding:7px 14px!important; font-size:11px!important; }
-    .landing-hero { padding:48px 18px 32px!important; gap:28px!important; flex-direction:column!important; text-align:center!important; }
-    .landing-hero > div:first-child { min-width:100%!important; }
-    .landing-hero h1 { font-size:clamp(48px,14vw,72px)!important; margin-bottom:14px!important; text-align:center!important; line-height:1.02!important; letter-spacing:-0.04em!important; }
-    .landing-hero h1 span { font-size:1.12em!important; }
-    .landing-hero p { font-size:15px!important; margin-bottom:20px!important; text-align:center!important; max-width:340px!important; margin-left:auto!important; margin-right:auto!important; line-height:1.65!important; }
-    .landing-hero .hero-cta { padding:16px 36px!important; font-size:16px!important; width:100%!important; justify-content:center!important; border-radius:16px!important; }
-    .landing-hero > div:first-child > p:last-child { text-align:center!important; }
-    .landing-hero > div:first-child > div:first-child { justify-content:center!important; }
-    .landing-hero .hero-trust { padding:14px 12px!important; border-radius:14px!important; display:flex!important; flex-direction:column!important; gap:10px!important; }
-    .landing-hero .hero-trust-item { gap:10px!important; margin-bottom:0!important; flex-direction:row!important; display:flex!important; }
-    .landing-hero .hero-trust-icon { width:32px!important; height:32px!important; font-size:15px!important; border-radius:9px!important; }
-    .landing-hero .hero-trust-title { font-size:12px!important; }
-    .landing-hero .hero-trust-desc { font-size:10px!important; }
-    .landing-section { padding:28px 16px!important; }
-    .landing-section h2 { font-size:clamp(20px,5vw,34px)!important; margin-bottom:4px!important; }
-    .landing-section p.section-subtitle { font-size:12px!important; }
-    .landing-grid { gap:8px!important; grid-template-columns:repeat(2,1fr)!important; }
-    .landing-grid > div { padding:14px 12px!important; border-radius:12px!important; }
-    .landing-step-num { width:24px!important; height:24px!important; font-size:11px!important; }
-    .landing-step-icon { font-size:18px!important; margin-bottom:4px!important; }
-    .landing-step h3 { font-size:13px!important; }
-    .landing-step p { font-size:10px!important; line-height:1.4!important; }
-    .landing-feat-icon { font-size:20px!important; margin-bottom:4px!important; }
-    .landing-feat h3 { font-size:12px!important; }
-    .landing-feat p { font-size:10px!important; line-height:1.4!important; }
-    .landing-uni-card { padding:14px 12px!important; }
-    .landing-uni-emoji { font-size:22px!important; }
-    .landing-uni-name { font-size:15px!important; }
-    .landing-uni-desc { font-size:11px!important; }
-    .landing-cta-section { padding:28px 16px!important; }
-    .landing-cta-section h2 { font-size:clamp(20px,5.5vw,36px)!important; }
-    .landing-cta-section .hero-cta { padding:14px 28px!important; font-size:14px!important; width:100%!important; }
-    .landing-about { padding:16px 14px!important; }
-    .landing-about .bu-logo { width:38px!important; height:38px!important; font-size:14px!important; }
-    .landing-about .story-title { font-size:13px!important; }
-    .landing-about .story-text { font-size:11px!important; }
-    .landing-footer { padding:16px 14px!important; }
-
-    /* ══════ DISCOVER FILTERS MOBILE ══════ */
-    .dis-filter-row {
-      display:grid!important;
-      grid-template-columns:repeat(6,1fr)!important;
-      gap:6px!important;
-    }
-    .dis-filter-row .dis-filter-sel:first-child { grid-column:1/4; }
-    .dis-filter-row > div:nth-child(2) { grid-column:4/7; }
-    .dis-filter-row .dis-course-box { grid-column:1/5; }
-    .dis-filter-row .dis-filter-meet { grid-column:5/7; }
-    .dis-filter-row .dis-filter-sel,
-    .dis-filter-row .dis-course-box,
-    .dis-filter-row > div[style] {
-      min-width:0!important;
-      width:100%!important;
-    }
-    .dis-filter-row .dis-clear-btn {
-      grid-column:1/-1;
-    }
-
-    /* ══════ AUTH PAGE MOBILE ══════ */
-    .auth-card { padding:24px 18px!important; }
-    .auth-card h2 { font-size:19px!important; }
-  }
-`;
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function BasUdrus() {
-  const [darkMode, setDarkMode] = useState(() => {
-    try { return localStorage.getItem("bas-udrus-dark") === "true"; } catch { return false; }
-  });
-  const T = darkMode ? DARK : LIGHT;
-  useEffect(() => { try { localStorage.setItem("bas-udrus-dark", String(darkMode)); } catch {} }, [darkMode]);
+  const { user, setUser, profile, setProfile, darkMode, setDarkMode, T, screen, setScreen, showNotif, notif, isOnline, isAdmin, loading, setLoading } = useApp();
 
-  const [screen, _setScreen] = useState<string>("landing");
-  const setScreen = useCallback((s: string) => { _currentScreen = s; _setScreen(s); }, []);
   const [authMode, setAuthMode] = useState<"signup"|"login"|"reset"|"reset-sent"|"new-password">("signup");
   const [authForm, setAuthForm] = useState({ email:"", password:"", name:"" });
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
-
-  const [user, setUser] = useState<{id:string; email:string} | null>(null);
-  const [profile, setProfile] = useState<Partial<Profile>>({
-    name:"", uni:"", major:"", course:"", year:"", meet_type:"flexible",
-    bio:"", avatar_emoji:"🫶", avatar_color:"#6C8EF5", photo_mode:"initials",
-    photo_url:null, streak:0, xp:0, badges:[], sessions:0, rating:0, subjects:[], online:true
-  });
   const [editProfile, setEditProfile] = useState<Partial<Profile> | null>(null);
   const [editCourseSearch, setEditCourseSearch] = useState("");
   const [editCourseDropOpen, setEditCourseDropOpen] = useState(false);
@@ -791,11 +44,10 @@ export default function BasUdrus() {
   const [editMajorOpen, setEditMajorOpen] = useState(false);
   const editMajorRef = useRef<HTMLDivElement>(null);
   const [profileTab, setProfileTab] = useState("edit");
-  const [adminTab, setAdminTab] = useState("analytics");
   const [step, setStep] = useState(1);
 
-  const streak = profile.streak ?? 4;
-  const xp = profile.xp ?? 340;
+  const streak = profile.streak ?? 0;
+  const xp = profile.xp ?? 0;
   const earnedBadges: string[] = profile.badges ?? [];
   const [newBadge, setNewBadge] = useState<typeof BADGES_DEF[0] | null>(null);
 
@@ -828,24 +80,16 @@ export default function BasUdrus() {
   const [showReqModal, setShowReqModal] = useState(false);
   const [newReq, setNewReq] = useState({ subject:"", detail:"", meetType:"flexible" });
 
+  const { adminTab, setAdminTab, adminReports, adminPosts, adminAnalytics, loadAdminData, adminDeletePost, loadAdminAnalytics } = useAdmin(
+    (postId) => setHelpRequests(p => p.filter(x => x.id !== postId))
+  );
+
   const [subjectHistory, setSubjectHistory] = useState<SubjectHistory[]>([]);
   const [showSubModal, setShowSubModal] = useState(false);
   const [newSub, setNewSub] = useState({ subject:"", note:"", status:"active" });
 
-  const [groups, setGroups] = useState<GroupRoom[]>([]);
-  const [showGrpModal, setShowGrpModal] = useState(false);
-  const [newGrp, setNewGrp] = useState({ subject:"", date:"", time:"", type:"online", spots:4, link:"", location:"", note:"" });
-  const [editingRoom, setEditingRoom] = useState<GroupRoom|null>(null);
-  const [editGrp, setEditGrp] = useState({ subject:"", date:"", time:"", type:"online", spots:4, link:"", location:"" });
-  const [confirmDeleteRoom, setConfirmDeleteRoom] = useState<string|null>(null);
-  const [roomActionLoading, setRoomActionLoading] = useState(false);
 
-  const [aiLimitModal, setAiLimitModal] = useState<{show:boolean; reason:string; endpoint:string}>({show:false, reason:"", endpoint:""});
-  const [earlyAccessEmail, setEarlyAccessEmail] = useState("");
-  const [earlyAccessSent, setEarlyAccessSent] = useState(false);
 
-  const [notif, setNotif] = useState<{msg:string; type:string} | null>(null);
-  const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [canPost, setCanPost] = useState(false);
   const [viewingProfile, setViewingProfile] = useState<Profile | null>(null);
@@ -856,45 +100,20 @@ export default function BasUdrus() {
   const cropCanvasRef = useRef<HTMLCanvasElement>(null);
   const cropDragging = useRef(false);
   const cropLastPos = useRef({x:0,y:0});
-  const [adminReports, setAdminReports] = useState<Report[]>([]);
-  const [adminPosts, setAdminPosts] = useState<HelpRequest[]>([]);
   const [reportModal, setReportModal] = useState<{userId:string;name:string}|null>(null);
   const [reportReason, setReportReason] = useState("");
-  const isAdmin = user?.email === ADMIN_EMAIL;
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const notifPanelRef = useRef<HTMLDivElement>(null);
-  const notifTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const connectTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const connectingRef = useRef(false);
-  const [uniDataReady, setUniDataReady] = useState(_uniDataReady);
+  const [uniDataReady, setUniDataReady] = useState(isUniDataReady());
 
   // Load university/major/course data from Supabase on mount
   useEffect(() => {
-    if (_uniDataReady) { setUniDataReady(true); return; }
+    if (isUniDataReady()) { setUniDataReady(true); return; }
     loadUniData().then(() => setUniDataReady(true)).catch((e) => logError("loadUniData", e));
   }, []);
-  const [adminAnalytics, setAdminAnalytics] = useState<any>(null);
-
-  const [aiTab, setAiTab] = useState<""|"wellbeing"|"tutor"|"match"|"plan">("");
-  const [aiLang, setAiLang] = useState<"auto"|"en"|"ar">("auto");
-  const [tutorMsgs, setTutorMsgs] = useState<{role:"user"|"assistant";content:string}[]>([]);
-  const [tutorInput, setTutorInput] = useState("");
-  const [tutorLoading, setTutorLoading] = useState(false);
-  const [tutorSubject, setTutorSubject] = useState("");
-  const [tutorFile, setTutorFile] = useState<{name:string;text:string}|null>(null);
-  const tutorFileRef = useRef<HTMLInputElement>(null);
-  const [matchScores, setMatchScores] = useState<Record<string,{score:number;reason:string}>>({});
-  const [matchLoading, setMatchLoading] = useState(false);
-  const [matchQuiz, setMatchQuiz] = useState<Record<string,string>>({});
-  const [matchQuizSaved, setMatchQuizSaved] = useState(false);
-  const [planSubjects, setPlanSubjects] = useState("");
-  const [planExamDates, setPlanExamDates] = useState("");
-  const [planResult, setPlanResult] = useState("");
-  const [planLoading, setPlanLoading] = useState(false);
-  const [savedPlans, setSavedPlans] = useState<{id:string;plan:string;subjects:string;created_at:string}[]>([]);
-  const [aiVersion, setAiVersion] = useState("v1.0");
-  const [aiUserTier, setAiUserTier] = useState<{tier:string;interactionCount:number;maxTokens:number}>({tier:"new",interactionCount:0,maxTokens:500});
 
   // ── Voice & File sharing state ──
   const [isRecording, setIsRecording] = useState(false);
@@ -915,24 +134,15 @@ export default function BasUdrus() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const tutorEndRef = useRef<HTMLDivElement>(null);
-  const [wellbeingMsgs, setWellbeingMsgs] = useState<{role:"user"|"assistant";content:string}[]>([]);
-  const [wellbeingInput, setWellbeingInput] = useState("");
-  const [wellbeingLoading, setWellbeingLoading] = useState(false);
-  const [wellbeingMood, setWellbeingMood] = useState("");
-  const [wellbeingMode, setWellbeingMode] = useState("");
-  const wellbeingEndRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef(0);
   const dragScroll = useRef(0);
   const dragMoved = useRef(false);
 
   // ── Network status (offline detection) ──────────────────────────────
-  const isOnline = useNetworkStatus();
   const [showOfflineBanner, setShowOfflineBanner] = useState(false);
   useEffect(() => {
     if (!isOnline) { setShowOfflineBanner(true); }
     else {
-      // Delay hiding so user sees "Back online" briefly
       const t = setTimeout(() => setShowOfflineBanner(false), 2000);
       return () => clearTimeout(t);
     }
@@ -1066,12 +276,6 @@ export default function BasUdrus() {
     if (!user?.id) return;
     fetch(`/api/ai/user-stats/${user.id}`).then(r=>r.json()).then(d=>{ if(d.tier) setAiUserTier(d); }).catch(()=>{});
   }, [user?.id]);
-
-  const showNotif = useCallback((msg: string, type="ok") => {
-    setNotif({msg,type});
-    if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
-    notifTimerRef.current = setTimeout(()=>setNotif(null), 2800);
-  }, []);
 
   const initials = (n: string) => n ? n.split(" ").map(x=>x[0]).join("").slice(0,2).toUpperCase() : "ME";
 
@@ -1381,23 +585,6 @@ export default function BasUdrus() {
     }
   };
 
-  const loadGroups = async () => {
-    if (!user) return;
-    try {
-      // Fetch groups and user's memberships in parallel
-      const [groupRes, joinedRes] = await Promise.all([
-        supabase.from("group_rooms")
-          .select("*, host:profiles!fk_group_rooms_host(*)")
-          .order("created_at", { ascending: false })
-          .limit(50),
-        supabase.from("group_members").select("group_id").eq("user_id", user.id),
-      ]);
-      if (groupRes.error) { logError("loadGroups", groupRes.error); return; }
-      const joinedSet = new Set((joinedRes.data||[]).map((j:any) => j.group_id));
-      if (groupRes.data) setGroups(groupRes.data.map((g:any) => ({ ...g, joined: joinedSet.has(g.id) })));
-    } catch (e) { logError("loadGroups", e); }
-  };
-
   const loadSubjectHistory = async () => {
     if (!user) return;
     try {
@@ -1405,85 +592,6 @@ export default function BasUdrus() {
       if (error) { return; }
       if (data) setSubjectHistory(data);
     } catch { }
-  };
-
-  const loadSavedPlans = async () => {
-    if (!user) return;
-    try {
-      const { data } = await supabase.from("study_plans").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10);
-      if (data) setSavedPlans(data);
-    } catch { }
-  };
-
-  const savePlanAsNote = async () => {
-    if (!user || !planResult) return;
-    try {
-      const { data, error } = await supabase.from("study_plans").insert({ user_id: user.id, plan: planResult, subjects: planSubjects, exams: planExamDates }).select().single();
-      if (!error && data) { setSavedPlans(prev => [data, ...prev]); showNotif("Study plan saved as note!"); }
-      else showNotif("Could not save plan", "err");
-    } catch { showNotif("Error saving plan", "err"); }
-  };
-
-  // ─── CHAT HISTORY (persist tutor & wellbeing conversations) ─────────────
-  const saveChatHistory = async (feature: "tutor"|"wellbeing", msgs: {role:"user"|"assistant";content:string}[]) => {
-    if (!user || msgs.length === 0) return;
-    try {
-      const { data: existing } = await supabase.from("chat_history").select("id").eq("user_id", user.id).eq("feature", feature).limit(1).maybeSingle();
-      if (existing) {
-        await supabase.from("chat_history").update({ messages: msgs, updated_at: new Date().toISOString() }).eq("id", existing.id);
-      } else {
-        await supabase.from("chat_history").insert({ user_id: user.id, feature, messages: msgs });
-      }
-    } catch {}
-  };
-
-  const loadChatHistory = async (feature: "tutor"|"wellbeing") => {
-    if (!user) return [];
-    try {
-      const { data } = await supabase.from("chat_history").select("messages").eq("user_id", user.id).eq("feature", feature).limit(1).maybeSingle();
-      if (data?.messages && Array.isArray(data.messages)) return data.messages as {role:"user"|"assistant";content:string}[];
-    } catch {}
-    return [];
-  };
-
-  // Load chat history when user logs in
-  useEffect(() => {
-    if (!user) return;
-    loadChatHistory("tutor").then(msgs => { if (msgs.length > 0) setTutorMsgs(msgs); });
-    loadChatHistory("wellbeing").then(msgs => { if (msgs.length > 0) setWellbeingMsgs(msgs); });
-  }, [user?.id]);
-
-  // Auto-save chat history when AI finishes responding
-  const tutorSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const wellbeingSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
-  useEffect(() => {
-    if (!user || tutorLoading || tutorMsgs.length === 0) return;
-    if (tutorSaveTimer.current) clearTimeout(tutorSaveTimer.current);
-    tutorSaveTimer.current = setTimeout(() => saveChatHistory("tutor", tutorMsgs), 1000);
-    return () => { if (tutorSaveTimer.current) clearTimeout(tutorSaveTimer.current); };
-  }, [tutorMsgs, tutorLoading]);
-  useEffect(() => {
-    if (!user || wellbeingLoading || wellbeingMsgs.length === 0) return;
-    if (wellbeingSaveTimer.current) clearTimeout(wellbeingSaveTimer.current);
-    wellbeingSaveTimer.current = setTimeout(() => saveChatHistory("wellbeing", wellbeingMsgs), 1000);
-    return () => { if (wellbeingSaveTimer.current) clearTimeout(wellbeingSaveTimer.current); };
-  }, [wellbeingMsgs, wellbeingLoading]);
-
-  const loadMatchQuiz = async () => {
-    if (!user) return;
-    try {
-      const { data } = await supabase.from("match_quiz").select("answers").eq("user_id", user.id).maybeSingle();
-      if (data?.answers) { setMatchQuiz(data.answers); setMatchQuizSaved(true); }
-    } catch { }
-  };
-
-  const saveMatchQuiz = async () => {
-    if (!user) return;
-    try {
-      const { error } = await supabase.from("match_quiz").upsert({ user_id: user.id, answers: matchQuiz, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
-      if (!error) { setMatchQuizSaved(true); showNotif("Study preferences saved! Your matches will improve."); }
-      else showNotif("Could not save — " + error.message, "err");
-    } catch { showNotif("Error saving preferences", "err"); }
   };
 
   // ── Auth ──────────────────────────────────────────────────────────────
@@ -1634,6 +742,31 @@ export default function BasUdrus() {
       if (!error) setNewBadge(b);
     } catch { }
   };
+
+  const {
+    groups, setGroups, showGrpModal, setShowGrpModal, newGrp, setNewGrp,
+    editingRoom, setEditingRoom, editGrp, setEditGrp,
+    confirmDeleteRoom, setConfirmDeleteRoom, roomActionLoading,
+    loadGroups, submitGroup, openEditRoom, saveEditRoom, deleteRoom, toggleJoinGroup,
+  } = useRooms(awardBadge);
+
+  const {
+    aiTab, setAiTab, aiLang, setAiLang,
+    tutorMsgs, setTutorMsgs, tutorInput, setTutorInput,
+    tutorLoading, tutorSubject, setTutorSubject,
+    tutorFile, setTutorFile, tutorFileRef, tutorEndRef,
+    matchScores, matchLoading, matchQuiz, setMatchQuiz, matchQuizSaved,
+    planSubjects, setPlanSubjects, planExamDates, setPlanExamDates,
+    planResult, planLoading, savedPlans,
+    aiVersion, aiUserTier,
+    wellbeingMsgs, setWellbeingMsgs, wellbeingInput, setWellbeingInput,
+    wellbeingLoading, wellbeingMood, setWellbeingMood,
+    wellbeingMode, setWellbeingMode, wellbeingEndRef,
+    aiLimitModal, setAiLimitModal, earlyAccessEmail, setEarlyAccessEmail, earlyAccessSent, setEarlyAccessSent,
+    loadSavedPlans, savePlanAsNote, loadMatchQuiz, saveMatchQuiz,
+    sendTutorMessage, sendWellbeingMessage, loadMatchScores, generateStudyPlan,
+    resetAI,
+  } = useAI(allStudents);
 
   // ── Connect / Reject ──────────────────────────────────────────────────
   const handleConnect = async (s: Profile & {_postId?: string; _postSubject?: string}) => {
@@ -2180,145 +1313,6 @@ export default function BasUdrus() {
     } catch { }
   };
 
-  // ── Group rooms ───────────────────────────────────────────────────────
-  const submitGroup = async () => {
-    if (!newGrp.subject||!newGrp.date||!newGrp.time||!user) return showNotif("Fill subject, date and time","err");
-    if (!navigator.onLine) return showNotif("You're offline — can't create room right now.", "err");
-    if (roomActionLoading) return;
-    setRoomActionLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
-      await supabase.from("profiles").upsert({
-        id: user.id, email: user.email, name: profile.name||"", uni: profile.uni||"", major: profile.major||"",
-        year: profile.year||"", course: profile.course||"", meet_type: profile.meet_type||"flexible",
-        bio: profile.bio||"", avatar_emoji: profile.avatar_emoji||"🫶", avatar_color: profile.avatar_color||"#6C8EF5",
-        photo_mode: profile.photo_mode||"initials", photo_url: profile.photo_url||null,
-        streak: profile.streak??4, xp: profile.xp??0, badges: profile.badges??[], online: true,
-        sessions: profile.sessions??0, rating: profile.rating??0, subjects: profile.subjects??[],
-      }, { onConflict: "id" });
-      const { data, error } = await supabase.from("group_rooms").insert({
-        host_id: user.id,
-        subject: newGrp.subject,
-        date: newGrp.date,
-        time: newGrp.time,
-        type: newGrp.type,
-        spots: Number(newGrp.spots)||4,
-        filled: 0,
-        link: newGrp.link,
-        location: newGrp.location,
-      }).select("*, host:profiles!fk_group_rooms_host(*)").single();
-      if (error) { showNotif("Failed to create room — " + error.message, "err"); return; }
-      if (data) {
-        setGroups(prev=>[{...data, joined:false} as GroupRoom,...prev]);
-        setNewGrp({subject:"",date:"",time:"",type:"online",spots:4,link:"",location:"",note:""});
-        setShowGrpModal(false);
-        showNotif("Study room created! 🎓");
-        await awardBadge("group_host");
-      }
-    } catch { showNotif("Failed to create room — please try again", "err"); }
-    finally { setRoomActionLoading(false); }
-  };
-
-  // ── Edit room (host only) ──────────────────────────────────────────────
-  const openEditRoom = (g: GroupRoom) => {
-    setEditingRoom(g);
-    setEditGrp({ subject: g.subject, date: g.date, time: g.time, type: g.type, spots: g.spots, link: g.link||"", location: g.location||"" });
-  };
-
-  const saveEditRoom = async () => {
-    if (!editingRoom || !user) return;
-    if (!editGrp.subject||!editGrp.date||!editGrp.time) return showNotif("Fill subject, date and time","err");
-    if (!navigator.onLine) return showNotif("You're offline — can't save changes right now.", "err");
-    if (roomActionLoading) return;
-    setRoomActionLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
-      if (editingRoom.host_id !== user.id) { showNotif("Only the room creator can edit", "err"); return; }
-      const newSpots = Number(editGrp.spots)||4;
-      if (newSpots < editingRoom.filled) { showNotif(`Can't reduce spots below ${editingRoom.filled} (current members)`, "err"); return; }
-      const { error } = await supabase.from("group_rooms").update({
-        subject: editGrp.subject,
-        date: editGrp.date,
-        time: editGrp.time,
-        type: editGrp.type,
-        spots: newSpots,
-        link: editGrp.link,
-        location: editGrp.location,
-      }).eq("id", editingRoom.id).eq("host_id", user.id);
-      if (error) { showNotif("Failed to update room — " + error.message, "err"); return; }
-      setGroups(prev=>prev.map(g=>g.id===editingRoom.id?{...g, subject:editGrp.subject, date:editGrp.date, time:editGrp.time, type:editGrp.type, spots:newSpots, link:editGrp.link, location:editGrp.location}:g));
-      setEditingRoom(null);
-      showNotif("Room updated ✅");
-    } catch { showNotif("Failed to update room — please try again", "err"); }
-    finally { setRoomActionLoading(false); }
-  };
-
-  // ── Delete room (host only) ────────────────────────────────────────────
-  const deleteRoom = async (groupId: string) => {
-    if (!user) return;
-    if (!navigator.onLine) return showNotif("You're offline — can't delete right now.", "err");
-    if (roomActionLoading) return;
-    setRoomActionLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
-      const room = groups.find(g=>g.id===groupId);
-      if (!room || room.host_id !== user.id) { showNotif("Only the room creator can delete", "err"); return; }
-      const { error } = await supabase.from("group_rooms").delete().eq("id", groupId).eq("host_id", user.id);
-      if (error) { showNotif("Failed to delete room — " + error.message, "err"); return; }
-      setGroups(prev=>prev.filter(g=>g.id!==groupId));
-      setConfirmDeleteRoom(null);
-      showNotif("Room deleted");
-      trackEvent("room_delete", { room_id: groupId });
-    } catch { showNotif("Failed to delete room — please try again", "err"); }
-    finally { setRoomActionLoading(false); }
-  };
-
-  const joiningGroupRef = useRef<Set<string>>(new Set());
-  const toggleJoinGroup = async (groupId: string, joined: boolean) => {
-    if (!user) return;
-    // Double-click guard — prevents duplicate join/leave
-    if (joiningGroupRef.current.has(groupId)) return;
-    joiningGroupRef.current.add(groupId);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
-      if (joined) {
-        const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);
-        if (error) { showNotif("Failed to leave group", "err"); return; }
-        // Atomic decrement (void return — DB caps at GREATEST(0, filled-1))
-        await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 });
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:Math.max(0,g.filled-1),joined:false}:g));
-        trackEvent("room_leave", { room_id: groupId });
-      } else {
-        const cur = groups.find(g=>g.id===groupId);
-        if (cur && cur.filled >= cur.spots) { showNotif("Room is full!", "err"); return; }
-        // Upsert prevents duplicate rows on rapid clicks
-        const { error } = await supabase.from("group_members").upsert({ group_id: groupId, user_id: user.id }, { onConflict: "group_id,user_id" });
-        if (error) { showNotif("Failed to join group", "err"); return; }
-        // Atomic increment (void return — DB caps at LEAST(spots, filled+1))
-        const { error: rpcErr } = await supabase.rpc("increment_filled", { room_id: groupId, delta: 1 });
-        if (rpcErr) { showNotif("Failed to join — room may be full", "err"); return; }
-        // Post-join verify: read actual member count to detect over-capacity race
-        const { count } = await supabase.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
-        const room = groups.find(g => g.id === groupId);
-        if (room && count !== null && count > room.spots) {
-          // Over-capacity race: more members than spots. Roll back our join.
-          try { await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id); } catch {}
-          try { await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 }); } catch {}
-          showNotif("Room just filled up! Try another session.", "err");
-          return;
-        }
-        setGroups(prev=>prev.map(g=>g.id===groupId?{...g,filled:g.filled+1,joined:true}:g));
-        trackEvent("room_join", { room_id: groupId });
-        showNotif("You joined the session! 🎓");
-      }
-    } catch { showNotif("Failed — please try again", "err"); }
-    finally { joiningGroupRef.current.delete(groupId); }
-  };
-
   // ── Profile update ────────────────────────────────────────────────────
   const saveProfile = async () => {
     if (!user) { showNotif("Not signed in", "err"); return; }
@@ -2410,43 +1404,6 @@ export default function BasUdrus() {
     } catch { showNotif("Failed to submit report", "err"); }
   };
 
-  const loadAdminData = async () => {
-    if (!isAdmin) return;
-    try {
-      const { data: reports, error: rErr } = await supabase
-        .from("reports")
-        .select("*, reporter:profiles!reports_reporter_id_fkey(*), reported:profiles!reports_reported_id_fkey(*)")
-        .order("created_at", { ascending: false });
-      if (rErr) return;
-      if (reports) setAdminReports(reports as Report[]);
-      const { data: posts, error: pErr } = await supabase
-        .from("help_requests")
-        .select("*, profile:profiles!fk_help_requests_user(*)")
-        .order("created_at", { ascending: false });
-      if (!pErr && posts) setAdminPosts(posts as HelpRequest[]);
-    } catch { }
-  };
-
-  const adminDeletePost = async (postId: string) => {
-    try {
-      await supabase.from("notifications").delete().eq("post_id", postId);
-      const { error, count } = await supabase
-        .from("help_requests")
-        .delete({ count: "exact" })
-        .eq("id", postId);
-      if (error) {
-
-        showNotif("Delete failed: " + error.message, "err");
-      } else if (count === 0) {
-        showNotif("Delete blocked — check RLS policy in Supabase", "err");
-      } else {
-        setAdminPosts(p => p.filter(x => x.id !== postId));
-        setHelpRequests(p => p.filter(x => x.id !== postId));
-        showNotif("Post deleted");
-      }
-    } catch { showNotif("Delete failed — please try again", "err"); }
-  };
-
   const loadNotifications = async () => {
     if (!user) return;
     try {
@@ -2512,71 +1469,6 @@ export default function BasUdrus() {
     return () => clearTimeout(t);
   }, [newBadge]);
 
-  const loadAdminAnalytics = async () => {
-    if (!isAdmin) return;
-    try {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const weekStart = new Date(now.getTime() - 7 * 86400000).toISOString();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-      // Use count queries instead of fetching ALL rows (scalable for 2000+ users)
-      const [
-        totalUsersRes, usersTodayRes, usersWeekRes, usersMonthRes,
-        totalPostsRes, postsTodayRes, postsWeekRes, postsMonthRes,
-        totalReportsRes, resolvedReportsRes,
-        recentPostsRes, topUsersRes,
-      ] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", weekStart),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", monthStart),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", weekStart),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", monthStart),
-        supabase.from("reports").select("*", { count: "exact", head: true }),
-        supabase.from("reports").select("*", { count: "exact", head: true }).eq("resolved", true),
-        // Only fetch recent posts for subject analysis (last 200, not ALL)
-        supabase.from("help_requests").select("subject, user_id").order("created_at", { ascending: false }).limit(200),
-        // Only fetch top 5 active users by XP
-        supabase.from("profiles").select("id, name, xp").order("xp", { ascending: false }).limit(5),
-      ]);
-
-      const posts = recentPostsRes.data || [];
-      const subjectCounts: Record<string, number> = {};
-      posts.forEach((p: { subject: string; user_id: string }) => { if (p.subject) subjectCounts[p.subject] = (subjectCounts[p.subject] || 0) + 1; });
-      const topSubjects = Object.entries(subjectCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-      const userPostCounts: Record<string, number> = {};
-      posts.forEach((p: { subject: string; user_id: string }) => { userPostCounts[p.user_id] = (userPostCounts[p.user_id] || 0) + 1; });
-
-      const topActiveUsers = (topUsersRes.data || []).map((u: { id: string; name: string; xp: number }) => ({
-        name: u.name || "Unknown",
-        count: userPostCounts[u.id] || 0,
-        xp: u.xp || 0,
-      }));
-
-      // Approximate monthly data from counts (lightweight)
-      const months6: {month:string;posts:number;users:number}[] = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const mLabel = d.toLocaleDateString("en-US", { month: "short" });
-        months6.push({ month: mLabel, posts: 0, users: 0 });
-      }
-
-      const totalReports = totalReportsRes.count || 0;
-      const resolvedReports = resolvedReportsRes.count || 0;
-
-      setAdminAnalytics({
-        totalUsers: totalUsersRes.count || 0, usersToday: usersTodayRes.count || 0, usersWeek: usersWeekRes.count || 0, usersMonth: usersMonthRes.count || 0,
-        totalPosts: totalPostsRes.count || 0, postsToday: postsTodayRes.count || 0, postsWeek: postsWeekRes.count || 0, postsMonth: postsMonthRes.count || 0,
-        totalReports, resolvedReports, unresolvedReports: totalReports - resolvedReports,
-        topSubjects, topActiveUsers, months6,
-      });
-    } catch { }
-  };
-
   const handleSignOut = async () => {
     // 1. Set user offline in DB (while session is still valid for RLS)
     if (user) {
@@ -2613,211 +1505,6 @@ export default function BasUdrus() {
     setTimeout(() => { window.location.href = window.location.origin; }, 150);
   };
 
-  // ── AI Handlers ───────────────────────────────────────────────────────
-  const sendTutorMessage = async () => {
-    if (!tutorInput.trim() || tutorLoading) return;
-    if (!navigator.onLine) { showNotif("You're offline — AI tutor needs internet to work.", "err"); return; }
-    const msg = tutorInput.trim();
-    const fileCtx = tutorFile ? `\n\n[Attached file: ${tutorFile.name}]\n${tutorFile.text.slice(0,4000)}` : "";
-    const displayMsg = tutorFile ? `${msg}\n📎 ${tutorFile.name}` : msg;
-    setTutorInput("");
-    setTutorFile(null);
-    const newMsgs = [...tutorMsgs, { role:"user" as const, content:displayMsg }];
-    setTutorMsgs(newMsgs);
-    setTutorLoading(true);
-    setTutorMsgs(prev => [...prev, { role:"assistant" as const, content:"" }]);
-    // Save user message to memory
-    saveMemory("tutor", "user", msg);
-    if (tutorSubject) saveTrendingTopic(tutorSubject);
-    try {
-      const apiMsgs = fileCtx ? [...tutorMsgs, { role:"user" as const, content:msg+fileCtx }] : newMsgs;
-      const memory = formatMemoryForPrompt("tutor");
-      const { data: { session: sess } } = await supabase.auth.getSession();
-      const res = await fetch("/api/ai/tutor", {
-        method:"POST",
-        headers:{"Content-Type":"application/json", ...(sess?.access_token ? {"Authorization":`Bearer ${sess.access_token}`} : {})},
-        body:JSON.stringify({ messages:apiMsgs, subject:tutorSubject, major:profile.major||"", year:profile.year||"", uni:profile.uni||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
-      });
-      if (res.status === 429) {
-        const errData = await res.json().catch(()=>({reason:"daily_limit"}));
-        setTutorMsgs(prev => prev.slice(0,-1));
-        setTutorLoading(false);
-        if (errData.reason === "daily_limit" || errData.reason === "hourly_limit") {
-          setAiLimitModal({show:true, reason:errData.reason, endpoint:"tutor"});
-        } else {
-          showNotif(errData.reason === "cooldown" ? "Give it a sec..." : "Slow down a bit — try again in a moment", "err");
-        }
-        return;
-      }
-      if (!res.ok || !res.body) throw new Error("AI error");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantMsg = "";
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.content) {
-              assistantMsg += data.content;
-              setTutorMsgs(prev => {
-                const updated = [...prev];
-                updated[updated.length-1] = { role:"assistant", content:assistantMsg };
-                return updated;
-              });
-            }
-          } catch {}
-        }
-      }
-      // Save assistant response to memory & update stats
-      trackEvent("ai_call", { endpoint: "tutor", subject: tutorSubject || "" });
-      saveMemory("tutor", "assistant", assistantMsg.slice(0, 300));
-      const stats = incrementStats("tutor");
-      const tier = getTokenTier(stats);
-      setAiUserTier({ tier: tier.tier, interactionCount: stats.totalInteractions, maxTokens: tier.maxTokens });
-    } catch {
-      trackEvent("ai_fail", { endpoint: "tutor" });
-      setTutorMsgs(prev => prev.slice(0,-1));
-      showNotif("AI tutor error. Please try again.", "err");
-    } finally {
-      setTutorLoading(false);
-    }
-  };
-
-  const sendWellbeingMessage = async () => {
-    if (!wellbeingInput.trim() || wellbeingLoading) return;
-    if (!navigator.onLine) { showNotif("You're offline — wellbeing chat needs internet.", "err"); return; }
-    const msg = wellbeingInput.trim();
-    setWellbeingInput("");
-    const newMsgs = [...wellbeingMsgs, { role:"user" as const, content:msg }];
-    setWellbeingMsgs(newMsgs);
-    setWellbeingLoading(true);
-    setWellbeingMsgs(prev => [...prev, { role:"assistant" as const, content:"" }]);
-    // Save user message to memory (wellbeing has limited memory for privacy)
-    saveMemory("wellbeing", "user", msg);
-    try {
-      const memory = formatMemoryForPrompt("wellbeing");
-      const { data: { session: wSess } } = await supabase.auth.getSession();
-      const res = await fetch("/api/ai/wellbeing", {
-        method:"POST",
-        headers:{"Content-Type":"application/json", ...(wSess?.access_token ? {"Authorization":`Bearer ${wSess.access_token}`} : {})},
-        body:JSON.stringify({ messages:newMsgs, name:profile.name||"", mood:wellbeingMood, mode:wellbeingMode, uni:profile.uni||"", major:profile.major||"", userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang, memory }),
-      });
-      if (res.status === 429) {
-        const errData = await res.json().catch(()=>({reason:"daily_limit"}));
-        setWellbeingMsgs(prev => prev.slice(0,-1));
-        setWellbeingLoading(false);
-        if (errData.reason === "daily_limit" || errData.reason === "hourly_limit") {
-          setAiLimitModal({show:true, reason:errData.reason, endpoint:"wellbeing"});
-        } else {
-          showNotif(errData.reason === "cooldown" ? "Take a breath..." : "Slow down a bit — try again in a moment", "err");
-        }
-        return;
-      }
-      if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantMsg = "";
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const json = JSON.parse(line.slice(6));
-            if (json.content) {
-              assistantMsg += json.content;
-              setWellbeingMsgs(prev => {
-                const updated = [...prev];
-                updated[updated.length-1] = { role:"assistant", content:assistantMsg };
-                return updated;
-              });
-            }
-          } catch {}
-        }
-      }
-      // Save assistant response to memory & update stats
-      trackEvent("ai_call", { endpoint: "wellbeing" });
-      saveMemory("wellbeing", "assistant", assistantMsg.slice(0, 300));
-      const stats = incrementStats("wellbeing");
-      const tier = getTokenTier(stats);
-      setAiUserTier({ tier: tier.tier, interactionCount: stats.totalInteractions, maxTokens: tier.maxTokens });
-    } catch {
-      trackEvent("ai_fail", { endpoint: "wellbeing" });
-      setWellbeingMsgs(prev => prev.slice(0,-1));
-      showNotif("Could not reach Mental Health AI. Please try again.", "err");
-    } finally {
-      setWellbeingLoading(false);
-    }
-  };
-
-  const loadMatchScores = async () => {
-    if (matchLoading || allStudents.length === 0) return;
-    setMatchLoading(true);
-    try {
-      const res = await fetch("/api/ai/match", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ myProfile:profile, candidates:allStudents.slice(0,15), userId:user?.id||"" }),
-      });
-      const data = await res.json();
-      const scores: Record<string,{score:number;reason:string}> = {};
-      (data.scores||[]).forEach((s: {id:string;score:number;reason:string}) => { scores[s.id] = { score:s.score, reason:s.reason }; });
-      setMatchScores(scores);
-    } catch { showNotif("Matching error. Try again.", "err"); }
-    setMatchLoading(false);
-  };
-
-  const generateStudyPlan = async () => {
-    if (!planSubjects.trim() || planLoading) return;
-    setPlanLoading(true);
-    setPlanResult("");
-    // Save the plan request to memory & track trending topics
-    saveMemory("planner", "user", `Subjects: ${planSubjects}, Exams: ${planExamDates || "none"}`);
-    saveTrendingTopic(planSubjects.split(",")[0]?.trim() || planSubjects);
-    try {
-      const res = await fetch("/api/ai/study-plan", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ subjects:planSubjects, major:profile.major, year:profile.year, uni:profile.uni||"", examDates:planExamDates, userId:user?.id||"", lang:aiLang==="auto"?undefined:aiLang }),
-      });
-      if (!res.ok || !res.body) { showNotif("Failed to generate plan.", "err"); setPlanLoading(false); return; }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullPlan = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const parsed = JSON.parse(line.slice(6));
-            if (parsed.content) { fullPlan += parsed.content; setPlanResult(fullPlan); }
-          } catch {}
-        }
-      }
-      if (!fullPlan) setPlanResult("Failed to generate plan. Please try again.");
-      else {
-        saveMemory("planner", "assistant", fullPlan.slice(0, 300));
-        incrementStats("planner");
-      }
-    } catch { showNotif("Failed to generate plan.", "err"); }
-    setPlanLoading(false);
-  };
 
   // Derived discover deck — each entry is a post (help_request + profile)
   const connectionIds = useMemo(() => new Set(connections.map(c=>c.id)), [connections]);
@@ -3054,7 +1741,7 @@ export default function BasUdrus() {
             ))}
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"center",alignItems:"center"}}>
-            {(_uniList.length > 0 ? _uniList.map(u=>u.short_name) : ["PSUT","UJ","GJU","AAU","ASU","MEU","AUM"]).map(u=>(
+            {(getUniCards().length > 0 ? getUniCards().map(u=>u.uni) : ["PSUT","UJ","GJU","AAU","ASU","MEU","AUM"]).map(u=>(
               <div key={u} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:"8px 16px",fontSize:12,fontWeight:700,color:T.navy,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>{u}</div>
             ))}
           </div>
@@ -4360,67 +3047,9 @@ export default function BasUdrus() {
 
       {/* ══════════════ GROUP ROOMS ══════════════ */}
       {curTab==="rooms"&&(
-        <div className="page-scroll">
-          <div style={{maxWidth:720,margin:"0 auto",padding:"24px 20px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
-              <div><h2 style={{fontSize:17,fontWeight:700,color:T.navy,marginBottom:4}}>Group Study Rooms</h2><p style={{fontSize:12,color:T.muted}}>Join a session or host your own</p></div>
-              <button className="btn-primary" style={{padding:"9px 16px",fontSize:12,flexShrink:0}} onClick={()=>setShowGrpModal(true)}>+ Create Room</button>
-            </div>
-            {groups.length===0?(
-              <div style={{textAlign:"center",padding:"60px 20px"}}>
-                <div style={{fontSize:44,marginBottom:12}}>🎓</div>
-                <div style={{fontWeight:600,fontSize:16,color:T.navy,marginBottom:6}}>No study rooms yet</div>
-                <button className="btn-primary" style={{marginTop:8}} onClick={()=>setShowGrpModal(true)}>Create the First Room</button>
-              </div>
-            ):(
-              <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                {groups.map(g=>{
-                  const host = g.host as Profile | undefined;
-                  const joined = g.joined;
-                  const full = g.filled >= g.spots;
-                  return(
-                    <div key={g.id} className="request-card">
-                      <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:10}}>
-                        <div style={{width:42,height:42,borderRadius:"50%",background:host?.avatar_color||"#6C8EF5",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0,cursor:"pointer",overflow:"hidden"}} onClick={()=>g.host_id&&openStudentProfile(g.host_id, host as Profile)}>{host?.photo_mode==="photo"&&host?.photo_url?<img src={host.photo_url} alt={host?.name?`${host.name}'s photo`:"Host photo"} width={42} height={42} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";((e.target as HTMLImageElement).parentElement||{} as HTMLElement).textContent=initials(host?.name||"?");}}/>:initials(host?.name||"?")}</div>
-                        <div style={{flex:1}}>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                            <span style={{fontWeight:700,fontSize:14,color:T.navy}}>{g.subject}</span>
-                            <span style={{background:T.accentSoft,color:T.accent,padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:700}}>{getMeetIcon(g.type)} {getMeetLabel(g.type)}</span>
-                          </div>
-                          <div style={{fontSize:12,color:T.muted,marginTop:3}}>Hosted by <span style={{cursor:"pointer",fontWeight:600}} onClick={()=>g.host_id&&openStudentProfile(g.host_id, host as Profile)}>{host?.name||"Unknown"}</span></div>
-                          <div style={{fontSize:12,color:T.textSoft,marginTop:2}}>📅 {g.date} at {g.time}</div>
-                        </div>
-                        <div style={{textAlign:"right",flexShrink:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:full?T.red:T.green}}>{g.spots-g.filled} spot{g.spots-g.filled!==1?"s":""} left</div>
-                          <div style={{fontSize:11,color:T.muted}}>{g.filled}/{g.spots} joined</div>
-                        </div>
-                      </div>
-                      {(g.link||g.location)&&(
-                        <div style={{background:T.bg,borderRadius:10,padding:"8px 12px",fontSize:12,color:T.textSoft,marginBottom:10,wordBreak:"break-all"}}>
-                          {g.type==="face"?"📍 ":"🔗 "}{g.link||g.location}
-                        </div>
-                      )}
-                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                        <button
-                          style={{background:joined?T.greenSoft:full?T.border:T.navy,color:joined?T.green:full?T.muted:"#fff",border:"none",padding:"10px 20px",borderRadius:99,fontSize:13,fontWeight:700,cursor:full&&!joined?"not-allowed":"pointer",transition:"background-color 0.2s,color 0.2s"}}
-                          disabled={!!(full&&!joined)}
-                          onClick={()=>toggleJoinGroup(g.id, !!joined)}>
-                          {joined?"✓ Joined — Leave":full?"Session Full":"Join Session →"}
-                        </button>
-                        {user&&g.host_id===user.id&&(
-                          <>
-                            <button onClick={()=>openEditRoom(g)} style={{background:T.accentSoft,color:T.accent,border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button>
-                            <button onClick={()=>setConfirmDeleteRoom(g.id)} style={{background:"rgba(239,68,68,0.1)",color:"#ef4444",border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 Delete</button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <RoomsScreen T={T} user={user} groups={groups} setShowGrpModal={setShowGrpModal}
+          openEditRoom={openEditRoom} setConfirmDeleteRoom={setConfirmDeleteRoom}
+          toggleJoinGroup={toggleJoinGroup} openStudentProfile={openStudentProfile} initials={initials} />
       )}
 
       {/* ══════════════ AI HUB — Smart Study Companion ══════════════ */}
@@ -5521,256 +4150,9 @@ export default function BasUdrus() {
       )}
       {/* ══════════════ ADMIN DASHBOARD ══════════════ */}
       {curTab==="admin"&&isAdmin&&(
-        <div className="page-scroll">
-          <div style={{maxWidth:800,margin:"0 auto",padding:"24px 20px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
-              <div style={{width:48,height:48,borderRadius:14,background:T.red+"15",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🛡️</div>
-              <div>
-                <h2 style={{fontSize:20,fontWeight:800,color:T.navy,margin:0}}>Admin Dashboard</h2>
-                <p style={{fontSize:13,color:T.muted,margin:0}}>Manage reports, posts & analytics</p>
-              </div>
-            </div>
-
-            <div style={{display:"flex",gap:3,marginBottom:20,background:T.bg,padding:4,borderRadius:99,width:"fit-content",border:`1px solid ${T.border}`,flexWrap:"wrap"}}>
-              {[["analytics","📊 Analytics"],["reports","🚩 Reports"],["posts","📢 All Posts"]].map(([tab,lbl])=>(
-                <button key={tab} className={`sub-tab ${adminTab===tab?"active":""}`}
-                  onClick={()=>setAdminTab(tab)}>{lbl}</button>
-              ))}
-            </div>
-
-            {adminTab==="analytics"&&(
-              <div className="slide-in">
-                {!adminAnalytics?(
-                  <div style={{textAlign:"center",padding:"40px 20px",color:T.muted}}>Loading analytics...</div>
-                ):(()=>{
-                  const a = adminAnalytics;
-                  const SUBJ_COLORS = ["#378ADD","#1D9E75","#7F77DD","#D4537E","#EF9F27","#639922","#D85A30","#185FA5","#0F6E56","#BA7517"];
-                  const maxSubj = a.topSubjects[0]?.[1] || 1;
-                  const chartData = a.months6 || [];
-                  const W=480,H=140,PAD={t:10,b:28,l:40,r:10};
-                  const vals = chartData.map((d:{posts:number;month:string})=>d.posts);
-                  const minV = Math.min(...vals), maxV = Math.max(...vals, 1);
-                  const xs = chartData.map((_:{posts:number;month:string},i:number)=>PAD.l+(i/(Math.max(chartData.length-1,1)))*(W-PAD.l-PAD.r));
-                  const ys = vals.map((v:number)=>PAD.t+((maxV-v)/(maxV-minV||1))*(H-PAD.t-PAD.b));
-                  const pts = xs.map((x:number,i:number)=>`${x},${ys[i]}`).join(" ");
-                  const area = chartData.length>1?`M${xs[0]},${ys[0]} `+xs.slice(1).map((x:number,i:number)=>`L${x},${ys[i+1]}`).join(" ")+` L${xs[xs.length-1]},${H-PAD.b} L${xs[0]},${H-PAD.b} Z`:"";
-                  const rResolved = a.resolvedReports || 0;
-                  const rUnresolved = a.unresolvedReports || 0;
-                  const donutR=48,CX=70,CY=60,sw=14,circ=2*Math.PI*donutR;
-                  const resolvedArc = a.totalReports>0?(rResolved/a.totalReports)*circ:0;
-                  const unresolvedArc = a.totalReports>0?(rUnresolved/a.totalReports)*circ:0;
-
-                  return(
-                  <>
-                    <div style={{marginBottom:20}}>
-                      <p style={{fontSize:13,color:T.muted}}>Live data from Supabase</p>
-                    </div>
-
-                    <div className="admin-kpi" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
-                      {[
-                        {label:"Total posts",value:a.totalPosts,sub:`+${a.postsMonth} this month`,accent:"#378ADD"},
-                        {label:"Active users",value:a.totalUsers,sub:`+${a.usersMonth} this month`,accent:"#1D9E75"},
-                        {label:"Reported accounts",value:a.totalReports,sub:`${rUnresolved} unresolved`,accent:"#E24B4A"},
-                        {label:"New registrations",value:a.usersMonth,sub:"this month",accent:"#7F77DD"},
-                      ].map(m=>(
-                        <div key={m.label} style={{background:"rgba(128,128,128,0.06)",borderRadius:10,padding:"14px 18px"}}>
-                          <p style={{fontSize:12,color:T.muted,marginBottom:6}}>{m.label}</p>
-                          <p style={{fontSize:24,fontWeight:600,color:m.accent,lineHeight:1,margin:0}}>{m.value}</p>
-                          <p style={{fontSize:12,color:T.muted,marginTop:5,margin:0}}>{m.sub}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="admin-grid2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-                      <div style={{background:T.surface,border:`0.5px solid ${T.border}`,borderRadius:14,padding:"18px 20px"}}>
-                        <p style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:14}}>Post activity — last 6 months</p>
-                        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:"block"}}>
-                          <defs>
-                            <linearGradient id="aGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#378ADD" stopOpacity={0.2}/>
-                              <stop offset="100%" stopColor="#378ADD" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          {[0,0.5,1].map(t=>{const y=PAD.t+t*(H-PAD.t-PAD.b);return <line key={t} x1={PAD.l} x2={W-PAD.r} y1={y} y2={y} stroke="rgba(128,128,128,0.12)" strokeWidth="1"/>;})}
-                          {area&&<path d={area} fill="url(#aGrad)"/>}
-                          {chartData.length>1&&<polyline points={pts} fill="none" stroke="#378ADD" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>}
-                          {xs.map((x:number,i:number)=><circle key={i} cx={x} cy={ys[i]} r="3.5" fill="#378ADD" stroke={T.surface} strokeWidth="1.5"/>)}
-                          {chartData.map((d:any,i:number)=><text key={i} x={xs[i]} y={H-6} textAnchor="middle" fontSize="10" fill={T.muted}>{d.month}</text>)}
-                          {[minV,Math.round((minV+maxV)/2),maxV].map((v:number,i:number)=>{const y=PAD.t+((maxV-v)/(maxV-minV||1))*(H-PAD.t-PAD.b);return <text key={i} x={PAD.l-5} y={y+4} textAnchor="end" fontSize="10" fill={T.muted}>{v}</text>;})}
-                        </svg>
-                      </div>
-
-                      <div style={{background:T.surface,border:`0.5px solid ${T.border}`,borderRadius:14,padding:"18px 20px"}}>
-                        <p style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:14}}>Most popular subjects</p>
-                        {a.topSubjects.length===0?(
-                          <div style={{fontSize:12,color:T.muted,textAlign:"center",padding:20}}>No posts yet</div>
-                        ):(
-                          a.topSubjects.map(([subj,cnt]:[string,number],i:number)=>(
-                            <div key={subj} style={{marginBottom:8}}>
-                              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                                <span style={{fontSize:12,color:T.textSoft}}>{i+1}. {subj}</span>
-                                <span style={{fontSize:12,fontWeight:600,color:T.navy}}>{cnt}</span>
-                              </div>
-                              <div style={{height:6,background:"rgba(128,128,128,0.1)",borderRadius:4,overflow:"hidden"}}>
-                                <div style={{height:"100%",borderRadius:4,width:`${Math.round((cnt/maxSubj)*100)}%`,background:SUBJ_COLORS[i%SUBJ_COLORS.length],transition:"width 0.6s ease"}}/>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="admin-grid2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                      <div style={{background:T.surface,border:`0.5px solid ${T.border}`,borderRadius:14,padding:"18px 20px"}}>
-                        <p style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:14}}>Most active users</p>
-                        {a.topActiveUsers.length===0?(
-                          <div style={{fontSize:12,color:T.muted,textAlign:"center",padding:20}}>No activity yet</div>
-                        ):(
-                          a.topActiveUsers.map((u:any,i:number)=>{
-                            const colors = darkMode ? [
-                              {bg:"rgba(139,92,246,0.25)",text:"#c4b5fd"},
-                              {bg:"rgba(16,185,129,0.25)",text:"#6ee7b7"},
-                              {bg:"rgba(244,114,182,0.25)",text:"#f9a8d4"},
-                              {bg:"rgba(59,130,246,0.25)",text:"#93c5fd"},
-                              {bg:"rgba(250,204,21,0.25)",text:"#fde68a"},
-                            ] : [
-                              {bg:"#CECBF6",text:"#3C3489"},
-                              {bg:"#9FE1CB",text:"#085041"},
-                              {bg:"#F4C0D1",text:"#72243E"},
-                              {bg:"#B5D4F4",text:"#0C447C"},
-                              {bg:"#FAC775",text:"#633806"},
-                            ];
-                            const c = colors[i%colors.length];
-                            const ini = u.name.split(" ").map((w:string)=>w[0]).join("").slice(0,2).toUpperCase();
-                            return(
-                              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`0.5px solid ${T.border}`}}>
-                                <div style={{width:30,height:30,borderRadius:"50%",background:c.bg,color:c.text,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,flexShrink:0}}>{ini}</div>
-                                <span style={{flex:1,fontSize:13,color:T.navy}}>{u.name}</span>
-                                <span style={{fontSize:12,color:T.muted}}>{u.count} posts</span>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      <div style={{background:T.surface,border:`0.5px solid ${T.border}`,borderRadius:14,padding:"18px 20px"}}>
-                        <p style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:14}}>Reports overview</p>
-                        <div style={{display:"flex",alignItems:"center",gap:24}}>
-                          <svg viewBox="0 0 140 120" width="140" style={{display:"block",flexShrink:0}}>
-                            <circle cx={CX} cy={CY} r={donutR} fill="none" stroke="rgba(128,128,128,0.1)" strokeWidth={sw}/>
-                            {a.totalReports>0&&<circle cx={CX} cy={CY} r={donutR} fill="none" stroke="#1D9E75" strokeWidth={sw} strokeDasharray={`${resolvedArc} ${circ}`} strokeDashoffset={circ/4} strokeLinecap="round"/>}
-                            {a.totalReports>0&&<circle cx={CX} cy={CY} r={donutR} fill="none" stroke="#E24B4A" strokeWidth={sw} strokeDasharray={`${unresolvedArc} ${circ}`} strokeDashoffset={circ/4-resolvedArc} strokeLinecap="round"/>}
-                            <text x={CX} y={CY-4} textAnchor="middle" fontSize="18" fontWeight="600" fill={T.navy}>{a.totalReports}</text>
-                            <text x={CX} y={CY+14} textAnchor="middle" fontSize="10" fill={T.muted}>total</text>
-                          </svg>
-                          <div style={{flex:1}}>
-                            {[
-                              {label:"Resolved",value:rResolved,color:darkMode?"#6ee7b7":"#1D9E75",bg:darkMode?"rgba(16,185,129,0.15)":"#E1F5EE"},
-                              {label:"Unresolved",value:rUnresolved,color:darkMode?"#fca5a5":"#A32D2D",bg:darkMode?"rgba(239,68,68,0.15)":"#FCEBEB"},
-                            ].map(r=>(
-                              <div key={r.label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,background:r.bg,marginBottom:8}}>
-                                <span style={{fontSize:13,color:r.color,fontWeight:500}}>{r.label}</span>
-                                <span style={{fontSize:20,fontWeight:700,color:r.color}}>{r.value}</span>
-                              </div>
-                            ))}
-                            <p style={{fontSize:11,color:T.muted,marginTop:10}}>
-                              {a.totalReports>0?`${Math.round((rResolved/a.totalReports)*100)}% resolution rate`:"No reports yet"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                  );
-                })()}
-              </div>
-            )}
-
-            {adminTab==="reports"&&(
-              <div className="slide-in">
-                <div style={{marginBottom:16}}>
-                  <h3 style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:4}}>Reported Accounts</h3>
-                  <p style={{fontSize:12,color:T.muted}}>{adminReports.length} report{adminReports.length!==1?"s":""}</p>
-                </div>
-                {adminReports.length===0?(
-                  <div style={{textAlign:"center",padding:"50px 20px"}}>
-                    <div style={{fontSize:40,marginBottom:12}}>✅</div>
-                    <div style={{fontWeight:600,fontSize:15,color:T.navy}}>No reports yet</div>
-                    <div style={{fontSize:13,color:T.muted,marginTop:6}}>All accounts are in good standing</div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                    {adminReports.map(r=>{
-                      const reported: any = r.reported;
-                      const reporter: any = r.reporter;
-                      return(
-                        <div key={r.id} className="card" style={{padding:18}}>
-                          <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
-                            <div style={{width:44,height:44,borderRadius:"50%",background:reported?.avatar_color||"#6C8EF5",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:14,flexShrink:0,overflow:"hidden",cursor:"pointer"}} onClick={()=>reported&&setViewingProfile(reported)}>
-                              {reported?.photo_mode==="photo"&&reported?.photo_url?<img src={reported.photo_url} alt={reported?.name?`${reported.name}'s photo`:"Reported user photo"} width={40} height={40} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";((e.target as HTMLImageElement).parentElement||{} as HTMLElement).textContent=initials(reported?.name||"?");}}/>:initials(reported?.name||"?")}
-                            </div>
-                            <div style={{flex:1}}>
-                              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                                <span style={{fontWeight:700,fontSize:15,color:T.navy,cursor:"pointer"}} onClick={()=>reported&&setViewingProfile(reported)}>{reported?.name||"Unknown"}</span>
-                                <span style={{background:T.red+"15",color:T.red,padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:700}}>Reported</span>
-                              </div>
-                              <div style={{fontSize:12,color:T.muted,marginBottom:6}}>{reported?.email||"--"} · {reported?.uni||"--"}</div>
-                              <div style={{background:T.bg,borderRadius:10,padding:"10px 14px",fontSize:13,color:T.textSoft,lineHeight:1.6,marginBottom:6}}>
-                                <strong style={{color:T.navy}}>Reason:</strong> {r.reason}
-                              </div>
-                              <div style={{fontSize:11,color:T.muted}}>
-                                Reported by {reporter?.name||"Unknown"} · {new Date(r.created_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {adminTab==="posts"&&(
-              <div className="slide-in">
-                <div style={{marginBottom:16}}>
-                  <h3 style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:4}}>All Discover Posts</h3>
-                  <p style={{fontSize:12,color:T.muted}}>{adminPosts.length} post{adminPosts.length!==1?"s":""} total</p>
-                </div>
-                {adminPosts.length===0?(
-                  <div style={{textAlign:"center",padding:"50px 20px"}}>
-                    <div style={{fontSize:40,marginBottom:12}}>📭</div>
-                    <div style={{fontWeight:600,fontSize:15,color:T.navy}}>No posts yet</div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                    {adminPosts.map(p=>{
-                      const pProfile: any = p.profile;
-                      return(
-                        <div key={p.id} className="card" style={{padding:16}}>
-                          <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
-                            <div style={{width:40,height:40,borderRadius:"50%",background:pProfile?.avatar_color||"#6C8EF5",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:13,flexShrink:0,overflow:"hidden"}}>
-                              {pProfile?.photo_mode==="photo"&&pProfile?.photo_url?<img src={pProfile.photo_url} alt={pProfile?.name?`${pProfile.name}'s photo`:"User photo"} width={40} height={40} loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";((e.target as HTMLImageElement).parentElement||{} as HTMLElement).textContent=initials(pProfile?.name||"?");}}/>:initials(pProfile?.name||"?")}
-                            </div>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:2}}>
-                                <span style={{fontWeight:700,fontSize:14,color:T.navy}}>{pProfile?.name||"Unknown"}</span>
-                                <span style={{background:T.accentSoft,color:T.accent,padding:"3px 10px",borderRadius:99,fontSize:11,fontWeight:700}}>📚 {p.subject}</span>
-                              </div>
-                              <div style={{fontSize:12,color:T.muted,marginBottom:4}}>{pProfile?.uni||""} · {new Date(p.created_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
-                              {p.detail&&<p style={{fontSize:13,color:T.textSoft,lineHeight:1.5,margin:0}}>{p.detail}</p>}
-                            </div>
-                            <button className="btn-danger" style={{padding:"8px 14px",fontSize:12,borderRadius:10,flexShrink:0}} onClick={()=>adminDeletePost(p.id)}>Delete</button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <AdminScreen T={T} darkMode={darkMode} adminTab={adminTab} setAdminTab={setAdminTab}
+          adminReports={adminReports} adminPosts={adminPosts} adminAnalytics={adminAnalytics}
+          adminDeletePost={adminDeletePost} setViewingProfile={setViewingProfile} initials={initials} />
       )}
 
     </div>

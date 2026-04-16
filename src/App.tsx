@@ -1,4 +1,6 @@
 import { lazy, Suspense } from "react";
+import { ErrorBoundary } from "@/shared/ErrorBoundary";
+import { AppProvider } from "@/context/AppContext";
 
 const BasUdrus = lazy(() => import("@/pages/BasUdrus"));
 
@@ -15,8 +17,12 @@ function LoadingShell() {
 
 export default function App() {
   return (
-    <Suspense fallback={<LoadingShell />}>
-      <BasUdrus />
-    </Suspense>
+    <ErrorBoundary>
+      <AppProvider>
+        <Suspense fallback={<LoadingShell />}>
+          <BasUdrus />
+        </Suspense>
+      </AppProvider>
+    </ErrorBoundary>
   );
 }
