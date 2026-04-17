@@ -5,7 +5,7 @@ import { LIGHT, DARK, type Theme } from "@/lib/constants";
 import { useNetworkStatus } from "@/shared/useNetworkStatus";
 import { setCurrentScreen } from "@/services/analytics";
 
-const ADMIN_EMAIL = "ahm20250898@std.psut.edu.jo";
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL as string) || "ahm20250898@std.psut.edu.jo";
 
 const DEFAULT_PROFILE: Partial<Profile> = {
   name: "", uni: "", major: "", course: "", year: "", meet_type: "flexible",

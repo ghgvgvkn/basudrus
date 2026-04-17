@@ -148,8 +148,8 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
         const { count } = await supabase.from("group_members").select("*", { count: "exact", head: true }).eq("group_id", groupId);
         const room = groups.find(g => g.id === groupId);
         if (room && count !== null && count > room.spots) {
-          try { await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id); } catch {}
-          try { await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 }); } catch {}
+          try { await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id); } catch (e) { logError("rollback:leave_group", e); }
+          try { await supabase.rpc("increment_filled", { room_id: groupId, delta: -1 }); } catch (e) { logError("rollback:decrement_filled", e); }
           showNotif("Room just filled up! Try another session.", "err");
           return;
         }

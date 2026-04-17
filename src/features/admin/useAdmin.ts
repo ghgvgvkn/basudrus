@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Report, HelpRequest } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
+import { logError } from "@/services/analytics";
 
 export function useAdmin(onPostDeleted?: (postId: string) => void) {
   const { isAdmin, showNotif } = useApp();
@@ -18,14 +19,15 @@ export function useAdmin(onPostDeleted?: (postId: string) => void) {
         .from("reports")
         .select("*, reporter:profiles!reports_reporter_id_fkey(*), reported:profiles!reports_reported_id_fkey(*)")
         .order("created_at", { ascending: false });
-      if (rErr) return;
+      if (rErr) { logError("loadAdminData:reports", rErr); return; }
       if (reports) setAdminReports(reports as Report[]);
       const { data: posts, error: pErr } = await supabase
         .from("help_requests")
         .select("*, profile:profiles!fk_help_requests_user(*)")
         .order("created_at", { ascending: false });
-      if (!pErr && posts) setAdminPosts(posts as HelpRequest[]);
-    } catch { }
+      if (pErr) logError("loadAdminData:posts", pErr);
+      else if (posts) setAdminPosts(posts as HelpRequest[]);
+    } catch (e) { logError("loadAdminData", e); }
   };
 
   const adminDeletePost = async (postId: string) => {
@@ -44,36 +46,22 @@ export function useAdmin(onPostDeleted?: (postId: string) => void) {
         onPostDeleted?.(postId);
         showNotif("Post deleted");
       }
-    } catch { showNotif("Delete failed — please try again", "err"); }
+    } catch (e) { logError("adminDeletePost", e); showNotif("Delete failed — please try again", "err"); }
   };
 
   const loadAdminAnalytics = async () => {
     if (!isAdmin) return;
     try {
       const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const weekStart = new Date(now.getTime() - 7 * 86400000).toISOString();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [
-        totalUsersRes, usersTodayRes, usersWeekRes, usersMonthRes,
-        totalPostsRes, postsTodayRes, postsWeekRes, postsMonthRes,
-        totalReportsRes, resolvedReportsRes,
-        recentPostsRes, topUsersRes,
-      ] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", weekStart),
-        supabase.from("profiles").select("*", { count: "exact", head: true }).gte("created_at", monthStart),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", todayStart),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", weekStart),
-        supabase.from("help_requests").select("*", { count: "exact", head: true }).gte("created_at", monthStart),
-        supabase.from("reports").select("*", { count: "exact", head: true }),
-        supabase.from("reports").select("*", { count: "exact", head: true }).eq("resolved", true),
+      // Single RPC call replaces 10 count queries
+      const [statsRes, recentPostsRes, topUsersRes] = await Promise.all([
+        supabase.rpc("admin_analytics_stats"),
         supabase.from("help_requests").select("subject, user_id").order("created_at", { ascending: false }).limit(200),
         supabase.from("profiles").select("id, name, xp").order("xp", { ascending: false }).limit(5),
       ]);
+      if (statsRes.error) logError("admin_analytics_stats", statsRes.error);
+      const s = (statsRes.data as any) || {};
 
       const posts = recentPostsRes.data || [];
       const subjectCounts: Record<string, number> = {};
@@ -96,16 +84,16 @@ export function useAdmin(onPostDeleted?: (postId: string) => void) {
         months6.push({ month: mLabel, posts: 0, users: 0 });
       }
 
-      const totalReports = totalReportsRes.count || 0;
-      const resolvedReports = resolvedReportsRes.count || 0;
+      const totalReports = s.totalReports || 0;
+      const resolvedReports = s.resolvedReports || 0;
 
       setAdminAnalytics({
-        totalUsers: totalUsersRes.count || 0, usersToday: usersTodayRes.count || 0, usersWeek: usersWeekRes.count || 0, usersMonth: usersMonthRes.count || 0,
-        totalPosts: totalPostsRes.count || 0, postsToday: postsTodayRes.count || 0, postsWeek: postsWeekRes.count || 0, postsMonth: postsMonthRes.count || 0,
+        totalUsers: s.totalUsers || 0, usersToday: s.usersToday || 0, usersWeek: s.usersWeek || 0, usersMonth: s.usersMonth || 0,
+        totalPosts: s.totalPosts || 0, postsToday: s.postsToday || 0, postsWeek: s.postsWeek || 0, postsMonth: s.postsMonth || 0,
         totalReports, resolvedReports, unresolvedReports: totalReports - resolvedReports,
         topSubjects, topActiveUsers, months6,
       });
-    } catch { }
+    } catch (e) { logError("loadAdminAnalytics", e); }
   };
 
   return {

@@ -147,8 +147,20 @@ export function useAuth(
         rating: 0,
         subjects: [],
       };
-      const { error } = await supabase.from("profiles").upsert(profileData, { onConflict: "id" });
-      if (error) { logError("handleOnboard:upsert", error); showNotif("Error saving profile: " + error.message, "err"); setOnboardLoading(false); return; }
+      // Retry upsert up to 3 times for transient network errors (esp. mobile Safari)
+      let upsertError: { message?: string; code?: string } | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { error } = await supabase.from("profiles").upsert(profileData, { onConflict: "id" });
+        upsertError = error;
+        if (!error) break;
+        const msg = (error.message || "").toLowerCase();
+        const isTransient = msg.includes("load failed") || msg.includes("fetch") || msg.includes("network") || msg.includes("timeout") || !navigator.onLine;
+        if (!isTransient) break;
+        const { data: { session: s2 } } = await supabase.auth.getSession();
+        if (!s2) { await supabase.auth.refreshSession().catch(()=>{}); }
+        await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+      }
+      if (upsertError) { logError("handleOnboard:upsert", upsertError); showNotif("Error saving profile: " + upsertError.message + " — check your connection and retry", "err"); setOnboardLoading(false); return; }
       setProfile(profileData as typeof profile);
       trackEvent("onboard_complete", { uni: profileData.uni, major: profileData.major });
       setScreen("discover");

@@ -131,7 +131,9 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
               receiverName: partner.name?.split(" ")[0] || "",
               messagePreview: text,
             }),
-          }).catch(() => {});
+          }).then(res => {
+            if (!res.ok) logError("notify:chat-message", { status: res.status, statusText: res.statusText });
+          }).catch(err => logError("notify:chat-message", err));
         }
       }
     } catch (err) {

@@ -903,8 +903,8 @@ export default function BasUdrus() {
         <div style={{display:"flex",justifyContent:"center",gap:24,flexWrap:"wrap",fontSize:13,color:T.muted}}>
           <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:8,height:8,background:T.green,borderRadius:"50%",display:"inline-block"}}/>Students online now</span>
           <span>🤝 Matches made daily</span>
-          <span>🎓 7 Universities</span>
-          <span>📚 5,800+ Courses</span>
+          <span>🎓 8 Universities</span>
+          <span>📚 27,000+ Courses</span>
         </div>
       </div>
 

@@ -117,8 +117,8 @@ export function useDiscover(
     if (user) {
       try {
         const { error } = await supabase.from("profiles").update({ can_post: true }).eq("id", user.id);
-        if (error) return;
-      } catch { }
+        if (error) logError("enablePosting:update", error);
+      } catch (e) { logError("enablePosting", e); }
     }
   };
 

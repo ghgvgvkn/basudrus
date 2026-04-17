@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Notification } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
+import { logError } from "@/services/analytics";
 
 export function useNotifications() {
   const { user } = useApp();
@@ -21,9 +22,9 @@ export function useNotifications() {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
-      if (error) { return; }
+      if (error) { logError("loadNotifications", error); return; }
       if (data) setNotifications(data as Notification[]);
-    } catch { }
+    } catch (e) { logError("loadNotifications", e); }
   };
 
   const sendNotification = async (toUserId: string, fromId: string, type: string, subject: string, postId: string | null) => {
@@ -37,15 +38,16 @@ export function useNotifications() {
         post_id: postId,
         read: false,
       });
-      if (error) return;
-    } catch { }
+      if (error) { logError("sendNotification", error); return; }
+    } catch (e) { logError("sendNotification", e); }
   };
 
   const markNotifRead = async (notifId: string) => {
     try {
       const { error } = await supabase.from("notifications").update({ read: true }).eq("id", notifId);
-      if (!error) setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
-    } catch { }
+      if (error) logError("markNotifRead", error);
+      else setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
+    } catch (e) { logError("markNotifRead", e); }
   };
 
   // Load notifications + realtime subscription

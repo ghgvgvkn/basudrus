@@ -13,10 +13,19 @@ export function usePomodoro() {
   const [pomodoroCount, setPomodoroCount] = useState(0);
   const pomodoroRef = useRef<ReturnType<typeof setInterval>|null>(null);
   const pomodoroModeRef = useRef<"work"|"break"|"longbreak">("work");
+  const pomodoroEndAtRef = useRef<number | null>(null); // wall-clock end time for drift-free ticking
 
-  // Cleanup timer on unmount
+  // Cleanup timer on unmount + re-sync on tab visibility change (fixes background throttling drift)
   useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!pomodoroEndAtRef.current) return;
+      const remaining = Math.max(0, Math.round((pomodoroEndAtRef.current - Date.now()) / 1000));
+      setPomodoroSeconds(remaining);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
     };
   }, []);
@@ -24,8 +33,15 @@ export function usePomodoro() {
   const startPomodoro = () => {
     if (pomodoroRef.current) clearInterval(pomodoroRef.current);
     setPomodoroRunning(true);
+    // Anchor to wall clock so background-tab throttling doesn't skew the timer
+    pomodoroEndAtRef.current = Date.now() + pomodoroSeconds * 1000;
     pomodoroRef.current = setInterval(() => {
       setPomodoroSeconds(prev => {
+        // Resync from wall clock so the UI matches real elapsed time even after throttling
+        if (pomodoroEndAtRef.current) {
+          const wall = Math.max(0, Math.round((pomodoroEndAtRef.current - Date.now()) / 1000));
+          if (Math.abs(wall - prev) > 1) prev = wall;
+        }
         if (prev <= 1) {
           if (pomodoroRef.current) clearInterval(pomodoroRef.current);
           setPomodoroRunning(false);
@@ -55,6 +71,7 @@ export function usePomodoro() {
 
   const pausePomodoro = () => {
     setPomodoroRunning(false);
+    pomodoroEndAtRef.current = null;
     if (pomodoroRef.current) { clearInterval(pomodoroRef.current); pomodoroRef.current = null; }
   };
 
