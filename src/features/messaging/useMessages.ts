@@ -115,27 +115,8 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       trackEvent("msg_sent", { type: "text" });
       const earnedBadges: string[] = profile.badges ?? [];
       if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
-      const partner = connections.find(c => c.id === partnerId);
-      if (partner?.email) {
-        const partnerMsgs = messages[partnerId] || [];
-        const lastPartnerMsg = partnerMsgs.filter((m: Message) => m.sender_id === partnerId).pop();
-        const receiverRecentlyActive = lastPartnerMsg && (Date.now() - new Date(lastPartnerMsg.created_at).getTime()) < 30_000;
-        if (!receiverRecentlyActive) {
-          fetch("/api/notify/chat-message", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              senderId: user.id,
-              senderName: profile.name,
-              receiverEmail: partner.email,
-              receiverName: partner.name?.split(" ")[0] || "",
-              messagePreview: text,
-            }),
-          }).then(res => {
-            if (!res.ok) logError("notify:chat-message", { status: res.status, statusText: res.statusText });
-          }).catch(err => logError("notify:chat-message", err));
-        }
-      }
+      // Email notifications for chat messages are not yet implemented server-side.
+      // When an email endpoint is added later, wire it here.
     } catch (err) {
       logError("sendMessage", err);
       trackEvent("msg_fail", { reason: "exception", network: !navigator.onLine });
