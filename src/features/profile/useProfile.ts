@@ -119,11 +119,17 @@ export function useProfile(
     const file = e.target.files?.[0];
     if (!file || !user) return;
     if (file.size > 5 * 1024 * 1024) { showNotif("Photo must be under 5 MB", "err"); return; }
+    // Basic type check — Supabase bucket rejects non-images, and HEIC from iPhone can't be decoded by canvas
+    if (file.type && !file.type.startsWith("image/")) { showNotif("Please select an image (JPG or PNG)", "err"); return; }
+    if (/heic|heif/i.test(file.type || file.name)) { showNotif("HEIC photos aren't supported — please convert to JPG", "err"); return; }
     const reader = new FileReader();
+    reader.onerror = () => { showNotif("Couldn't read the file — try a different photo", "err"); };
     reader.onload = () => {
-      setCropModal({ src: reader.result as string, file });
-      setCropZoom(1);
+      // Reset position to (0,0); zoom is set by the useEffect once the image loads (cover-fit).
+      // Do NOT set cropZoom here — that creates a race with the effect below, causing the
+      // image to be saved at the wrong scale if the user clicks Save before the effect runs.
       setCropPos({ x: 0, y: 0 });
+      setCropModal({ src: reader.result as string, file });
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -131,21 +137,27 @@ export function useProfile(
 
   const cropAndUpload = async () => {
     if (!cropModal || !user) return;
+    if (!navigator.onLine) { showNotif("You're offline — can't upload the photo right now.", "err"); return; }
     try {
       const canvas = document.createElement("canvas");
       const size = 400;
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) { showNotif("Your browser can't process images — try a different browser", "err"); return; }
 
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      // Don't set crossOrigin for data: URLs — it's unnecessary and can cause issues on some browsers.
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Image load failed"));
+        img.onerror = () => reject(new Error("Image load failed — the file may be corrupted or in an unsupported format"));
         img.src = cropModal.src;
       });
+
+      if (!img.naturalWidth || !img.naturalHeight) {
+        showNotif("Couldn't read the image dimensions — try a different photo", "err");
+        return;
+      }
 
       const canvasToPreview = size / 260;
       const imgW = img.naturalWidth * cropZoom * canvasToPreview;
@@ -155,27 +167,80 @@ export function useProfile(
 
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, size, size);
+      ctx.save();
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
       ctx.closePath();
       ctx.clip();
       ctx.drawImage(img, drawX, drawY, imgW, imgH);
+      ctx.restore();
 
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
-      if (!blob) { showNotif("Failed to process image", "err"); return; }
+      if (!blob) { showNotif("Couldn't encode the photo — try a smaller or different image", "err"); return; }
+      // Sanity check: a valid 400x400 JPEG is at least a few KB. A near-empty blob means
+      // the canvas didn't render — usually from an unsupported iOS image format.
+      if (blob.size < 1024) {
+        logError("cropAndUpload:emptyBlob", { size: blob.size });
+        showNotif("Couldn't process this image — try a different photo (JPG or PNG)", "err");
+        return;
+      }
 
-      const path = `${user.id}/avatar.jpg`;
-      const { error } = await supabase.storage.from("avatars").upload(path, blob, { upsert: true, contentType: "image/jpeg" });
-      if (error) { showNotif("Upload failed — make sure the 'avatars' bucket exists in Supabase Storage", "err"); return; }
-      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
-      const url = publicUrl + "?t=" + Date.now();
+      // Use a unique path per upload so CDN cache is never stale for other viewers.
+      // The old avatar remains in storage but is orphaned; optionally cleaned up below.
+      const newPath = `${user.id}/avatar-${Date.now()}.jpg`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(newPath, blob, {
+        upsert: false,
+        contentType: "image/jpeg",
+        cacheControl: "3600",
+      });
+      if (upErr) {
+        logError("cropAndUpload:upload", upErr);
+        const msg = (upErr.message || "").toLowerCase();
+        if (msg.includes("bucket") || msg.includes("not found")) {
+          showNotif("Upload failed — the 'avatars' bucket is missing in Supabase Storage", "err");
+        } else if (msg.includes("permission") || msg.includes("policy") || msg.includes("unauthorized") || msg.includes("forbidden")) {
+          showNotif("Upload blocked — storage policy is denying write access", "err");
+        } else if (msg.includes("network") || msg.includes("fetch") || msg.includes("timeout") || !navigator.onLine) {
+          showNotif("Upload failed — connection issue. Try again.", "err");
+        } else {
+          showNotif(`Upload failed: ${upErr.message || "unknown error"}`, "err");
+        }
+        return;
+      }
+
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(newPath);
+      const url = urlData.publicUrl;
       const { error: updateErr } = await supabase.from("profiles").update({ photo_mode: "photo", photo_url: url }).eq("id", user.id);
-      if (updateErr) { showNotif("Photo uploaded but profile update failed", "err"); return; }
+      if (updateErr) {
+        logError("cropAndUpload:dbUpdate", updateErr);
+        showNotif(`Photo uploaded but profile update failed: ${updateErr.message || "unknown error"}`, "err");
+        // Clean up the orphaned upload since we couldn't attach it to the profile
+        supabase.storage.from("avatars").remove([newPath]).catch(() => {});
+        return;
+      }
+
+      // Clean up the previously uploaded avatar (best-effort). We derive the old path from
+      // the existing photo_url if it points at our storage; ignore any failure.
+      const oldUrl = profile.photo_url;
+      if (oldUrl && oldUrl.includes("/storage/v1/object/public/avatars/")) {
+        const idx = oldUrl.indexOf("/avatars/");
+        if (idx >= 0) {
+          const oldPath = oldUrl.slice(idx + "/avatars/".length).split("?")[0];
+          if (oldPath && oldPath !== newPath) {
+            supabase.storage.from("avatars").remove([oldPath]).catch(() => {});
+          }
+        }
+      }
+
       setProfile(p => ({ ...p, photo_mode: "photo", photo_url: url }));
       if (editProfile) setEditProfile(p => ({ ...p!, photo_mode: "photo", photo_url: url }));
       setCropModal(null);
       showNotif("Profile photo updated! 📸");
-    } catch (e) { logError("cropAndUpload", e); showNotif("Upload failed — please try again", "err"); }
+    } catch (e: unknown) {
+      logError("cropAndUpload", e);
+      const msg = e instanceof Error ? e.message : "Upload failed — please try again";
+      showNotif(msg, "err");
+    }
   };
 
   const saveProfile = async () => {
