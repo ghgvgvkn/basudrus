@@ -380,6 +380,7 @@ export default function BasUdrus() {
       loadMatchQuiz(),
       loadSavedPlans(),
       loadUnreadCounts(),
+      loadLastReceivedTimestamps(),
       loadPartnersWithMessages(),
     ]).catch((e) => logError("initialDataLoad", e));
   }, [user?.id]);
@@ -446,8 +447,9 @@ export default function BasUdrus() {
     chatFileRef,
     pendingMsgs,
     unreadCounts, setUnreadCounts, totalUnread,
+    lastReceivedAt, setLastReceivedAt,
     partnersWithMessages, setPartnersWithMessages,
-    loadUnreadCounts, loadPartnersWithMessages, markAsRead,
+    loadUnreadCounts, loadLastReceivedTimestamps, loadPartnersWithMessages, markAsRead,
     loadConnections, loadMessages,
     sendMessage, startRecording, stopRecording,
     handleChatFileSelect, submitRating,
@@ -506,6 +508,8 @@ export default function BasUdrus() {
         });
         // Remember that we now have a conversation with this partner
         setPartnersWithMessages(prev => prev.has(partnerId) ? prev : new Set(prev).add(partnerId));
+        // Track when this partner last messaged us (for inbox sort)
+        setLastReceivedAt(prev => ({ ...prev, [partnerId]: msg.created_at || new Date().toISOString() }));
         setMessages(prev => {
           const existing = prev[partnerId] || [];
           if (existing.some(m => m.id === msg.id)) return prev;
@@ -2160,12 +2164,19 @@ export default function BasUdrus() {
         // Matches without any chat yet are accessible from Discover / profile modal.
         // A partner is "in the inbox" if there are messages or there's an unread count.
         const chatPartners = connections.filter(c => partnersWithMessages.has(c.id) || (unreadCounts[c.id] || 0) > 0);
-        // Sort: unread first (desc by count), then rest by name
+        // Sort order per user request: people who messaged you FIRST (earliest
+        // last-received) at the top; people who messaged you LAST at the bottom.
+        // Partners who haven't messaged you (you sent first, no reply yet) go
+        // to the end.
         const sortedChatPartners = [...chatPartners].sort((a, b) => {
-          const ua = unreadCounts[a.id] || 0;
-          const ub = unreadCounts[b.id] || 0;
-          if (ua !== ub) return ub - ua;
-          return (a.name || "").localeCompare(b.name || "");
+          const ta = lastReceivedAt[a.id] || "";
+          const tb = lastReceivedAt[b.id] || "";
+          // Those with a received message come before those without
+          if (!ta && tb) return 1;
+          if (ta && !tb) return -1;
+          if (!ta && !tb) return (a.name || "").localeCompare(b.name || "");
+          // ASCENDING: older timestamp (waited longer) first, newest at end
+          return ta.localeCompare(tb);
         });
         const hasChats = sortedChatPartners.length > 0;
         return (
@@ -2196,7 +2207,7 @@ export default function BasUdrus() {
                       <div style={{fontSize:11,color:s.online?T.green:T.muted,marginTop:1}}>{s.online?"● Online":"● Offline"}{parseCourses(s.course ?? "").length > 0 ? ` · ${parseCourses(s.course ?? "")[0]}` : ""}</div>
                     </div>
                     {unread>0&&(
-                      <span style={{background:T.red,color:"#fff",borderRadius:99,minWidth:22,height:22,padding:"0 7px",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>
+                      <span style={{background:T.red,color:"#fff",borderRadius:99,minWidth:26,height:22,padding:"0 8px",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,boxShadow:`0 2px 8px ${T.red}55`}}>
                         +{unread>99?"99":unread}
                       </span>
                     )}
@@ -2226,15 +2237,19 @@ export default function BasUdrus() {
                     {sortedChatPartners.map(s=>{
                       const unread = unreadCounts[s.id] || 0;
                       return (
-                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer",border:unread>0?`2px solid ${T.red}`:undefined}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
+                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer",position:"relative",border:unread>0?`2px solid ${T.red}`:undefined,boxShadow:unread>0?`0 4px 20px ${T.red}33`:undefined}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
+                        {/* Prominent unread pill in the top-right corner */}
+                        {unread>0&&(
+                          <div style={{position:"absolute",top:-10,right:-6,background:T.red,color:"#fff",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",gap:4,boxShadow:`0 4px 14px ${T.red}55`,border:"2px solid "+T.surface,letterSpacing:"0.02em",zIndex:2}}>
+                            <span style={{fontSize:14,lineHeight:1}}>💬</span>
+                            +{unread>99?"99":unread} new
+                          </div>
+                        )}
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                           <Avatar s={s} size={42} T={T}/>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:700,fontSize:13,color:T.navy,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>
-                              <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</span>
-                              {unread>0&&(
-                                <span style={{background:T.red,color:"#fff",borderRadius:99,minWidth:22,height:20,padding:"0 6px",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0}}>+{unread>99?"99":unread}</span>
-                              )}
+                            <div style={{fontWeight:unread>0?800:700,fontSize:13,color:T.navy,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>
+                              {s.name}
                             </div>
                             <div style={{fontSize:11,color:T.muted}}>{s.uni}</div>
                           </div>

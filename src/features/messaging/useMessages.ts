@@ -25,6 +25,11 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
 
+  // Timestamp (ISO) of the most recent message THIS user received from each partner.
+  // Used to sort the Connect inbox so the partner who's been waiting longest for a
+  // reply bubbles to the top (oldest unreplied first, newest at the bottom).
+  const [lastReceivedAt, setLastReceivedAt] = useState<Record<string, string>>({});
+
   // ── Schedule ──
   const [schedModal, setSchedModal] = useState<Profile | null>(null);
   const [schedForm, setSchedForm] = useState({ date: "", time: "", type: "online", note: "" });
@@ -78,6 +83,26 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       });
       setUnreadCounts(counts);
     } catch (e) { logError("loadUnreadCounts", e); }
+  };
+
+  // ── Load the most recent message received from each partner (for inbox sorting) ──
+  const loadLastReceivedTimestamps = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("sender_id, created_at")
+        .eq("receiver_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (error) { logError("loadLastReceivedTimestamps", error); return; }
+      const newest: Record<string, string> = {};
+      (data || []).forEach((m: { sender_id: string; created_at: string }) => {
+        // Because we ordered desc, the first time we see a sender is their newest message.
+        if (!newest[m.sender_id]) newest[m.sender_id] = m.created_at;
+      });
+      setLastReceivedAt(newest);
+    } catch (e) { logError("loadLastReceivedTimestamps", e); }
   };
 
   // ── Load which partners this user has exchanged messages with (for filtering Connect) ──
@@ -387,8 +412,9 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
     pendingMsgs,
     // Unread
     unreadCounts, setUnreadCounts, totalUnread,
+    lastReceivedAt, setLastReceivedAt,
     partnersWithMessages, setPartnersWithMessages,
-    loadUnreadCounts, loadPartnersWithMessages, markAsRead,
+    loadUnreadCounts, loadLastReceivedTimestamps, loadPartnersWithMessages, markAsRead,
     // Handlers
     loadConnections, loadMessages,
     sendMessage, startRecording, stopRecording,
