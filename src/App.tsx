@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { ErrorBoundary } from "@/shared/ErrorBoundary";
 import { AppProvider } from "@/context/AppContext";
+import { Analytics } from "@vercel/analytics/react";
 
 const BasUdrus = lazy(() => import("@/pages/BasUdrus"));
 
@@ -22,6 +23,7 @@ export default function App() {
         <Suspense fallback={<LoadingShell />}>
           <BasUdrus />
         </Suspense>
+        <Analytics />
       </AppProvider>
     </ErrorBoundary>
   );
