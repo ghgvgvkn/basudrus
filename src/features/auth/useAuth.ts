@@ -52,12 +52,9 @@ export function useAuth(
         if (error) { setAuthError(error.message); setAuthLoading(false); return; }
         if (data.user) {
           setUser({ id: data.user.id, email: data.user.email ?? "" });
-          const p = await loadProfile(data.user.id);
-          if (!p) {
-            setScreen("onboard");
-          } else {
-            setScreen("discover");
-          }
+          // Note: onAuthStateChange SIGNED_IN handler will run loadProfile
+          // and set the screen. Avoid calling loadProfile here to prevent
+          // concurrent auth token lock contention on slow connections.
         }
       }
     } catch { setAuthError("Something went wrong — please try again"); }
@@ -115,14 +112,15 @@ export function useAuth(
     if (onboardLoading) return;
     setOnboardLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        showNotif("Session expired — please sign in again", "err");
-        setScreen("auth");
-        setOnboardLoading(false);
-        return;
-      }
-      const meta = session.user?.user_metadata;
+      // Race session lookup against a 3s timeout; if getSession() hangs (IndexedDB
+      // lock contention with other concurrent auth calls), fall back to the user
+      // already in React state. Upsert will still include the auth token.
+      const sessionPromise = supabase.auth.getSession().then(r => r.data.session).catch(() => null);
+      const session = await Promise.race([
+        sessionPromise,
+        new Promise<null>(r => setTimeout(() => r(null), 3000)),
+      ]);
+      const meta = session?.user?.user_metadata;
       const bestName = profile.name || authForm.name || meta?.full_name || meta?.name || user.email.split("@")[0];
       const oauthAvatar = meta?.avatar_url || meta?.picture || null;
       const profileData: Record<string, unknown> = {

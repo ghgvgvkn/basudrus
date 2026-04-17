@@ -278,7 +278,8 @@ export default function BasUdrus() {
           setAuthForm(f => ({ ...f, name: f.name || oauthName }));
         }
         const p = await loadProfile(session.user.id);
-        setScreen(p ? "discover" : "onboard");
+        // Profile auto-created by DB trigger on signup — treat empty uni as needing onboarding
+        setScreen((p && p.uni) ? "discover" : "onboard");
       }
       setLoading(false);
     }).catch((e) => { logError("getSession", e); clearTimeout(loadTimeout); setLoading(false); });
@@ -304,8 +305,9 @@ export default function BasUdrus() {
         }
         if (event === "SIGNED_IN" || event === "USER_UPDATED") {
           const p = await loadProfile(session.user.id);
-          if (!p) trackEvent("signup");  // New user — no profile yet
-          setScreen(p ? "discover" : "onboard");
+          if (!p || !p.uni) trackEvent("signup");  // New or incomplete user
+          // Profile auto-created by DB trigger — treat empty uni as needing onboarding
+          setScreen((p && p.uni) ? "discover" : "onboard");
         }
       } else if (event === "SIGNED_OUT") {
         setUser(null);
