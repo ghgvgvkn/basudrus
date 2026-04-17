@@ -161,13 +161,17 @@ export const makeCSS = (T: Theme) => `
   }
   .ai-chat-messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     padding: 20px 16px;
     display: flex;
     flex-direction: column;
     gap: 16px;
     position: relative;
   }
+  .chat-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .ai-chat-input {
     padding: 12px 16px;
     border-top: 1px solid ${T.border};

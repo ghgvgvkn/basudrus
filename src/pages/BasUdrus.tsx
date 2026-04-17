@@ -657,20 +657,38 @@ export default function BasUdrus() {
     if (!navigator.onLine) { showNotif("You're offline — can't connect right now. Try again when online.", "err"); return; }
     connectingRef.current = true;
     const key = s._postId || s.id;
+
+    // Open the chat immediately — user lands in the messages view right away.
+    // DB upsert happens in the background; on failure we roll back.
     setFlyCard({id:key,dir:"up"});
+    setConnections(prev => prev.some(c=>(c as any).id===s.id||(c as any).partner_id===s.id) ? prev : [...prev, s]);
+    setDismissed(prev=>({...prev,[key]:true}));
+    setActiveChat(s);
+    setScreen("connect");
+
     if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
     connectTimerRef.current = setTimeout(async () => {
       try {
-        // Verify session is alive before DB write
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) { showNotif("Session expired — please sign in again", "err"); setFlyCard(null); connectingRef.current = false; setScreen("auth"); return; }
+        if (!session) {
+          showNotif("Session expired — please sign in again", "err");
+          setFlyCard(null); connectingRef.current = false; setScreen("auth");
+          return;
+        }
         const { error } = await supabase.from("connections").upsert([
           { user_id: user.id, partner_id: s.id },
           { user_id: s.id, partner_id: user.id },
         ], { onConflict: "user_id,partner_id" });
-        if (error) { showNotif("Connection failed — try again", "err"); setFlyCard(null); connectingRef.current = false; return; }
-        setConnections(prev => prev.some(c=>(c as any).id===s.id||(c as any).partner_id===s.id) ? prev : [...prev, s]);
-        setDismissed(prev=>({...prev,[key]:true}));
+        if (error) {
+          logError("handleConnect:upsert", error);
+          showNotif("Connection failed — try again", "err");
+          setConnections(prev => prev.filter(c => (c as any).id !== s.id));
+          setDismissed(prev => { const n = { ...prev }; delete n[key]; return n; });
+          setActiveChat(null);
+          setScreen("discover");
+          setFlyCard(null); connectingRef.current = false;
+          return;
+        }
         setFlyCard(null);
         setProfile(p => {
           const newXp = (p.xp || 0) + 20;
@@ -679,8 +697,6 @@ export default function BasUdrus() {
         });
         showNotif(`You matched with ${s.name}! 🎉`);
         trackEvent("connect", { partner_id: s.id });
-        setActiveChat(s);
-        setScreen("connect");
         if (!earnedBadges.includes("first_connect")) awardBadge("first_connect");
         fetch("/api/notify/match", {
           method: "POST",
@@ -692,9 +708,16 @@ export default function BasUdrus() {
             user2Name: s.name || "A student",
           }),
         }).catch(() => {});
-      } catch { showNotif("Connection failed — check your internet", "err"); setFlyCard(null); }
+      } catch (e) {
+        logError("handleConnect", e);
+        showNotif("Connection failed — check your internet", "err");
+        setConnections(prev => prev.filter(c => (c as any).id !== s.id));
+        setActiveChat(null);
+        setScreen("discover");
+        setFlyCard(null);
+      }
       connectingRef.current = false;
-    }, 360);
+    }, 200);
   };
 
 
@@ -2125,7 +2148,7 @@ export default function BasUdrus() {
             )}
           </div>
           {/* Right panel — chat or connection cards */}
-          <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,minWidth:0}}>
+          <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,minWidth:0,minHeight:0}}>
             {!activeChat?(
               connections.length===0?(
                 <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:T.muted,padding:16}}>
@@ -2172,7 +2195,7 @@ export default function BasUdrus() {
                     <button style={{background:T.goldSoft,color:T.gold,border:"none",padding:"7px 14px",borderRadius:99,fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>{setRateModal(activeChat);setHoverStar(0);}}>⭐ Rate</button>
                   </div>
                 </div>
-                <div style={{flex:1,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:8}}>
+                <div className="chat-scroll" style={{flex:1,overflowY:"auto",padding:16,display:"flex",flexDirection:"column",gap:8,minHeight:0,WebkitOverflowScrolling:"touch",overscrollBehavior:"contain"}}>
                   {(messages[activeChat.id]||[]).length===0&&(
                     <div style={{textAlign:"center",padding:"40px 20px",color:T.muted}}>
                       <div style={{fontSize:28,marginBottom:8}}>👋</div>
