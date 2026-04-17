@@ -10,7 +10,7 @@ export function useProfile(
   awardBadge: (badgeId: string) => Promise<void>,
   uniDataReady: boolean,
 ) {
-  const { user, profile, setProfile, setScreen, showNotif } = useApp();
+  const { user, profile, setProfile, setScreen, showNotif, screen } = useApp();
 
   // ── Edit profile state ──
   const [editProfile, setEditProfile] = useState<Partial<Profile> | null>(null);
@@ -21,6 +21,14 @@ export function useProfile(
   const [editMajorOpen, setEditMajorOpen] = useState(false);
   const editMajorRef = useRef<HTMLDivElement>(null);
   const [profileTab, setProfileTab] = useState("edit");
+
+  // Always land on Edit Profile when the user navigates to the Me tab.
+  // Keeps the experience consistent — previously, the tab state persisted across
+  // navigations, so a user who clicked "My Posts" once would see that tab the
+  // next time they opened Me, which was confusing.
+  useEffect(() => {
+    if (screen === "profile") setProfileTab("edit");
+  }, [screen]);
 
   // ── Subject history ──
   const [subjectHistory, setSubjectHistory] = useState<SubjectHistory[]>([]);
