@@ -187,6 +187,9 @@ export default function BasUdrus() {
   const connectTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   const connectingRef = useRef(false);
   const resetAIRef = useRef<() => void>(() => {});
+  // Mirror of activeChat.id + screen that the realtime handler can read even
+  // though its closure captures state from the original render.
+  const viewingChatRef = useRef<{ partnerId: string | null; screen: string }>({ partnerId: null, screen: "landing" });
   const [uniDataReady, setUniDataReady] = useState(isUniDataReady());
 
   // Load university/major/course data from Supabase on mount
@@ -376,6 +379,8 @@ export default function BasUdrus() {
       loadAllStudents(),
       loadMatchQuiz(),
       loadSavedPlans(),
+      loadUnreadCounts(),
+      loadPartnersWithMessages(),
     ]).catch((e) => logError("initialDataLoad", e));
   }, [user?.id]);
 
@@ -440,6 +445,9 @@ export default function BasUdrus() {
     isRecording, recordingTime,
     chatFileRef,
     pendingMsgs,
+    unreadCounts, setUnreadCounts, totalUnread,
+    partnersWithMessages, setPartnersWithMessages,
+    loadUnreadCounts, loadPartnersWithMessages, markAsRead,
     loadConnections, loadMessages,
     sendMessage, startRecording, stopRecording,
     handleChatFileSelect, submitRating,
@@ -455,7 +463,19 @@ export default function BasUdrus() {
       // Force scroll to bottom when opening a conversation
       setTimeout(() => { chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" }); }, 50);
     });
+    // Mark all messages from this partner as read, clear unread badge
+    markAsRead(activeChat.id);
   }, [user?.id, activeChat?.id]);
+
+  // Keep viewingChatRef in sync so the realtime handler knows if the user
+  // is currently looking at a conversation with this sender.
+  useEffect(() => {
+    viewingChatRef.current = { partnerId: activeChat?.id || null, screen };
+    // When user actively enters the connect tab for this chat, also mark read
+    if (screen === "connect" && activeChat && user) {
+      markAsRead(activeChat.id);
+    }
+  }, [activeChat?.id, screen, user?.id]);
 
   // Reload connections when switching to connect tab (catches new connections from other users)
   useEffect(() => {
@@ -484,11 +504,23 @@ export default function BasUdrus() {
           }
           return prev;
         });
+        // Remember that we now have a conversation with this partner
+        setPartnersWithMessages(prev => prev.has(partnerId) ? prev : new Set(prev).add(partnerId));
         setMessages(prev => {
           const existing = prev[partnerId] || [];
           if (existing.some(m => m.id === msg.id)) return prev;
           return { ...prev, [partnerId]: [...existing, msg] };
         });
+        // Bump unread count unless the user is actively viewing this chat.
+        // Use ref (not closed-over state) so we see the CURRENT view, not the value from when this handler was set up.
+        const vc = viewingChatRef.current;
+        const isViewingThisChat = vc.partnerId === partnerId && vc.screen === "connect";
+        if (!isViewingThisChat) {
+          setUnreadCounts(prev => ({ ...prev, [partnerId]: (prev[partnerId] || 0) + 1 }));
+        } else {
+          // User is actively in this chat — mark the new message read immediately
+          supabase.from("messages").update({ read: true }).eq("id", msg.id).then(() => {});
+        }
       })
       .on("postgres_changes", {
         event: "INSERT",
@@ -698,16 +730,7 @@ export default function BasUdrus() {
         showNotif(`You matched with ${s.name}! 🎉`);
         trackEvent("connect", { partner_id: s.id });
         if (!earnedBadges.includes("first_connect")) awardBadge("first_connect");
-        fetch("/api/notify/match", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user1Email: user.email,
-            user1Name: profile.name || "A student",
-            user2Email: s.email || "",
-            user2Name: s.name || "A student",
-          }),
-        }).catch(() => {});
+        // Match emails are not implemented server-side yet — dead fetch removed.
       } catch (e) {
         logError("handleConnect", e);
         showNotif("Connection failed — check your internet", "err");
@@ -734,14 +757,16 @@ export default function BasUdrus() {
         message_type: "text",
       });
       if (error) { showNotif("Failed to schedule — try again", "err"); return; }
-      if (schedModal.email) {
+      if (schedModal.email && user) {
         fetch("/api/notify/message", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            senderName: profile.name,
+            senderId: user.id,
+            receiverId: schedModal.id,
+            senderName: profile.name || "A student",
             receiverEmail: schedModal.email,
-            receiverName: schedModal.name?.split(" ")[0] || "",
+            receiverName: schedModal.name || "",
             messagePreview: text,
           }),
         }).catch(() => {});
@@ -1803,7 +1828,14 @@ export default function BasUdrus() {
         <Logo size={22} compact/>
         <div className="tab-nav top-tabs" style={{flex:1,maxWidth:540,margin:"0 10px"}}>
           {([["discover","🔍","Discover"],["connect","💬","Connect"],["rooms","🎓","Rooms"],["ai","🤖","AI"],["profile","👤","Me"],...(isAdmin?[["admin","🛡️","Admin"]]:[])]).map(([tab,icon,lbl])=>(
-            <button key={tab} className={`tab-btn ${curTab===tab?"active":""}`} onClick={()=>{setScreen(tab);if(tab==="connect")setActiveChat(null);if(tab==="admin"){loadAdminData();loadAdminAnalytics();}}}><span className="tab-icon">{icon} </span>{lbl}</button>
+            <button key={tab} className={`tab-btn ${curTab===tab?"active":""}`} style={{position:"relative"}} onClick={()=>{setScreen(tab);if(tab==="connect")setActiveChat(null);if(tab==="admin"){loadAdminData();loadAdminAnalytics();}}}>
+              <span className="tab-icon">{icon} </span>{lbl}
+              {tab==="connect"&&totalUnread>0&&(
+                <span style={{position:"absolute",top:2,right:4,background:T.red,color:"#fff",borderRadius:99,minWidth:18,height:18,padding:"0 5px",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,border:"2px solid "+T.navBg}}>
+                  +{totalUnread>99?"99":totalUnread}
+                </span>
+              )}
+            </button>
           ))}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
@@ -1863,9 +1895,16 @@ export default function BasUdrus() {
           ["ai","🤖","AI"],
           ["profile","👤","Me"],
         ] as const).map(([tab,icon,lbl])=>(
-          <button key={tab} className={`bot-tab ${curTab===tab?"active":""}`}
+          <button key={tab} className={`bot-tab ${curTab===tab?"active":""}`} style={{position:"relative"}}
             onClick={()=>{setScreen(tab);setViewingProfile(null);if(tab==="connect")setActiveChat(null);}}>
-            <span className="bi">{icon}</span>
+            <span className="bi" style={{position:"relative",display:"inline-block"}}>
+              {icon}
+              {tab==="connect"&&totalUnread>0&&(
+                <span style={{position:"absolute",top:-4,right:-8,background:T.red,color:"#fff",borderRadius:99,minWidth:18,height:18,padding:"0 5px",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,border:"2px solid "+T.navBg}}>
+                  +{totalUnread>99?"99":totalUnread}
+                </span>
+              )}
+            </span>
             {lbl}
           </button>
         ))}
@@ -2116,59 +2155,87 @@ export default function BasUdrus() {
 
 
       {/* ══════════════ CONNECT (merged connections + chat) ══════════════ */}
-      {curTab==="connect"&&(
+      {curTab==="connect"&&(() => {
+        // Connect tab only shows people you've exchanged messages with.
+        // Matches without any chat yet are accessible from Discover / profile modal.
+        // A partner is "in the inbox" if there are messages or there's an unread count.
+        const chatPartners = connections.filter(c => partnersWithMessages.has(c.id) || (unreadCounts[c.id] || 0) > 0);
+        // Sort: unread first (desc by count), then rest by name
+        const sortedChatPartners = [...chatPartners].sort((a, b) => {
+          const ua = unreadCounts[a.id] || 0;
+          const ub = unreadCounts[b.id] || 0;
+          if (ua !== ub) return ub - ua;
+          return (a.name || "").localeCompare(b.name || "");
+        });
+        const hasChats = sortedChatPartners.length > 0;
+        return (
         <div className="chat-wrap" style={{maxWidth:1200,margin:"0 auto",width:"100%",flex:1,display:"flex",height:"calc(100dvh - 62px)"}}>
-          {/* Left sidebar — contact list */}
-          <div className={`chat-sidebar${connections.length===0?" chat-sidebar-empty":""}`} style={{width:260,borderRight:`1px solid ${T.border}`,background:T.navBg,overflowY:"auto",flexShrink:0,display:"flex",flexDirection:"column"}}>
+          {/* Left sidebar — contact list (only partners with messages) */}
+          <div className={`chat-sidebar${!hasChats?" chat-sidebar-empty":""}`} style={{width:260,borderRight:`1px solid ${T.border}`,background:T.navBg,overflowY:"auto",flexShrink:0,display:"flex",flexDirection:"column"}}>
             <div style={{padding:"12px 14px",borderBottom:`1px solid ${T.border}`}}>
-              <div style={{fontSize:14,fontWeight:700,color:T.navy}}>Connections</div>
-              <div style={{fontSize:10,color:T.muted,marginTop:1}}>{connections.length} study partner{connections.length!==1?"s":""}</div>
+              <div style={{fontSize:14,fontWeight:700,color:T.navy}}>Messages</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:1}}>{sortedChatPartners.length} conversation{sortedChatPartners.length!==1?"s":""}{totalUnread>0?` · +${totalUnread} new`:""}</div>
             </div>
-            {connections.length===0?(
+            {!hasChats?(
               <div style={{padding:"24px 14px",textAlign:"center"}}>
-                <div style={{fontSize:26,marginBottom:6}}>🤝</div>
-                <div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginBottom:12}}>No connections yet</div>
+                <div style={{fontSize:26,marginBottom:6}}>💬</div>
+                <div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginBottom:12}}>No conversations yet.{connections.length>0?" Send your first message from Discover.":""}</div>
                 <button className="btn-primary" style={{padding:"7px 14px",fontSize:11}} onClick={()=>setScreen("discover")}>Find Partners →</button>
               </div>
             ):(
               <div style={{flex:1,overflowY:"auto",padding:"8px 8px"}}>
-                {connections.map(s=>(
+                {sortedChatPartners.map(s=>{
+                  const unread = unreadCounts[s.id] || 0;
+                  return (
                   <div key={s.id} className={`conn-row conn-row-mini ${activeChat?.id===s.id?"active":""}`}
-                    style={{padding:"10px 12px",borderRadius:12,marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:10}}
+                    style={{padding:"10px 12px",borderRadius:12,marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:10,position:"relative"}}
                     onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
                     <Avatar s={s} size={38} T={T}/>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:600,color:T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
+                      <div style={{fontSize:13,fontWeight:unread>0?800:600,color:T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
                       <div style={{fontSize:11,color:s.online?T.green:T.muted,marginTop:1}}>{s.online?"● Online":"● Offline"}{parseCourses(s.course ?? "").length > 0 ? ` · ${parseCourses(s.course ?? "")[0]}` : ""}</div>
                     </div>
-                    {ratings[s.id]&&<div style={{fontSize:11,color:"#F5A623"}}>{ratings[s.id]}★</div>}
+                    {unread>0&&(
+                      <span style={{background:T.red,color:"#fff",borderRadius:99,minWidth:22,height:22,padding:"0 7px",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>
+                        +{unread>99?"99":unread}
+                      </span>
+                    )}
+                    {ratings[s.id]&&unread===0&&<div style={{fontSize:11,color:"#F5A623"}}>{ratings[s.id]}★</div>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
-          {/* Right panel — chat or connection cards */}
+          {/* Right panel — chat or conversation cards */}
           <div style={{flex:1,display:"flex",flexDirection:"column",background:T.bg,minWidth:0,minHeight:0}}>
             {!activeChat?(
-              connections.length===0?(
+              !hasChats?(
                 <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10,color:T.muted,padding:16}}>
-                  <div style={{fontSize:32}}>🔍</div>
-                  <div style={{fontSize:15,fontWeight:600,color:T.navy}}>Find your first study partner</div>
-                  <div style={{fontSize:12,color:T.muted,textAlign:"center",maxWidth:280}}>Head to the Discover tab to connect with students in your courses</div>
+                  <div style={{fontSize:32}}>💬</div>
+                  <div style={{fontSize:15,fontWeight:600,color:T.navy}}>No conversations yet</div>
+                  <div style={{fontSize:12,color:T.muted,textAlign:"center",maxWidth:300}}>{connections.length>0?`You have ${connections.length} match${connections.length===1?"":"es"}. Start a chat with them from Discover.`:"Match with students from Discover to start chatting."}</div>
                   <button className="btn-primary" style={{marginTop:6,padding:"9px 18px",fontSize:13}} onClick={()=>setScreen("discover")}>Go to Discover →</button>
                 </div>
               ):(
                 <div style={{flex:1,overflowY:"auto",padding:20}}>
                   <div style={{marginBottom:20}}>
-                    <div style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:4}}>Select a conversation from the left, or browse your partners:</div>
+                    <div style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:4}}>Select a conversation{totalUnread>0?` (+${totalUnread} unread)`:""}:</div>
                   </div>
                   <div className="chat-partner-cards" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
-                    {connections.map(s=>(
-                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer"}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
+                    {sortedChatPartners.map(s=>{
+                      const unread = unreadCounts[s.id] || 0;
+                      return (
+                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer",border:unread>0?`2px solid ${T.red}`:undefined}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                           <Avatar s={s} size={42} T={T}/>
-                          <div style={{flex:1}}>
-                            <div style={{fontWeight:700,fontSize:13,color:T.navy,cursor:"pointer"}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>{s.name}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:13,color:T.navy,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={e=>{e.stopPropagation();openStudentProfile(s.id, s as Profile);}}>
+                              <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</span>
+                              {unread>0&&(
+                                <span style={{background:T.red,color:"#fff",borderRadius:99,minWidth:22,height:20,padding:"0 6px",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0}}>+{unread>99?"99":unread}</span>
+                              )}
+                            </div>
                             <div style={{fontSize:11,color:T.muted}}>{s.uni}</div>
                           </div>
                         </div>
@@ -2177,7 +2244,8 @@ export default function BasUdrus() {
                           <button style={{background:"none",border:"none",color:T.accent,fontSize:11,fontWeight:600,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setRateModal(s);setHoverStar(0);}}>Rate ⭐</button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )
@@ -2266,7 +2334,8 @@ export default function BasUdrus() {
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ══════════════ GROUP ROOMS ══════════════ */}
       {curTab==="rooms"&&(

@@ -20,6 +20,11 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [newMsg, setNewMsg] = useState("");
 
+  // ── Unread message counts (per-partner) ──
+  // key = partner id, value = count of messages received from them but not read
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+
   // ── Schedule ──
   const [schedModal, setSchedModal] = useState<Profile | null>(null);
   const [schedForm, setSchedForm] = useState({ date: "", time: "", type: "online", note: "" });
@@ -54,6 +59,65 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
         setRatings(r);
       }
     } catch (e) { logError("loadConnections", e); }
+  };
+
+  // ── Load unread counts grouped by sender ──
+  const loadUnreadCounts = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("sender_id")
+        .eq("receiver_id", user.id)
+        .eq("read", false)
+        .limit(500);
+      if (error) { logError("loadUnreadCounts", error); return; }
+      const counts: Record<string, number> = {};
+      (data || []).forEach((m: { sender_id: string }) => {
+        counts[m.sender_id] = (counts[m.sender_id] || 0) + 1;
+      });
+      setUnreadCounts(counts);
+    } catch (e) { logError("loadUnreadCounts", e); }
+  };
+
+  // ── Load which partners this user has exchanged messages with (for filtering Connect) ──
+  const [partnersWithMessages, setPartnersWithMessages] = useState<Set<string>>(new Set());
+  const loadPartnersWithMessages = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("sender_id, receiver_id")
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .limit(1000);
+      if (error) { logError("loadPartnersWithMessages", error); return; }
+      const ids = new Set<string>();
+      (data || []).forEach((m: { sender_id: string; receiver_id: string }) => {
+        const other = m.sender_id === user.id ? m.receiver_id : m.sender_id;
+        ids.add(other);
+      });
+      setPartnersWithMessages(ids);
+    } catch (e) { logError("loadPartnersWithMessages", e); }
+  };
+
+  // ── Mark all messages from a partner as read ──
+  const markAsRead = async (partnerId: string) => {
+    if (!user) return;
+    // Optimistically zero the local count
+    setUnreadCounts(prev => {
+      if (!prev[partnerId]) return prev;
+      const next = { ...prev };
+      delete next[partnerId];
+      return next;
+    });
+    try {
+      await supabase
+        .from("messages")
+        .update({ read: true })
+        .eq("receiver_id", user.id)
+        .eq("sender_id", partnerId)
+        .eq("read", false);
+    } catch (e) { logError("markAsRead", e); }
   };
 
   const loadMessages = async (partnerId: string) => {
@@ -112,11 +176,27 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       }
       pendingMsgs.current.delete(clientId);
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).map(m => m.id === tempId ? data : m) }));
+      // Remember the conversation exists so it shows in Connect inbox
+      setPartnersWithMessages(prev => prev.has(partnerId) ? prev : new Set(prev).add(partnerId));
       trackEvent("msg_sent", { type: "text" });
       const earnedBadges: string[] = profile.badges ?? [];
       if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
-      // Email notifications for chat messages are not yet implemented server-side.
-      // When an email endpoint is added later, wire it here.
+      // Fire email notification to the partner (rate-limited server-side to 1/10min).
+      const partner = activeChat?.id === partnerId ? activeChat : connections.find(c => c.id === partnerId);
+      if (partner?.email) {
+        fetch("/api/notify/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            senderId: user.id,
+            receiverId: partnerId,
+            senderName: profile.name || "A student",
+            receiverEmail: partner.email,
+            receiverName: partner.name || "",
+            messagePreview: text.slice(0, 280),
+          }),
+        }).catch(() => {});
+      }
     } catch (err) {
       logError("sendMessage", err);
       trackEvent("msg_fail", { reason: "exception", network: !navigator.onLine });
@@ -163,7 +243,23 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
         return;
       }
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).map(m => m.id === tempId ? data : m) }));
+      setPartnersWithMessages(prev => prev.has(partnerId) ? prev : new Set(prev).add(partnerId));
       trackEvent(msgType === "voice" ? "voice_sent" : "msg_sent", { type: msgType });
+      // Fire email notification for the file/voice message too
+      if (activeChat?.email) {
+        fetch("/api/notify/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            senderId: user.id,
+            receiverId: partnerId,
+            senderName: profile.name || "A student",
+            receiverEmail: activeChat.email,
+            receiverName: activeChat.name || "",
+            messagePreview: displayText,
+          }),
+        }).catch(() => {});
+      }
     } catch (err) {
       logError("uploadAndSendFile", err);
       trackEvent(msgType === "voice" ? "voice_fail" : "msg_fail", { type: msgType, network: !navigator.onLine });
@@ -289,6 +385,10 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
     chatFileRef,
     // Pending msgs
     pendingMsgs,
+    // Unread
+    unreadCounts, setUnreadCounts, totalUnread,
+    partnersWithMessages, setPartnersWithMessages,
+    loadUnreadCounts, loadPartnersWithMessages, markAsRead,
     // Handlers
     loadConnections, loadMessages,
     sendMessage, startRecording, stopRecording,
