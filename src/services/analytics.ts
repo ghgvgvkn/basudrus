@@ -131,19 +131,75 @@ function flushEvents() {
   supabase.from("events").insert(batch).then(() => {}, () => {});
 }
 
+// ── Noise filter: third-party / browser-extension errors we can't act on ──
+// - "Script error." fires when a cross-origin script throws and the browser
+//   hides the details for security. Always third-party — never our code.
+// - window.ethereum / crypto wallet extensions (MetaMask etc.) mutate the page
+//   and throw when the dapp isn't what they expect. Not our bug.
+// - Empty unhandled rejections with no reason are usually extension side-effects.
+const NOISE_PATTERNS = [
+  /^Script error\.?$/i,
+  /window\.ethereum/i,
+  /ethereum\.selectedAddress/i,
+  /solana\.isPhantom/i,
+  /Non-Error promise rejection captured/i,
+  /ResizeObserver loop /i,                 // benign Chrome warning
+  /Lock was stolen by another request/i,   // Supabase auth cross-tab lock, auto-retries
+  /AbortError/i,                           // user navigated away mid-fetch — intended
+];
+function isNoiseError(msg: string): boolean {
+  if (!msg) return true;             // empty reasons = noise
+  return NOISE_PATTERNS.some(re => re.test(msg));
+}
+
+// ── Dedup burst: one user hitting the same error 13 times in 5ms floods the DB.
+// Drop repeat identical messages within a 2-second window.
+const _errorDedup: Map<string, number> = new Map();
+function shouldDedup(key: string): boolean {
+  const now = Date.now();
+  const last = _errorDedup.get(key) || 0;
+  if (now - last < 2000) return true;
+  _errorDedup.set(key, now);
+  // Keep the map from growing unbounded
+  if (_errorDedup.size > 40) {
+    for (const [k, t] of _errorDedup) { if (now - t > 10_000) _errorDedup.delete(k); }
+  }
+  return false;
+}
+
 // Flush on tab close + global error catching
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => { flushCounters(); flushEvents(); });
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") { flushCounters(); flushEvents(); }
   });
-  // Catch uncaught errors — always logged (critical)
+  // Catch uncaught errors — filter third-party noise, capture real context
   window.addEventListener("error", (e) => {
-    trackEvent("js_error", { message: (e.message || "").slice(0, 300), file: (e.filename || "").split("/").pop(), line: e.lineno });
+    const msg = (e.message || "").slice(0, 300);
+    if (isNoiseError(msg)) return;
+    if (shouldDedup(`err:${msg}`)) return;
+    trackEvent("js_error", {
+      message: msg,
+      file: (e.filename || "").split("/").pop(),
+      line: e.lineno,
+      col: e.colno,
+      stack: (e.error?.stack || "").slice(0, 500),
+      url: location.pathname + location.search,
+      ua: navigator.userAgent.slice(0, 150),
+    });
   });
   window.addEventListener("unhandledrejection", (e) => {
-    const msg = e.reason instanceof Error ? e.reason.message : String(e.reason || "");
-    trackEvent("js_error", { message: msg.slice(0, 300), type: "unhandled_promise" });
+    const reason = e.reason;
+    const msg = reason instanceof Error ? reason.message : (typeof reason === "string" ? reason : "");
+    if (isNoiseError(msg)) return;
+    if (shouldDedup(`prom:${msg}`)) return;
+    trackEvent("js_error", {
+      message: msg.slice(0, 300),
+      type: "unhandled_promise",
+      stack: (reason instanceof Error ? reason.stack || "" : "").slice(0, 500),
+      url: location.pathname + location.search,
+      ua: navigator.userAgent.slice(0, 150),
+    });
   });
 }
 
