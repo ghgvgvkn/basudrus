@@ -131,7 +131,11 @@ export function useAI(allStudents: Profile[]) {
     if (!tutorInput.trim() || tutorLoading) return;
     if (!navigator.onLine) { showNotif("You're offline — AI tutor needs internet to work.", "err"); return; }
     const msg = tutorInput.trim();
-    const fileCtx = tutorFile ? `\n\n[Attached file: ${tutorFile.name}]\n${tutorFile.text.slice(0, 4000)}` : "";
+    // Pass up to 40k characters of the attached file as context (≈ 10k tokens) —
+    // matches the new 40 MB upload ceiling. Anything beyond is truncated; the
+    // upload handler already warns the user when this happens.
+    const FILE_CONTEXT_CHARS = 40000;
+    const fileCtx = tutorFile ? `\n\n[Attached file: ${tutorFile.name}]\n${tutorFile.text.slice(0, FILE_CONTEXT_CHARS)}` : "";
     const displayMsg = tutorFile ? `${msg}\n📎 ${tutorFile.name}` : msg;
     setTutorInput("");
     setTutorFile(null);

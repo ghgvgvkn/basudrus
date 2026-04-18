@@ -2715,12 +2715,27 @@ export default function BasUdrus() {
           <div className="ai-chat-input">
             {aiTab==="tutor"&&(
               <>
-                <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css" style={{display:"none"}}
+                <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css,.tex,.rtf,.log,.xml,.yaml,.yml,.sql,.r,.go,.rs,.swift,.kt,.rb,.php,.sh" style={{display:"none"}}
                   onChange={e=>{
                     const f=e.target.files?.[0];if(!f)return;
-                    if(f.size>500000){showNotif("File too large (max 500KB)","err");return;}
+                    // 40 MB hard ceiling — protects against runaway memory on phones (FileReader.readAsText
+                    // allocates ~2× the file size in JS string memory).
+                    const MAX_FILE_BYTES = 40 * 1024 * 1024;
+                    if(f.size > MAX_FILE_BYTES){
+                      showNotif(`File too large — max 40 MB (you sent ${(f.size/1024/1024).toFixed(1)} MB)`, "err");
+                      return;
+                    }
                     const reader=new FileReader();
-                    reader.onload=()=>{setTutorFile({name:f.name,text:reader.result as string});};
+                    reader.onerror=()=>showNotif("Couldn't read the file — try a different one","err");
+                    reader.onload=()=>{
+                      const text = (reader.result as string) || "";
+                      setTutorFile({name:f.name, text});
+                      const sizeMB = (f.size/1024/1024).toFixed(1);
+                      const chars = text.length;
+                      if(chars > 40000){
+                        showNotif(`Loaded ${sizeMB} MB — AI will read the first ~40k characters`, "ok");
+                      }
+                    };
                     reader.readAsText(f);
                     e.target.value="";
                   }}/>
