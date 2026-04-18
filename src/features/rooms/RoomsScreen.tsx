@@ -12,11 +12,13 @@ interface RoomsScreenProps {
   toggleJoinGroup: (groupId: string, joined: boolean) => void;
   openStudentProfile: (id: string, p?: Profile) => void;
   initials: (n: string) => string;
+  openRoomMembers: (g: GroupRoom) => void;
 }
 
 export function RoomsScreen({
   T, user, groups, setShowGrpModal, openEditRoom,
   setConfirmDeleteRoom, toggleJoinGroup, openStudentProfile, initials,
+  openRoomMembers,
 }: RoomsScreenProps) {
   return (
     <div className="page-scroll">
@@ -68,6 +70,7 @@ export function RoomsScreen({
                     </button>
                     {user&&g.host_id===user.id&&(
                       <>
+                        <button onClick={()=>openRoomMembers(g)} style={{background:T.greenSoft,color:T.green,border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>👥 Members ({g.filled})</button>
                         <button onClick={()=>openEditRoom(g)} style={{background:T.accentSoft,color:T.accent,border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button>
                         <button onClick={()=>setConfirmDeleteRoom(g.id)} style={{background:"rgba(239,68,68,0.1)",color:"#ef4444",border:"none",padding:"10px 16px",borderRadius:99,fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 Delete</button>
                       </>

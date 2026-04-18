@@ -430,6 +430,7 @@ export default function BasUdrus() {
     editingRoom, setEditingRoom, editGrp, setEditGrp,
     confirmDeleteRoom, setConfirmDeleteRoom, roomActionLoading,
     loadGroups, submitGroup, openEditRoom, saveEditRoom, deleteRoom, toggleJoinGroup,
+    viewingMembersRoom, roomMembers, loadingMembers, openRoomMembers, closeRoomMembers,
   } = useRooms(awardBadge);
 
   const {
@@ -2373,7 +2374,67 @@ export default function BasUdrus() {
       {curTab==="rooms"&&(
         <RoomsScreen T={T} user={user} groups={groups} setShowGrpModal={setShowGrpModal}
           openEditRoom={openEditRoom} setConfirmDeleteRoom={setConfirmDeleteRoom}
-          toggleJoinGroup={toggleJoinGroup} openStudentProfile={openStudentProfile} initials={initials} />
+          toggleJoinGroup={toggleJoinGroup} openStudentProfile={openStudentProfile} initials={initials}
+          openRoomMembers={openRoomMembers} />
+      )}
+
+      {/* ══════════════ ROOM MEMBERS MODAL (host clicks "Members" on their room) ══════════════ */}
+      {viewingMembersRoom&&(
+        <div className="modal-bg" onClick={closeRoomMembers}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:480}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:6}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:18,fontWeight:800,color:T.navy}}>👥 Members</div>
+                <div style={{fontSize:12,color:T.muted,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{viewingMembersRoom.subject} · {viewingMembersRoom.date} at {viewingMembersRoom.time}</div>
+              </div>
+              <button onClick={closeRoomMembers} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted,padding:"0 4px",lineHeight:1}}>✕</button>
+            </div>
+            <div style={{fontSize:11,color:T.muted,margin:"10px 0 14px"}}>{loadingMembers?"Loading...":`${roomMembers.length} ${roomMembers.length===1?"person has":"people have"} joined`}</div>
+            {loadingMembers?(
+              <div style={{textAlign:"center",padding:"30px 10px",color:T.muted,fontSize:13}}>Loading members...</div>
+            ):roomMembers.length===0?(
+              <div style={{textAlign:"center",padding:"30px 10px"}}>
+                <div style={{fontSize:36,marginBottom:8}}>🪑</div>
+                <div style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:4}}>No one has joined yet</div>
+                <div style={{fontSize:12,color:T.muted}}>Members will show up here as they join your room.</div>
+              </div>
+            ):(
+              <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"55vh",overflowY:"auto"}}>
+                {roomMembers.map(m=>{
+                  const alreadyConnected = connections.some(c => c.id === m.id);
+                  return (
+                  <div key={m.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:14,border:`1px solid ${T.border}`,background:T.surface}}>
+                    <div onClick={()=>{closeRoomMembers();openStudentProfile(m.id, m);}} style={{cursor:"pointer",flexShrink:0}}>
+                      <Avatar s={m} size={42} T={T}/>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div onClick={()=>{closeRoomMembers();openStudentProfile(m.id, m);}} style={{fontSize:14,fontWeight:700,color:T.navy,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.name||"Student"}</div>
+                      <div style={{fontSize:11,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.uni||""}{m.major?` · ${m.major}`:""}</div>
+                    </div>
+                    <button
+                      className="btn-primary"
+                      style={{padding:"8px 14px",fontSize:12,borderRadius:99,flexShrink:0}}
+                      onClick={()=>{
+                        if(alreadyConnected){
+                          const c = connections.find(x=>x.id===m.id);
+                          if(c){ setActiveChat(c); setScreen("connect"); loadMessages(c.id); }
+                        } else {
+                          handleConnect(m as any);
+                        }
+                        closeRoomMembers();
+                      }}>
+                      {alreadyConnected?"💬 Message":"💬 Connect"}
+                    </button>
+                  </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{marginTop:14,fontSize:11,color:T.muted,textAlign:"center",lineHeight:1.5,padding:"10px 8px",background:T.bg,borderRadius:10}}>
+              💡 Tap "Connect" to add them and start a chat — or "Message" if you're already matched.
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ══════════════ AI HUB — Smart Study Companion ══════════════ */}

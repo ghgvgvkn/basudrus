@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import type { GroupRoom } from "@/lib/supabase";
+import type { GroupRoom, Profile } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
 
@@ -15,6 +15,41 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
   const [confirmDeleteRoom, setConfirmDeleteRoom] = useState<string | null>(null);
   const [roomActionLoading, setRoomActionLoading] = useState(false);
   const joiningGroupRef = useRef<Set<string>>(new Set());
+
+  // ── Members modal (host clicks "View Members" on a room they created) ──
+  const [viewingMembersRoom, setViewingMembersRoom] = useState<GroupRoom | null>(null);
+  const [roomMembers, setRoomMembers] = useState<Profile[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
+  const openRoomMembers = async (room: GroupRoom) => {
+    if (!user) return;
+    setViewingMembersRoom(room);
+    setRoomMembers([]);
+    setLoadingMembers(true);
+    try {
+      const { data, error } = await supabase
+        .from("group_members")
+        .select("user_id, member:profiles!fk_group_members_user(*)")
+        .eq("group_id", room.id);
+      if (error) { logError("openRoomMembers", error); showNotif("Couldn't load members — try again", "err"); setLoadingMembers(false); return; }
+      const members: Profile[] = (data || [])
+        .map((r: any) => r.member)
+        .filter(Boolean)
+        .filter((m: Profile) => m.id !== user.id); // don't show the host themselves
+      setRoomMembers(members);
+      trackEvent("room_members_view", { room_id: room.id, member_count: members.length });
+    } catch (e) {
+      logError("openRoomMembers", e);
+      showNotif("Couldn't load members — try again", "err");
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const closeRoomMembers = () => {
+    setViewingMembersRoom(null);
+    setRoomMembers([]);
+  };
 
   const loadGroups = async () => {
     if (!user) return;
@@ -170,5 +205,8 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
     confirmDeleteRoom, setConfirmDeleteRoom,
     roomActionLoading,
     loadGroups, submitGroup, openEditRoom, saveEditRoom, deleteRoom, toggleJoinGroup,
+    // Members modal
+    viewingMembersRoom, roomMembers, loadingMembers,
+    openRoomMembers, closeRoomMembers,
   };
 }
