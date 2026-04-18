@@ -5,6 +5,7 @@ import { BADGES_DEF } from "@/lib/constants";
 import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
 import { generateClientId } from "@/shared/useNetworkStatus";
+import { withRetry } from "@/shared/retry";
 
 export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const { user, profile, showNotif } = useApp();
@@ -52,10 +53,12 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const loadConnections = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("connections")
-        .select("partner_id, rating, partner:profiles!connections_partner_id_fkey(*)")
-        .eq("user_id", user.id);
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("connections")
+          .select("partner_id, rating, partner:profiles!connections_partner_id_fkey(*)")
+          .eq("user_id", user.id)
+      );
       if (error) { logError("loadConnections", error); return; }
       if (data) {
         setConnections(data.map((c: any) => c.partner).filter(Boolean));
@@ -70,12 +73,14 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const loadUnreadCounts = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("sender_id")
-        .eq("receiver_id", user.id)
-        .eq("read", false)
-        .limit(500);
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("messages")
+          .select("sender_id")
+          .eq("receiver_id", user.id)
+          .eq("read", false)
+          .limit(500)
+      );
       if (error) { logError("loadUnreadCounts", error); return; }
       const counts: Record<string, number> = {};
       (data || []).forEach((m: { sender_id: string }) => {
@@ -89,12 +94,14 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const loadLastReceivedTimestamps = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("sender_id, created_at")
-        .eq("receiver_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(500);
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("messages")
+          .select("sender_id, created_at")
+          .eq("receiver_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(500)
+      );
       if (error) { logError("loadLastReceivedTimestamps", error); return; }
       const newest: Record<string, string> = {};
       (data || []).forEach((m: { sender_id: string; created_at: string }) => {
@@ -110,11 +117,13 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   const loadPartnersWithMessages = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("sender_id, receiver_id")
-        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        .limit(1000);
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("messages")
+          .select("sender_id, receiver_id")
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+          .limit(1000)
+      );
       if (error) { logError("loadPartnersWithMessages", error); return; }
       const ids = new Set<string>();
       (data || []).forEach((m: { sender_id: string; receiver_id: string }) => {

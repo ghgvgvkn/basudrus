@@ -8,6 +8,7 @@ import { useApp } from "@/context/AppContext";
 import { loadUniData, isUniDataReady, getUniversities, normalizeUni, uniMatches, majorMatches, getAllMajors, getMajorsForUni, getCourseGroups, getUniCards } from "@/services/uniData";
 import { renderMarkdown } from "@/shared/renderMarkdown";
 import { makeCSS } from "@/shared/makeCSS";
+import { withRetry } from "@/shared/retry";
 import { useAdmin } from "@/features/admin/useAdmin";
 import { AdminScreen } from "@/features/admin/AdminScreen";
 import { useRooms } from "@/features/rooms/useRooms";
@@ -387,9 +388,11 @@ export default function BasUdrus() {
 
 
   // ── Data loaders ─────────────────────────────────────────────────────
-  const loadProfile = async (userId: string) => {
+  const loadProfile = async (userId: string): Promise<Profile | null> => {
     try {
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+      const { data, error } = await withRetry<Profile>(() =>
+        supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
+      );
       if (error) { logError("loadProfile", error); return null; }
       if (!data) return null;
       setProfile(data);

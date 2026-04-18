@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import type { GroupRoom, Profile } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
+import { withRetry } from "@/shared/retry";
 
 export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
   const { user, profile, showNotif } = useApp();
@@ -55,11 +56,11 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
     if (!user) return;
     try {
       const [groupRes, joinedRes] = await Promise.all([
-        supabase.from("group_rooms")
+        withRetry(() => supabase.from("group_rooms")
           .select("*, host:profiles!fk_group_rooms_host(*)")
           .order("created_at", { ascending: false })
-          .limit(50),
-        supabase.from("group_members").select("group_id").eq("user_id", user.id),
+          .limit(50)),
+        withRetry(() => supabase.from("group_members").select("group_id").eq("user_id", user.id)),
       ]);
       if (groupRes.error) { logError("loadGroups", groupRes.error); return; }
       const joinedSet = new Set((joinedRes.data || []).map((j: any) => j.group_id));

@@ -5,6 +5,7 @@ import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
 import { getCourseGroups } from "@/services/uniData";
 import { useDebounce } from "@/shared/useDebounce";
+import { withRetry } from "@/shared/retry";
 
 export function useDiscover(
   awardBadge: (badgeId: string) => Promise<void>,
@@ -69,11 +70,13 @@ export function useDiscover(
   const loadAllStudents = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("help_requests")
-        .select("*, profile:profiles!fk_help_requests_user(*)")
-        .order("created_at", { ascending: false })
-        .limit(80);
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("help_requests")
+          .select("*, profile:profiles!fk_help_requests_user(*)")
+          .order("created_at", { ascending: false })
+          .limit(80)
+      );
       if (error) return;
       if (data) {
         const cards = (data as Array<HelpRequest & { profile: Profile }>)
@@ -95,11 +98,13 @@ export function useDiscover(
   const loadHelpRequests = async () => {
     try {
       const [requestsRes, canPostRes] = await Promise.all([
-        supabase.from("help_requests")
+        withRetry(() => supabase.from("help_requests")
           .select("*, profile:profiles!fk_help_requests_user(*)")
           .order("created_at", { ascending: false })
-          .limit(30),
-        user ? supabase.from("profiles").select("can_post").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+          .limit(30)),
+        user
+          ? withRetry(() => supabase.from("profiles").select("can_post").eq("id", user.id).maybeSingle())
+          : Promise.resolve({ data: null, error: null } as { data: unknown; error: unknown }),
       ]);
       if (requestsRes.error) { logError("loadHelpRequests", requestsRes.error); return; }
       if (requestsRes.data) {

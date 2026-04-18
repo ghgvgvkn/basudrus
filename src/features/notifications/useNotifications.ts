@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import type { Notification } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import { logError } from "@/services/analytics";
+import { withRetry } from "@/shared/retry";
 
 export function useNotifications() {
   const { user } = useApp();
@@ -16,12 +17,14 @@ export function useNotifications() {
   const loadNotifications = async () => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*, from_profile:profiles!notifications_from_id_fkey(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
+      const { data, error } = await withRetry(() =>
+        supabase
+          .from("notifications")
+          .select("*, from_profile:profiles!notifications_from_id_fkey(*)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(50)
+      );
       if (error) { logError("loadNotifications", error); return; }
       if (data) setNotifications(data as Notification[]);
     } catch (e) { logError("loadNotifications", e); }
