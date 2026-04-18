@@ -2160,15 +2160,17 @@ export default function BasUdrus() {
 
       {/* ══════════════ CONNECT (merged connections + chat) ══════════════ */}
       {curTab==="connect"&&(() => {
-        // Connect tab only shows people you've exchanged messages with.
-        // Matches without any chat yet are accessible from Discover / profile modal.
-        // A partner is "in the inbox" if there are messages or there's an unread count.
-        const chatPartners = connections.filter(c => partnersWithMessages.has(c.id) || (unreadCounts[c.id] || 0) > 0);
-        // Sort order per user request: people who messaged you FIRST (earliest
-        // last-received) at the top; people who messaged you LAST at the bottom.
-        // Partners who haven't messaged you (you sent first, no reply yet) go
-        // to the end.
+        // Connect tab shows EVERY connection. People with active chats sort to the
+        // top, brand-new matches (no messages exchanged yet) show at the bottom
+        // with a "New — say hi" hint so the user can start the conversation.
+        const chatPartners = connections;
+        // Sort order: unread first, then by oldest-unanswered received message
+        // (so someone waiting on a reply bubbles up), then alphabetical for new
+        // matches with no messages yet.
         const sortedChatPartners = [...chatPartners].sort((a, b) => {
+          const ua = unreadCounts[a.id] || 0;
+          const ub = unreadCounts[b.id] || 0;
+          if (ua !== ub) return ub - ua; // higher unread first
           const ta = lastReceivedAt[a.id] || "";
           const tb = lastReceivedAt[b.id] || "";
           // Those with a received message come before those without
@@ -2179,13 +2181,16 @@ export default function BasUdrus() {
           return ta.localeCompare(tb);
         });
         const hasChats = sortedChatPartners.length > 0;
+        // Track which partners are brand-new (no message history with them).
+        const isNewMatch = (id: string) =>
+          !partnersWithMessages.has(id) && (unreadCounts[id] || 0) === 0;
         return (
         <div className="chat-wrap" style={{maxWidth:1200,margin:"0 auto",width:"100%",flex:1,display:"flex",height:"calc(100dvh - 62px)"}}>
           {/* Left sidebar — contact list (only partners with messages) */}
           <div className={`chat-sidebar${!hasChats?" chat-sidebar-empty":""}`} style={{width:260,borderRight:`1px solid ${T.border}`,background:T.navBg,overflowY:"auto",flexShrink:0,display:"flex",flexDirection:"column"}}>
             <div style={{padding:"12px 14px",borderBottom:`1px solid ${T.border}`}}>
               <div style={{fontSize:14,fontWeight:700,color:T.navy}}>Messages</div>
-              <div style={{fontSize:10,color:T.muted,marginTop:1}}>{sortedChatPartners.length} conversation{sortedChatPartners.length!==1?"s":""}{totalUnread>0?` · +${totalUnread} new`:""}</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:1}}>{sortedChatPartners.length} match{sortedChatPartners.length!==1?"es":""}{totalUnread>0?` · +${totalUnread} new`:""}</div>
             </div>
             {!hasChats?(
               <div style={{padding:"24px 14px",textAlign:"center"}}>
@@ -2197,6 +2202,7 @@ export default function BasUdrus() {
               <div style={{flex:1,overflowY:"auto",padding:"8px 8px"}}>
                 {sortedChatPartners.map(s=>{
                   const unread = unreadCounts[s.id] || 0;
+                  const isNew = isNewMatch(s.id);
                   return (
                   <div key={s.id} className={`conn-row conn-row-mini ${activeChat?.id===s.id?"active":""}`}
                     style={{padding:"10px 12px",borderRadius:12,marginBottom:4,cursor:"pointer",display:"flex",alignItems:"center",gap:10,position:"relative"}}
@@ -2204,14 +2210,14 @@ export default function BasUdrus() {
                     <Avatar s={s} size={38} T={T}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:13,fontWeight:unread>0?800:600,color:T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.name}</div>
-                      <div style={{fontSize:11,color:s.online?T.green:T.muted,marginTop:1}}>{s.online?"● Online":"● Offline"}{parseCourses(s.course ?? "").length > 0 ? ` · ${parseCourses(s.course ?? "")[0]}` : ""}</div>
+                      <div style={{fontSize:11,color:isNew?T.accent:(s.online?T.green:T.muted),marginTop:1,fontWeight:isNew?700:400}}>{isNew?"✨ New match · Say hi":`${s.online?"● Online":"● Offline"}${parseCourses(s.course ?? "").length > 0 ? ` · ${parseCourses(s.course ?? "")[0]}` : ""}`}</div>
                     </div>
                     {unread>0&&(
                       <span style={{background:T.red,color:"#fff",borderRadius:99,minWidth:26,height:22,padding:"0 8px",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,boxShadow:`0 2px 8px ${T.red}55`}}>
                         +{unread>99?"99":unread}
                       </span>
                     )}
-                    {ratings[s.id]&&unread===0&&<div style={{fontSize:11,color:"#F5A623"}}>{ratings[s.id]}★</div>}
+                    {ratings[s.id]&&unread===0&&!isNew&&<div style={{fontSize:11,color:"#F5A623"}}>{ratings[s.id]}★</div>}
                   </div>
                   );
                 })}
@@ -2231,18 +2237,24 @@ export default function BasUdrus() {
               ):(
                 <div style={{flex:1,overflowY:"auto",padding:20}}>
                   <div style={{marginBottom:20}}>
-                    <div style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:4}}>Select a conversation{totalUnread>0?` (+${totalUnread} unread)`:""}:</div>
+                    <div style={{fontSize:14,fontWeight:600,color:T.navy,marginBottom:4}}>{totalUnread>0?`Select a conversation (+${totalUnread} unread):`:`Your matches (${sortedChatPartners.length}):`}</div>
                   </div>
                   <div className="chat-partner-cards" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
                     {sortedChatPartners.map(s=>{
                       const unread = unreadCounts[s.id] || 0;
+                      const isNew = isNewMatch(s.id);
                       return (
-                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer",position:"relative",border:unread>0?`2px solid ${T.red}`:undefined,boxShadow:unread>0?`0 4px 20px ${T.red}33`:undefined}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
+                      <div key={s.id} className="card fade-in" style={{padding:16,cursor:"pointer",position:"relative",border:unread>0?`2px solid ${T.red}`:(isNew?`1.5px solid ${T.accent}55`:undefined),boxShadow:unread>0?`0 4px 20px ${T.red}33`:undefined}} onClick={()=>{setActiveChat(s);loadMessages(s.id);trackEvent("chat_open",{partner_id:s.id});}}>
                         {/* Prominent unread pill in the top-right corner */}
                         {unread>0&&(
                           <div style={{position:"absolute",top:-10,right:-6,background:T.red,color:"#fff",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",gap:4,boxShadow:`0 4px 14px ${T.red}55`,border:"2px solid "+T.surface,letterSpacing:"0.02em",zIndex:2}}>
                             <span style={{fontSize:14,lineHeight:1}}>💬</span>
                             +{unread>99?"99":unread} new
+                          </div>
+                        )}
+                        {isNew&&unread===0&&(
+                          <div style={{position:"absolute",top:-8,right:-4,background:T.accent,color:"#fff",borderRadius:99,padding:"3px 10px",fontSize:10,fontWeight:700,boxShadow:`0 3px 10px ${T.accent}55`,border:"2px solid "+T.surface,letterSpacing:"0.02em",zIndex:2}}>
+                            ✨ New
                           </div>
                         )}
                         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
@@ -2254,6 +2266,11 @@ export default function BasUdrus() {
                             <div style={{fontSize:11,color:T.muted}}>{s.uni}</div>
                           </div>
                         </div>
+                        {isNew&&(
+                          <div style={{fontSize:11,color:T.accent,fontWeight:600,marginBottom:8,padding:"6px 10px",background:T.accentSoft,borderRadius:8,textAlign:"center"}}>
+                            👋 Tap to say hi
+                          </div>
+                        )}
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                           <span style={{background:T.accentSoft,color:T.accent,padding:"3px 10px",borderRadius:99,fontSize:10,fontWeight:600}}>{getMeetIcon(s.meet_type)} {getMeetLabel(s.meet_type)}</span>
                           <button style={{background:"none",border:"none",color:T.accent,fontSize:11,fontWeight:600,cursor:"pointer"}} onClick={e=>{e.stopPropagation();setRateModal(s);setHoverStar(0);}}>Rate ⭐</button>
