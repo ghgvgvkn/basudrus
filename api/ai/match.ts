@@ -1,7 +1,31 @@
 export const config = { runtime: "edge" };
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const ALLOWED_ORIGINS = ["https://basudrus.com", "https://www.basudrus.com", "https://basudrus.vercel.app"];
+
+// ── Rate limit + usage logging (Match runs once per Discover load — be generous) ──
+const LIMITS = { daily: 50, hourly: 30, minute: 6 };
+
+async function checkRateLimit(authHeader: string | null) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !authHeader) return { allowed: true, daily_count: 0 };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_ai_rate_limit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": authHeader },
+      body: JSON.stringify({
+        p_user_id: null,
+        p_endpoint: "match",
+        p_daily_limit: LIMITS.daily,
+        p_hourly_limit: LIMITS.hourly,
+        p_minute_limit: LIMITS.minute,
+      }),
+    });
+    if (!res.ok) return { allowed: true, daily_count: 0 };
+    return await res.json();
+  } catch { return { allowed: true, daily_count: 0 }; }
+}
 
 function secHeaders(origin?: string | null) {
   const h: Record<string, string> = { "X-Content-Type-Options": "nosniff" };
@@ -23,6 +47,16 @@ export default async function handler(req: Request) {
   }
 
   try {
+    // ── Rate limit + log (fail-open if DB unreachable, matches tutor.ts pattern) ──
+    const authHeader = req.headers.get("authorization");
+    const rateCheck = await checkRateLimit(authHeader);
+    if (!rateCheck.allowed) {
+      // Match is silent on the client (background scoring) — return empty scores instead of erroring.
+      return new Response(JSON.stringify({ scores: [], rateLimited: true, reason: rateCheck.reason }), {
+        status: 200, headers: { ...sH, "Content-Type": "application/json" },
+      });
+    }
+
     const { myProfile, candidates } = await req.json();
 
     if (!myProfile || !candidates || candidates.length === 0) {

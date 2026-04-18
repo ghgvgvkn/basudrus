@@ -284,9 +284,12 @@ export function useAI(allStudents: Profile[]) {
     if (matchLoading || allStudents.length === 0) return;
     setMatchLoading(true);
     try {
+      // Pass the user's session token so the server can rate-limit AND log the call
+      // against the right user (otherwise auth.uid() is null and ai_usage misses the row).
+      const { data: { session: mSess } } = await supabase.auth.getSession();
       const res = await fetch("/api/ai/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(mSess?.access_token ? { "Authorization": `Bearer ${mSess.access_token}` } : {}) },
         body: JSON.stringify({ myProfile: profile, candidates: allStudents.slice(0, 15), userId: user?.id || "" }),
       });
       const data = await res.json();
@@ -304,11 +307,19 @@ export function useAI(allStudents: Profile[]) {
     saveMemory("planner", "user", `Subjects: ${planSubjects}, Exams: ${planExamDates || "none"}`);
     saveTrendingTopic(planSubjects.split(",")[0]?.trim() || planSubjects);
     try {
+      // Pass auth token so the server logs this plan generation under the right user.
+      const { data: { session: pSess } } = await supabase.auth.getSession();
       const res = await fetch("/api/ai/study-plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(pSess?.access_token ? { "Authorization": `Bearer ${pSess.access_token}` } : {}) },
         body: JSON.stringify({ subjects: planSubjects, major: profile.major, year: profile.year, uni: profile.uni || "", examDates: planExamDates, userId: user?.id || "", lang: aiLang === "auto" ? undefined : aiLang }),
       });
+      if (res.status === 429) {
+        const errData = await res.json().catch(() => ({ reason: "daily_limit" }));
+        setPlanLoading(false);
+        showNotif(errData.error || "Slow down — try again in a moment", "err");
+        return;
+      }
       if (!res.ok || !res.body) { showNotif("Failed to generate plan.", "err"); setPlanLoading(false); return; }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
