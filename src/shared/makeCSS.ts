@@ -263,6 +263,15 @@ export const makeCSS = (T: Theme) => `
     .chat-msg-input { padding:8px 12px!important; }
     .chat-msg-input input { padding:10px 14px!important; font-size:16px!important; }
     .chat-msg-input button { padding:10px 16px!important; font-size:12px!important; }
+    /* Mobile chat tweaks — compact header, readable bubbles, wider bubbles on narrow screens */
+    .chat-header-bar { padding:10px 12px!important; gap:10px!important; }
+    .chat-header-bar > button:first-child { font-size:24px!important; padding:4px 6px!important; }
+    .chat-header-name { font-size:15px!important; }
+    .chat-header-status { font-size:12px!important; }
+    .chat-header-actions { gap:4px!important; flex-wrap:nowrap!important; }
+    .chat-header-actions button { padding:6px 10px!important; font-size:11px!important; }
+    .msg-bubble { max-width:85%!important; font-size:15px!important; line-height:1.45!important; padding:11px 15px!important; }
+    .msg-bubble audio { max-width:100%!important; width:100%!important; }
     .chat-partner-cards { grid-template-columns:1fr!important; gap:8px!important; padding:12px!important; }
     .conn-course-hide{ display:none; }
     .dis-page  { height:calc(100dvh - 52px)!important; padding-top:0!important; }

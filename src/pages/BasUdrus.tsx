@@ -2266,14 +2266,14 @@ export default function BasUdrus() {
               )
             ):(
               <>
-                <div style={{background:T.navBg,padding:"12px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-                  <button onClick={()=>setActiveChat(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:T.muted,padding:"2px 6px",display:"flex",alignItems:"center"}}>←</button>
+                <div className="chat-header-bar" style={{background:T.navBg,padding:"12px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+                  <button onClick={()=>setActiveChat(null)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:T.muted,padding:"2px 6px",display:"flex",alignItems:"center",flexShrink:0}}>←</button>
                   <Avatar s={activeChat} size={38} T={T}/>
-                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>openStudentProfile(activeChat.id, activeChat)}>
-                    <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{activeChat.name}</div>
-                    <div style={{fontSize:11,color:activeChat.online?T.green:T.muted,fontWeight:500}}>{activeChat.online?"● Online now":"● Offline"}{parseCourses(activeChat.course ?? "").length > 0 ? ` · ${parseCourses(activeChat.course ?? "")[0]}` : ""}</div>
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>openStudentProfile(activeChat.id, activeChat)}>
+                    <div className="chat-header-name" style={{fontWeight:700,fontSize:15,color:T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{activeChat.name}</div>
+                    <div className="chat-header-status" style={{fontSize:12,color:activeChat.online?T.green:T.muted,fontWeight:500,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{activeChat.online?"● Online now":"● Offline"}{parseCourses(activeChat.course ?? "").length > 0 ? ` · ${parseCourses(activeChat.course ?? "")[0]}` : ""}</div>
                   </div>
-                  <div className="chat-header-actions" style={{display:"flex",gap:6}}>
+                  <div className="chat-header-actions" style={{display:"flex",gap:6,flexShrink:0}}>
                     <button className="btn-accent" style={{padding:"7px 14px",fontSize:12,borderRadius:99}} onClick={()=>setSchedModal(activeChat)}>📅 Schedule</button>
                     <button style={{background:T.goldSoft,color:T.gold,border:"none",padding:"7px 14px",borderRadius:99,fontSize:12,fontWeight:600,cursor:"pointer"}} onClick={()=>{setRateModal(activeChat);setHoverStar(0);}}>⭐ Rate</button>
                   </div>
@@ -2282,32 +2282,32 @@ export default function BasUdrus() {
                   {(messages[activeChat.id]||[]).length===0&&(
                     <div style={{textAlign:"center",padding:"40px 20px",color:T.muted}}>
                       <div style={{fontSize:28,marginBottom:8}}>👋</div>
-                      <div style={{fontSize:13}}>Say hello to {activeChat.name.split(" ")[0]}!</div>
+                      <div style={{fontSize:14}}>Say hello to {activeChat.name.split(" ")[0]}!</div>
                     </div>
                   )}
                   {(messages[activeChat.id]||[]).map(m=>(
-                    <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:m.sender_id===user?.id?"flex-end":"flex-start"}}>
-                      <div className={m.sender_id===user?.id?"msg-mine":"msg-theirs"} style={{maxWidth:"76%",padding:(m.message_type||"text")==="image"?"4px":"10px 14px",borderRadius:16,fontSize:13,lineHeight:1.56,overflow:"hidden"}}>
+                    <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:m.sender_id===user?.id?"flex-end":"flex-start",maxWidth:"100%"}}>
+                      <div className={m.sender_id===user?.id?"msg-mine msg-bubble":"msg-theirs msg-bubble"} style={{maxWidth:"82%",padding:(m.message_type||"text")==="image"?"4px":"11px 15px",borderRadius:18,fontSize:15,lineHeight:1.5,overflow:"hidden",wordWrap:"break-word",overflowWrap:"break-word"}}>
                         {(m.message_type||"text")==="voice"&&m.file_url?(
                           <div style={{display:"flex",alignItems:"center",gap:8,padding:m.message_type==="image"?"8px 10px":0}}>
                             <span style={{fontSize:18}}>🎤</span>
-                            <audio controls preload="metadata" style={{height:36,maxWidth:220}} src={m.file_url}/>
+                            <audio controls preload="metadata" style={{height:36,maxWidth:"100%",width:220}} src={m.file_url}/>
                           </div>
                         ):(m.message_type||"text")==="image"&&m.file_url?(
                           <img src={m.file_url} alt={m.file_name||"Image"} loading="lazy" style={{maxWidth:"100%",maxHeight:280,borderRadius:12,display:"block",cursor:"pointer"}} onClick={()=>window.open(m.file_url!,"_blank")}/>
                         ):(m.message_type||"text")==="file"&&m.file_url?(
-                          <a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:8,color:"inherit",textDecoration:"none"}}>
-                            <span style={{fontSize:22}}>📄</span>
-                            <div>
-                              <div style={{fontWeight:600,fontSize:13,wordBreak:"break-word"}}>{m.file_name||"File"}</div>
-                              <div style={{fontSize:11,opacity:0.7}}>Tap to open</div>
+                          <a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:10,color:"inherit",textDecoration:"none"}}>
+                            <span style={{fontSize:24}}>📄</span>
+                            <div style={{minWidth:0,flex:1}}>
+                              <div style={{fontWeight:600,fontSize:14,wordBreak:"break-word"}}>{m.file_name||"File"}</div>
+                              <div style={{fontSize:12,opacity:0.7,marginTop:2}}>Tap to open</div>
                             </div>
                           </a>
                         ):(
                           <>{m.text}</>
                         )}
                       </div>
-                      <div style={{fontSize:10,color:T.muted,marginTop:3}}>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
+                      <div style={{fontSize:11,color:T.muted,marginTop:4}}>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
                     </div>
                   ))}
                   <div ref={chatEndRef}/>
