@@ -144,26 +144,36 @@ export function useDiscover(
     if (postLoading) return;
     setPostLoading(true);
     try {
-      const { data: existingProfile, error: profileCheckError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", user.id)
-        .single();
+      // Check the profile exists. Use maybeSingle + withRetry so a transient
+      // network flake doesn't bounce the user to the Profile screen with the
+      // misleading "save your profile first" message. Only block if we're
+      // CERTAIN the profile row is missing (data is null without an error).
+      const { data: existingProfile, error: profileCheckError } = await withRetry<{ id: string }>(() =>
+        supabase
+          .from("profiles")
+          .select("id")
+          .eq("id", user.id)
+          .maybeSingle()
+      );
 
-      if (profileCheckError || !existingProfile) {
+      if (!existingProfile && !profileCheckError) {
         setPostLoading(false);
         showNotif("Please save your profile first before posting", "err");
         setShowReqModal(false);
         setScreen("profile");
         return;
       }
+      // If we got a profile OR hit a network error, try the insert anyway —
+      // RLS will block the insert if the profile genuinely doesn't exist.
 
-      const { data, error } = await supabase.from("help_requests").insert({
-        user_id: user.id,
-        subject: newReq.subject,
-        detail: newReq.detail.trim(),
-        meet_type: newReq.meetType,
-      }).select().single();
+      const { data, error } = await withRetry<HelpRequest>(() =>
+        supabase.from("help_requests").insert({
+          user_id: user.id,
+          subject: newReq.subject,
+          detail: newReq.detail.trim(),
+          meet_type: newReq.meetType,
+        }).select().single()
+      );
       if (!error && data) {
         const fullReq = { ...data, profile };
         setHelpRequests(prev => [fullReq as HelpRequest, ...prev]);
@@ -173,9 +183,16 @@ export function useDiscover(
         showNotif("Your post is live! 📢");
         await awardBadge("helper");
       } else if (error) {
-        showNotif("Error posting — " + (error.message || "please try again"), "err");
+        logError("submitRequest:insert", error);
+        const msg = (error as { message?: string })?.message || "please try again";
+        showNotif("Error posting — " + msg, "err");
+        trackEvent("post_fail", { reason: msg.slice(0, 100) });
       }
-    } catch { showNotif("Error posting — please try again", "err"); }
+    } catch (e) {
+      logError("submitRequest", e);
+      showNotif("Error posting — please try again", "err");
+      trackEvent("post_fail", { reason: "exception" });
+    }
     setPostLoading(false);
   };
 
