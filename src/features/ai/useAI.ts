@@ -145,11 +145,25 @@ export function useAI(allStudents: Profile[]) {
     setTutorMsgs(prev => [...prev, { role: "assistant" as const, content: "" }]);
     saveMemory("tutor", "user", msg);
     if (tutorSubject) saveTrendingTopic(tutorSubject);
+    // Safety net — same as wellbeing: force-unstick if the stream hangs so the
+    // user isn't locked out of sending the next message without a page refresh.
+    const hangGuard = setTimeout(() => {
+      setTutorLoading(false);
+      setTutorMsgs(prev => {
+        if (prev.length > 0 && prev[prev.length - 1].role === "assistant" && prev[prev.length - 1].content === "") {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
+      if (abortRef.current) { try { abortRef.current.abort(); } catch { /* already aborted */ } }
+      showNotif("That took too long — try sending again", "err");
+    }, 90_000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       const apiMsgs = fileCtx ? [...tutorMsgs, { role: "user" as const, content: msg + fileCtx }] : newMsgs;
       const memory = formatMemoryForPrompt("tutor");
       const { data: { session: sess } } = await supabase.auth.getSession();
-      if (abortRef.current) abortRef.current.abort();
+      if (abortRef.current) { try { abortRef.current.abort(); } catch { /* already aborted */ } }
       abortRef.current = new AbortController();
       const res = await fetch("/api/ai/tutor", {
         method: "POST",
@@ -160,7 +174,6 @@ export function useAI(allStudents: Profile[]) {
       if (res.status === 429) {
         const errData = await res.json().catch(() => ({ reason: "daily_limit" }));
         setTutorMsgs(prev => prev.slice(0, -1));
-        setTutorLoading(false);
         if (errData.reason === "daily_limit" || errData.reason === "hourly_limit") {
           setAiLimitModal({ show: true, reason: errData.reason, endpoint: "tutor" });
         } else {
@@ -169,7 +182,7 @@ export function useAI(allStudents: Profile[]) {
         return;
       }
       if (!res.ok || !res.body) throw new Error("AI error");
-      const reader = res.body.getReader();
+      reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
       let buffer = "";
@@ -204,6 +217,9 @@ export function useAI(allStudents: Profile[]) {
       setTutorMsgs(prev => prev.slice(0, -1));
       showNotif("AI tutor error. Please try again.", "err");
     } finally {
+      clearTimeout(hangGuard);
+      if (reader) { try { reader.releaseLock(); } catch { /* already released */ } }
+      abortRef.current = null;
       setTutorLoading(false);
     }
   };
@@ -218,10 +234,26 @@ export function useAI(allStudents: Profile[]) {
     setWellbeingLoading(true);
     setWellbeingMsgs(prev => [...prev, { role: "assistant" as const, content: "" }]);
     saveMemory("wellbeing", "user", msg);
+    // Safety net: if the stream hangs (Edge runtime sometimes holds connections
+    // open indefinitely), force-unstick after 90 seconds so the user isn't
+    // locked out of sending their next message until they refresh the page.
+    const hangGuard = setTimeout(() => {
+      setWellbeingLoading(false);
+      setWellbeingMsgs(prev => {
+        // Only remove the trailing empty placeholder — don't wipe a half-streamed reply
+        if (prev.length > 0 && prev[prev.length - 1].role === "assistant" && prev[prev.length - 1].content === "") {
+          return prev.slice(0, -1);
+        }
+        return prev;
+      });
+      if (abortRef.current) { try { abortRef.current.abort(); } catch { /* already aborted */ } }
+      showNotif("That took too long — try sending again", "err");
+    }, 90_000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       const memory = formatMemoryForPrompt("wellbeing");
       const { data: { session: wSess } } = await supabase.auth.getSession();
-      if (abortRef.current) abortRef.current.abort();
+      if (abortRef.current) { try { abortRef.current.abort(); } catch { /* already aborted */ } }
       abortRef.current = new AbortController();
       const res = await fetch("/api/ai/wellbeing", {
         method: "POST",
@@ -232,7 +264,6 @@ export function useAI(allStudents: Profile[]) {
       if (res.status === 429) {
         const errData = await res.json().catch(() => ({ reason: "daily_limit" }));
         setWellbeingMsgs(prev => prev.slice(0, -1));
-        setWellbeingLoading(false);
         if (errData.reason === "daily_limit" || errData.reason === "hourly_limit") {
           setAiLimitModal({ show: true, reason: errData.reason, endpoint: "wellbeing" });
         } else {
@@ -241,7 +272,7 @@ export function useAI(allStudents: Profile[]) {
         return;
       }
       if (!res.ok || !res.body) throw new Error("AI error: " + res.status);
-      const reader = res.body.getReader();
+      reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = "";
       let buffer = "";
@@ -276,6 +307,13 @@ export function useAI(allStudents: Profile[]) {
       setWellbeingMsgs(prev => prev.slice(0, -1));
       showNotif("Could not reach Mental Health AI. Please try again.", "err");
     } finally {
+      clearTimeout(hangGuard);
+      // Release the stream reader so its lock on the body is fully dropped
+      // even if the while loop exited via exception.
+      if (reader) { try { reader.releaseLock(); } catch { /* already released */ } }
+      // Null the abort controller so a lingering reference doesn't cause
+      // confusion on the next send.
+      abortRef.current = null;
       setWellbeingLoading(false);
     }
   };
