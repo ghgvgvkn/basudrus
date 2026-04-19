@@ -118,7 +118,15 @@ export function useDiscover(
 
   const enablePosting = async () => {
     setCanPost(true);
-    showNotif("Posting enabled! You can now create study requests 🎉");
+    // Open the post modal right away so the user doesn't have to tap a second
+    // time. The old two-step flow confused ~89% of users — they'd tap the
+    // green FAB, see the toast "Posting enabled!", and assume they were done.
+    if (profile.name && profile.uni && profile.major) {
+      setShowReqModal(true);
+    } else {
+      showNotif("Complete your profile first — add your name, university & major 👤", "err");
+      setScreen("profile");
+    }
     if (user) {
       try {
         const { error } = await supabase.from("profiles").update({ can_post: true }).eq("id", user.id);
