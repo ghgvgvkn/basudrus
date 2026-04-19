@@ -2797,28 +2797,66 @@ export default function BasUdrus() {
             {aiTab==="tutor"&&(
               <>
                 <input type="file" ref={tutorFileRef} accept=".txt,.pdf,.md,.csv,.json,.js,.ts,.py,.java,.c,.cpp,.html,.css,.tex,.rtf,.log,.xml,.yaml,.yml,.sql,.r,.go,.rs,.swift,.kt,.rb,.php,.sh" style={{display:"none"}}
-                  onChange={e=>{
+                  onChange={async e=>{
                     const f=e.target.files?.[0];if(!f)return;
-                    // 40 MB hard ceiling — protects against runaway memory on phones (FileReader.readAsText
-                    // allocates ~2× the file size in JS string memory).
+                    e.target.value="";
+                    // 40 MB hard ceiling.
                     const MAX_FILE_BYTES = 40 * 1024 * 1024;
                     if(f.size > MAX_FILE_BYTES){
                       showNotif(`File too large — max 40 MB (you sent ${(f.size/1024/1024).toFixed(1)} MB)`, "err");
                       return;
                     }
+                    const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
+                    const sizeMB = (f.size/1024/1024).toFixed(1);
+                    if (isPdf) {
+                      // Extract actual text from the PDF via pdfjs-dist loaded from a CDN.
+                      // Previously readAsText() was used, which produced binary garbage that
+                      // made the tutor hang on an empty response bubble.
+                      showNotif("📄 Reading PDF...", "ok");
+                      try {
+                        // @ts-expect-error — dynamic CDN import, no bundled types
+                        const pdfjs: any = await import(/* @vite-ignore */ "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.min.mjs");
+                        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs";
+                        const buf = await f.arrayBuffer();
+                        const pdf = await pdfjs.getDocument({ data: buf }).promise;
+                        let fullText = "";
+                        const maxPages = Math.min(pdf.numPages, 60); // safety cap
+                        for (let i = 1; i <= maxPages; i++) {
+                          const page = await pdf.getPage(i);
+                          const content = await page.getTextContent();
+                          const pageText = content.items.map((it: any) => it.str).join(" ");
+                          fullText += `\n\n--- Page ${i} ---\n${pageText}`;
+                          if (fullText.length > 60000) break; // cap total size
+                        }
+                        const cleaned = fullText.trim();
+                        if (!cleaned || cleaned.length < 20) {
+                          showNotif("Couldn't extract text — PDF may be image-only (scanned). Try a text-based PDF or paste the content.", "err");
+                          return;
+                        }
+                        setTutorFile({ name: f.name, text: cleaned });
+                        showNotif(`📄 ${f.name} loaded (${pdf.numPages} pages)`, "ok");
+                      } catch (err) {
+                        showNotif("Couldn't read PDF — try a different file, or copy the text and paste it.", "err");
+                      }
+                      return;
+                    }
+                    // Non-PDF: read as text (works for .txt, .md, .csv, .json, .js/.ts/.py/etc.)
                     const reader=new FileReader();
                     reader.onerror=()=>showNotif("Couldn't read the file — try a different one","err");
                     reader.onload=()=>{
                       const text = (reader.result as string) || "";
+                      if (!text.trim()) {
+                        showNotif("File looks empty — try a different one", "err");
+                        return;
+                      }
                       setTutorFile({name:f.name, text});
-                      const sizeMB = (f.size/1024/1024).toFixed(1);
-                      const chars = text.length;
-                      if(chars > 40000){
+                      if(text.length > 40000){
                         showNotif(`Loaded ${sizeMB} MB — AI will read the first ~40k characters`, "ok");
+                      } else {
+                        showNotif(`📄 ${f.name} loaded`, "ok");
                       }
                     };
                     reader.readAsText(f);
-                    e.target.value="";
                   }}/>
                 <button onClick={()=>tutorFileRef.current?.click()} title="Upload course material"
                   style={{width:46,height:46,borderRadius:14,border:`1.5px solid ${T.border}`,background:tutorFile?T.accentSoft:T.bg,color:tutorFile?T.accent:T.muted,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
