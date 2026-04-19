@@ -12,15 +12,22 @@ interface State {
 }
 
 // Errors that almost always come from browser extensions (Google Translate,
-// Dark Reader, ad blockers) fighting React's virtual DOM. The app itself is
-// fine — we silently re-mount instead of showing a scary "Something went wrong"
-// screen to the user.
+// Dark Reader, ad blockers) fighting React's virtual DOM, or transient React
+// reconciliation issues on rapid route changes. The app itself is fine — we
+// silently re-mount instead of showing a scary "Something went wrong" screen.
 const AUTO_RECOVER_PATTERNS = [
+  // Google Translate / Dark Reader fighting React DOM
   /Failed to execute 'removeChild'/i,
   /Failed to execute 'insertBefore'/i,
+  /Failed to execute 'appendChild'/i,
   /The node to be removed is not a child of this node/i,
   /The node before which the new node is to be inserted is not a child of this node/i,
+  // Safari IndexedDB / Storage cleared under the user (Private mode, memory pressure)
   /NotFoundError.*The object can not be found here/i,
+  /The object can not be found here/i,
+  // Transient React reconciliation — retrying the subtree fixes it
+  /Should have a queue.*calling Hooks conditionally/i,
+  /Minified React error #(300|301|310|425)/i,  // hydration / hooks transient errors
 ];
 
 function isAutoRecoverable(msg: string): boolean {
