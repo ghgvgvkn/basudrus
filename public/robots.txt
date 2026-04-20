@@ -1,4 +1,8 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://bas-udrus.replit.app/sitemap.xml
+# Disallow authenticated / session-only paths from indexing (keeps the
+# crawler on the public, educational landing content).
+Disallow: /api/
+
+Sitemap: https://basudrus.com/sitemap.xml
