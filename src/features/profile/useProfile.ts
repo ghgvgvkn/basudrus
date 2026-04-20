@@ -196,22 +196,38 @@ export function useProfile(
       // Use a unique path per upload so CDN cache is never stale for other viewers.
       // The old avatar remains in storage but is orphaned; optionally cleaned up below.
       const newPath = `${user.id}/avatar-${Date.now()}.jpg`;
-      const { error: upErr } = await supabase.storage.from("avatars").upload(newPath, blob, {
-        upsert: false,
-        contentType: "image/jpeg",
-        cacheControl: "3600",
-      });
+      // Retry the upload once on transient edge errors (Cloudflare 520 / upstream
+      // timeouts between Vercel and Supabase storage). A user hit HTTP 520 on
+      // Apr 20 and had no recovery path — one retry fixes it silently.
+      type UploadErr = { message?: string; statusCode?: number; status?: number } | null;
+      let upErr: UploadErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const res = await supabase.storage.from("avatars").upload(newPath, blob, {
+          upsert: false,
+          contentType: "image/jpeg",
+          cacheControl: "3600",
+        });
+        upErr = (res.error as UploadErr) ?? null;
+        if (!upErr) break;
+        const m = (upErr.message || "").toLowerCase();
+        const code = Number(upErr.statusCode || upErr.status || 0);
+        const isTransient = /520|521|522|523|524|502|503|504|timeout|gateway|network|fetch failed|connection/i.test(m) || (code >= 500 && code <= 599);
+        if (!isTransient || attempt >= 1) break;
+        await new Promise(r => setTimeout(r, 700));
+      }
       if (upErr) {
         logError("cropAndUpload:upload", upErr);
-        const msg = (upErr.message || "").toLowerCase();
+        const msg = ((upErr as UploadErr)?.message || "").toLowerCase();
         if (msg.includes("bucket") || msg.includes("not found")) {
           showNotif("Upload failed — the 'avatars' bucket is missing in Supabase Storage", "err");
         } else if (msg.includes("permission") || msg.includes("policy") || msg.includes("unauthorized") || msg.includes("forbidden")) {
           showNotif("Upload blocked — storage policy is denying write access", "err");
-        } else if (msg.includes("network") || msg.includes("fetch") || msg.includes("timeout") || !navigator.onLine) {
+        } else if (msg.includes("520") || msg.includes("502") || msg.includes("503") || msg.includes("504") || msg.includes("gateway") || msg.includes("timeout")) {
+          showNotif("Photo upload had a brief hiccup — please try again in a moment", "err");
+        } else if (msg.includes("network") || msg.includes("fetch") || !navigator.onLine) {
           showNotif("Upload failed — connection issue. Try again.", "err");
         } else {
-          showNotif(`Upload failed: ${upErr.message || "unknown error"}`, "err");
+          showNotif(`Upload failed: ${(upErr as UploadErr)?.message || "unknown error"}`, "err");
         }
         return;
       }

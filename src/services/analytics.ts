@@ -167,6 +167,15 @@ function shouldDedup(key: string): boolean {
   return false;
 }
 
+// Reentrancy guard: if trackEvent itself ever throws (e.g. circular-JSON in
+// meta, or a React re-entrant render throwing during enqueue) the global
+// error handler fires again and we recurse into the same handler. That
+// manifests as `RangeError: Maximum call stack size exceeded` in production
+// — one iPhone user hit this twice in April 2026. The guard lets exactly ONE
+// error through per tick; anything thrown while we're already handling an
+// error is dropped.
+let _inErrorHandler = false;
+
 // Flush on tab close + global error catching
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => { flushCounters(); flushEvents(); });
@@ -175,31 +184,41 @@ if (typeof window !== "undefined") {
   });
   // Catch uncaught errors — filter third-party noise, capture real context
   window.addEventListener("error", (e) => {
-    const msg = (e.message || "").slice(0, 300);
-    if (isNoiseError(msg)) return;
-    if (shouldDedup(`err:${msg}`)) return;
-    trackEvent("js_error", {
-      message: msg,
-      file: (e.filename || "").split("/").pop(),
-      line: e.lineno,
-      col: e.colno,
-      stack: (e.error?.stack || "").slice(0, 500),
-      url: location.pathname + location.search,
-      ua: navigator.userAgent.slice(0, 150),
-    });
+    if (_inErrorHandler) return;
+    _inErrorHandler = true;
+    try {
+      const msg = (e.message || "").slice(0, 300);
+      if (isNoiseError(msg)) return;
+      if (shouldDedup(`err:${msg}`)) return;
+      trackEvent("js_error", {
+        message: msg,
+        file: (e.filename || "").split("/").pop(),
+        line: e.lineno,
+        col: e.colno,
+        stack: (e.error?.stack || "").slice(0, 500),
+        url: location.pathname + location.search,
+        ua: navigator.userAgent.slice(0, 150),
+      });
+    } catch { /* swallow — must never throw from an error handler */ }
+    finally { _inErrorHandler = false; }
   });
   window.addEventListener("unhandledrejection", (e) => {
-    const reason = e.reason;
-    const msg = reason instanceof Error ? reason.message : (typeof reason === "string" ? reason : "");
-    if (isNoiseError(msg)) return;
-    if (shouldDedup(`prom:${msg}`)) return;
-    trackEvent("js_error", {
-      message: msg.slice(0, 300),
-      type: "unhandled_promise",
-      stack: (reason instanceof Error ? reason.stack || "" : "").slice(0, 500),
-      url: location.pathname + location.search,
-      ua: navigator.userAgent.slice(0, 150),
-    });
+    if (_inErrorHandler) return;
+    _inErrorHandler = true;
+    try {
+      const reason = e.reason;
+      const msg = reason instanceof Error ? reason.message : (typeof reason === "string" ? reason : "");
+      if (isNoiseError(msg)) return;
+      if (shouldDedup(`prom:${msg}`)) return;
+      trackEvent("js_error", {
+        message: msg.slice(0, 300),
+        type: "unhandled_promise",
+        stack: (reason instanceof Error ? reason.stack || "" : "").slice(0, 500),
+        url: location.pathname + location.search,
+        ua: navigator.userAgent.slice(0, 150),
+      });
+    } catch { /* swallow */ }
+    finally { _inErrorHandler = false; }
   });
 }
 
