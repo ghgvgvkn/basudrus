@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Profile } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
@@ -25,6 +25,20 @@ export function useAuth(
   const [onboardLoading, setOnboardLoading] = useState(false);
 
   // ── Auth handler (signup / login) ──
+  // Friendly-translate common Supabase auth errors (the default messages are
+  // unclear to non-developers). Falls through with the original text for rare ones.
+  const friendlyAuthError = (raw: string): string => {
+    const m = raw.toLowerCase();
+    if (m.includes("invalid login") || m.includes("invalid credentials")) return "Wrong email or password. Double-check and try again.";
+    if (m.includes("user already registered") || m.includes("already been registered")) return "This email is already registered. Try logging in instead.";
+    if (m.includes("email not confirmed")) return "Please confirm your email first — check your inbox.";
+    if (m.includes("rate limit") || m.includes("too many")) return "Too many attempts. Please wait a minute and try again.";
+    if (m.includes("password should be") || m.includes("password is too")) return "Password must be at least 6 characters.";
+    if (m.includes("signup disabled") || m.includes("signups not allowed")) return "Signups are temporarily disabled. Please try again later.";
+    if (m.includes("network") || m.includes("fetch") || m.includes("load failed")) return "Connection issue. Check your internet and try again.";
+    return raw;
+  };
+
   const handleAuth = async () => {
     setAuthError("");
     if (!authForm.email || !authForm.password) return setAuthError("Please fill all fields.");
@@ -38,8 +52,22 @@ export function useAuth(
           email: authForm.email,
           password: authForm.password,
         });
-        if (error) { setAuthError(error.message); setAuthLoading(false); return; }
+        if (error) {
+          setAuthError(friendlyAuthError(error.message));
+          trackEvent("auth_fail", { mode: "signup", reason: error.message.slice(0, 100) });
+          setAuthLoading(false); return;
+        }
         if (data.user) {
+          // If Supabase is set to require email confirmation, data.session will
+          // be null — the user ISN'T actually signed in yet. Tell them to check
+          // their email instead of pushing to onboarding where their upsert
+          // would silently fail.
+          if (!data.session) {
+            setAuthError("Almost there! Check your email and click the confirmation link to finish signing up.");
+            trackEvent("auth_pending", { mode: "signup_email_confirm" });
+            setAuthLoading(false);
+            return;
+          }
           setUser({ id: data.user.id, email: data.user.email ?? "" });
           setProfile(p => ({ ...p, name: authForm.name, email: authForm.email }));
           setScreen("onboard");
@@ -49,7 +77,11 @@ export function useAuth(
           email: authForm.email,
           password: authForm.password,
         });
-        if (error) { setAuthError(error.message); setAuthLoading(false); return; }
+        if (error) {
+          setAuthError(friendlyAuthError(error.message));
+          trackEvent("auth_fail", { mode: "signin", reason: error.message.slice(0, 100) });
+          setAuthLoading(false); return;
+        }
         if (data.user) {
           setUser({ id: data.user.id, email: data.user.email ?? "" });
           // Note: onAuthStateChange SIGNED_IN handler will run loadProfile
@@ -57,7 +89,11 @@ export function useAuth(
           // concurrent auth token lock contention on slow connections.
         }
       }
-    } catch { setAuthError("Something went wrong — please try again"); }
+    } catch (e) {
+      logError("handleAuth", e);
+      setAuthError("Something went wrong — please try again");
+      trackEvent("auth_fail", { mode: authMode, reason: "exception" });
+    }
     setAuthLoading(false);
   };
 
@@ -70,8 +106,17 @@ export function useAuth(
         provider,
         options: { redirectTo: window.location.origin + window.location.pathname },
       });
-      if (error) { setAuthError(error.message); setAuthLoading(false); }
-    } catch { setAuthError("OAuth failed — please try again"); setAuthLoading(false); }
+      if (error) {
+        setAuthError(friendlyAuthError(error.message));
+        trackEvent("auth_fail", { mode: "oauth_" + provider, reason: error.message.slice(0, 100) });
+        setAuthLoading(false);
+      }
+    } catch (e) {
+      logError("handleOAuth", e);
+      setAuthError("OAuth failed — please try again");
+      trackEvent("auth_fail", { mode: "oauth_" + provider, reason: "exception" });
+      setAuthLoading(false);
+    }
   };
 
   // ── Reset password (step 1: send email) ──
@@ -107,10 +152,24 @@ export function useAuth(
 
   // ── Onboard ──
   const handleOnboard = async () => {
-    if (!profile.uni || !profile.major || !profile.year) return showNotif("Almost there! Fill required fields 👆", "err");
+    if (!profile.uni || !profile.major || !profile.year) {
+      const missing = [!profile.uni && "university", !profile.major && "major", !profile.year && "year"].filter(Boolean).join(", ");
+      showNotif(`Almost there! Still need: ${missing} 👆`, "err");
+      trackEvent("onboard_fail", { reason: "missing_fields", missing });
+      return;
+    }
     if (!user) { showNotif("Session expired — please sign in again", "err"); setScreen("auth"); return; }
     if (onboardLoading) return;
     setOnboardLoading(true);
+    // Persist in-progress onboarding to localStorage so closing the tab mid-flow
+    // doesn't lose their uni/major/year. Restored on next sign-in below.
+    try {
+      localStorage.setItem("bu:onboard-draft", JSON.stringify({
+        uni: profile.uni, major: profile.major, year: profile.year,
+        meet_type: profile.meet_type, bio: profile.bio,
+        ts: Date.now(),
+      }));
+    } catch { /* storage unavailable, not critical */ }
     try {
       // Race session lookup against a 3s timeout; if getSession() hangs (IndexedDB
       // lock contention with other concurrent auth calls), fall back to the user
@@ -158,14 +217,51 @@ export function useAuth(
         if (!s2) { await supabase.auth.refreshSession().catch(()=>{}); }
         await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
       }
-      if (upsertError) { logError("handleOnboard:upsert", upsertError); showNotif("Error saving profile: " + upsertError.message + " — check your connection and retry", "err"); setOnboardLoading(false); return; }
+      if (upsertError) {
+        logError("handleOnboard:upsert", upsertError);
+        trackEvent("onboard_fail", { reason: (upsertError.message || "upsert_error").slice(0, 100) });
+        showNotif("Error saving profile: " + upsertError.message + " — check your connection and retry", "err");
+        setOnboardLoading(false);
+        return;
+      }
       setProfile(profileData as typeof profile);
       trackEvent("onboard_complete", { uni: profileData.uni, major: profileData.major });
+      // Successful save — clear the draft so it doesn't rehydrate over a real profile
+      try { localStorage.removeItem("bu:onboard-draft"); } catch { /* ignore */ }
       setScreen("discover");
       loadAllStudents().catch(e => logError("loadAllStudents", e));
-    } catch (e) { logError("handleOnboard", e); showNotif("Something went wrong — please try again", "err"); }
+    } catch (e) {
+      logError("handleOnboard", e);
+      trackEvent("onboard_fail", { reason: "exception" });
+      showNotif("Something went wrong — please try again", "err");
+    }
     setOnboardLoading(false);
   };
+
+  // Rehydrate onboarding draft when a signed-in user lands on the onboard screen
+  // with empty fields (e.g. they closed the tab mid-flow and came back). Runs once
+  // per sign-in. Safe: only fills blanks, never overwrites existing values.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const raw = localStorage.getItem("bu:onboard-draft");
+      if (!raw) return;
+      const draft = JSON.parse(raw) as { uni?: string; major?: string; year?: string; meet_type?: string; bio?: string; ts?: number };
+      // Drafts older than 7 days are stale — drop them.
+      if (draft.ts && Date.now() - draft.ts > 7 * 24 * 60 * 60 * 1000) {
+        localStorage.removeItem("bu:onboard-draft");
+        return;
+      }
+      setProfile(p => ({
+        ...p,
+        uni: p.uni || draft.uni || "",
+        major: p.major || draft.major || "",
+        year: p.year || draft.year || "",
+        meet_type: p.meet_type || draft.meet_type || "flexible",
+        bio: p.bio || draft.bio || "",
+      }));
+    } catch { /* corrupted draft — ignore */ }
+  }, [user?.id]);
 
   return {
     authMode, setAuthMode,
