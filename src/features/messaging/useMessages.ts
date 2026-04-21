@@ -215,22 +215,26 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       trackEvent("msg_sent", { type: "text" });
       const earnedBadges: string[] = profile.badges ?? [];
       if (!earnedBadges.includes("ice_breaker")) await awardBadge("ice_breaker");
-      // Fire email notification to the partner (rate-limited server-side to 1/10min).
-      const partner = activeChat?.id === partnerId ? activeChat : connections.find(c => c.id === partnerId);
-      if (partner?.email) {
-        fetch("/api/notify/message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            senderId: user.id,
-            receiverId: partnerId,
-            senderName: profile.name || "A student",
-            receiverEmail: partner.email,
-            receiverName: partner.name || "",
-            messagePreview: text.slice(0, 280),
-          }),
-        }).catch(() => {});
-      }
+      // Fire email notification — server resolves sender/receiver identity
+      // from the JWT + DB, so we only need receiverId + preview here.
+      // Unauthenticated or non-connected calls are rejected server-side.
+      (async () => {
+        try {
+          const { data: { session: notifSess } } = await supabase.auth.getSession();
+          if (!notifSess?.access_token) return;
+          await fetch("/api/notify/message", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${notifSess.access_token}`,
+            },
+            body: JSON.stringify({
+              receiverId: partnerId,
+              messagePreview: text.slice(0, 280),
+            }),
+          });
+        } catch { /* notifications are best-effort */ }
+      })();
     } catch (err) {
       logError("sendMessage", err);
       trackEvent("msg_fail", { reason: "exception", network: !navigator.onLine });
@@ -279,21 +283,25 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).map(m => m.id === tempId ? data : m) }));
       setPartnersWithMessages(prev => prev.has(partnerId) ? prev : new Set(prev).add(partnerId));
       trackEvent(msgType === "voice" ? "voice_sent" : "msg_sent", { type: msgType });
-      // Fire email notification for the file/voice message too
-      if (activeChat?.email) {
-        fetch("/api/notify/message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            senderId: user.id,
-            receiverId: partnerId,
-            senderName: profile.name || "A student",
-            receiverEmail: activeChat.email,
-            receiverName: activeChat.name || "",
-            messagePreview: displayText,
-          }),
-        }).catch(() => {});
-      }
+      // Fire email notification — server derives identity from the session
+      // token and looks up the receiver email itself (prevents abuse).
+      (async () => {
+        try {
+          const { data: { session: notifSess } } = await supabase.auth.getSession();
+          if (!notifSess?.access_token) return;
+          await fetch("/api/notify/message", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${notifSess.access_token}`,
+            },
+            body: JSON.stringify({
+              receiverId: partnerId,
+              messagePreview: displayText,
+            }),
+          });
+        } catch { /* notifications are best-effort */ }
+      })();
     } catch (err) {
       logError("uploadAndSendFile", err);
       trackEvent(msgType === "voice" ? "voice_fail" : "msg_fail", { type: msgType, network: !navigator.onLine });

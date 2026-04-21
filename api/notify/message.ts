@@ -3,45 +3,79 @@ export const config = { runtime: "edge" };
 /**
  * Email notification for new chat messages.
  *
- * Body:
+ * SECURITY MODEL (post-hardening):
+ *   - Requires `Authorization: Bearer <supabase_access_token>` from a signed-
+ *     in user. We resolve the sender ID from the JWT — the client's
+ *     `senderId` field is IGNORED.
+ *   - `receiverId` IS accepted from the client but we then look up that
+ *     user's email via the service-role Supabase REST API. The client's
+ *     `receiverEmail` field is IGNORED. This closes the open email relay
+ *     where an attacker could POST {senderId, receiverId, receiverEmail:
+ *     "victim@wherever.com"} and spam arbitrary addresses.
+ *   - We verify that sender↔receiver have a connection row (i.e. they
+ *     actually matched on the platform) before sending. Un-matched pairs
+ *     get a silent no-op.
+ *   - CORS is restricted to the app's own origins instead of `*`.
+ *   - Rate-limited per (sender, receiver) pair via
+ *     `email_notifications_log` (10-minute cooldown).
+ *
+ * Request body:
  *   {
- *     senderId:       uuid   — the author of the message (required, for rate limit)
- *     receiverId:     uuid   — target user (required, for rate limit)
- *     senderName:     string — display name to show in subject
- *     receiverEmail:  string — where to deliver
- *     receiverName:   string — used to greet
- *     messagePreview: string — first line of the message
+ *     receiverId:     uuid    — target user (required)
+ *     messagePreview: string  — first line of the message (optional)
  *   }
  *
- * Behaviour:
- *   - Rate-limited: skip if we've already emailed this (sender, receiver) pair
- *     for a chat message within the last 10 minutes. Prevents flooding when
- *     Alice sends 5 messages in a row.
- *   - Requires RESEND_API_KEY + RESEND_FROM env vars on Vercel. If either is
- *     missing, the endpoint silently returns 200 {sent:false,reason:"..."} so
- *     the client fetch never fails the user flow.
- *   - Runs on Vercel Edge: no cold starts, 250ms target.
+ * Response shape: { sent: boolean, reason?: string }
  */
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM = process.env.RESEND_FROM || "Bas Udrus <noreply@basudrus.com>";
 const APP_URL = process.env.APP_URL || "https://www.basudrus.com";
 
 const RATE_LIMIT_MINUTES = 10;
+const MAX_BODY_BYTES = 8 * 1024;
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Max-Age": "86400",
-};
+const ALLOWED_ORIGINS = [
+  "https://basudrus.com",
+  "https://www.basudrus.com",
+  "https://basudrus.vercel.app",
+];
 
-function jsonResponse(status: number, body: unknown) {
+function exactOriginMatch(origin: string | null | undefined): boolean {
+  if (!origin) return false;
+  let host: string;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    host = u.host.toLowerCase();
+  } catch { return false; }
+  return ALLOWED_ORIGINS.some((a) => {
+    try { return new URL(a).host.toLowerCase() === host; } catch { return false; }
+  });
+}
+
+function corsHeaders(origin: string | null | undefined): Record<string, string> {
+  const h: Record<string, string> = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+  };
+  if (exactOriginMatch(origin)) {
+    h["Access-Control-Allow-Origin"] = origin!;
+    h["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+    h["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    h["Vary"] = "Origin";
+  }
+  return h;
+}
+
+function jsonResponse(status: number, body: unknown, headers: Record<string, string>) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: { ...headers, "Content-Type": "application/json" },
   });
 }
 
@@ -54,46 +88,165 @@ function escapeHtml(s: string) {
     .replace(/'/g, "&#39;");
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/**
+ * Verify the Supabase access token and return the authed user's id + email.
+ * Uses the anon-key /auth/v1/user endpoint which Supabase designs for this
+ * purpose (validates the JWT signature + expiry server-side).
+ */
+async function getSessionUser(accessToken: string): Promise<{ id: string; email: string } | null> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { id?: string; email?: string };
+    if (!data.id || !data.email || !UUID_RE.test(data.id)) return null;
+    return { id: data.id, email: data.email };
+  } catch {
+    return null;
   }
-  if (req.method !== "POST") {
-    return jsonResponse(405, { error: "Method not allowed" });
+}
+
+/** Look up the receiver's profile email + name by id (service role). */
+async function getReceiverProfile(receiverId: string): Promise<{ email: string; name: string } | null> {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(receiverId)}&select=email,name&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        },
+      },
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as Array<{ email?: string; name?: string }>;
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const row = rows[0];
+    if (!row.email || !EMAIL_RE.test(row.email)) return null;
+    return { email: row.email, name: String(row.name || "").slice(0, 120) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verify a connection row exists so strangers can't trigger emails. We don't
+ * require a specific direction — either (sender -> receiver) or the reverse
+ * is fine, since a match creates rows in both directions.
+ */
+async function connectionExists(senderId: string, receiverId: string): Promise<boolean> {
+  try {
+    const url =
+      `${SUPABASE_URL}/rest/v1/connections`
+      + `?select=user_id`
+      + `&user_id=eq.${encodeURIComponent(senderId)}`
+      + `&partner_id=eq.${encodeURIComponent(receiverId)}`
+      + `&limit=1`;
+    const res = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+    });
+    if (!res.ok) return false;
+    const rows = (await res.json()) as unknown[];
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch the authed user's display name from their profile. */
+async function getSenderName(senderId: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(senderId)}&select=name&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        },
+      },
+    );
+    if (!res.ok) return "A student";
+    const rows = (await res.json()) as Array<{ name?: string }>;
+    return String(rows?.[0]?.name || "A student").slice(0, 120);
+  } catch {
+    return "A student";
+  }
+}
+
+export default async function handler(req: Request): Promise<Response> {
+  const origin = req.headers.get("origin");
+  const cors = corsHeaders(origin);
+
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  if (req.method !== "POST") return jsonResponse(405, { error: "Method not allowed" }, cors);
+
+  // Reject oversized bodies
+  const len = parseInt(req.headers.get("content-length") || "0", 10);
+  if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+    return jsonResponse(413, { error: "Payload too large" }, cors);
   }
 
-  let body: {
-    senderId?: string;
-    receiverId?: string;
-    senderName?: string;
-    receiverEmail?: string;
-    receiverName?: string;
-    messagePreview?: string;
-  };
+  // Env must be fully configured — if any key is missing we NO-OP silently so
+  // the chat flow doesn't break, but we don't attempt any sends or DB calls.
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !SUPABASE_ANON_KEY) {
+    return jsonResponse(200, { sent: false, reason: "email_not_configured" }, cors);
+  }
+
+  // Require a valid user session. The attacker used to be able to POST with
+  // arbitrary senderId; now the sender is derived from the bearer token.
+  const authHeader = req.headers.get("authorization") || "";
+  const match = authHeader.match(/^Bearer\s+(\S+)$/);
+  if (!match) {
+    return jsonResponse(401, { sent: false, reason: "unauthenticated" }, cors);
+  }
+  const session = await getSessionUser(match[1]);
+  if (!session) {
+    return jsonResponse(401, { sent: false, reason: "invalid_token" }, cors);
+  }
+  const senderId = session.id;
+
+  let body: { receiverId?: string; messagePreview?: string };
   try {
     body = await req.json();
   } catch {
-    return jsonResponse(400, { error: "Invalid JSON" });
+    return jsonResponse(400, { error: "Invalid JSON" }, cors);
   }
 
-  const senderId = String(body.senderId || "").trim();
   const receiverId = String(body.receiverId || "").trim();
-  const senderName = String(body.senderName || "A student").trim().slice(0, 120);
-  const receiverEmail = String(body.receiverEmail || "").trim();
-  const receiverName = String(body.receiverName || "").trim().slice(0, 120);
   const messagePreview = String(body.messagePreview || "").trim().slice(0, 280);
 
-  if (!senderId || !receiverId || !receiverEmail || !receiverEmail.includes("@")) {
-    return jsonResponse(400, { error: "Missing required fields" });
+  if (!receiverId || !UUID_RE.test(receiverId)) {
+    return jsonResponse(400, { error: "Missing or invalid receiverId" }, cors);
   }
   if (senderId === receiverId) {
-    return jsonResponse(200, { sent: false, reason: "self_message" });
+    return jsonResponse(200, { sent: false, reason: "self_message" }, cors);
   }
 
-  // Short-circuit if email provider isn't configured — don't fail the client.
-  if (!RESEND_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    return jsonResponse(200, { sent: false, reason: "email_not_configured" });
+  // Receiver email is looked up server-side. The client cannot target
+  // arbitrary addresses; it can only pick a user ID they already matched with.
+  const receiver = await getReceiverProfile(receiverId);
+  if (!receiver) {
+    return jsonResponse(200, { sent: false, reason: "receiver_not_found" }, cors);
   }
+
+  // Must be a matched pair — strangers can't trigger notifications.
+  const paired = await connectionExists(senderId, receiverId);
+  if (!paired) {
+    return jsonResponse(200, { sent: false, reason: "not_connected" }, cors);
+  }
+
+  const senderName = await getSenderName(senderId);
 
   // Rate-limit via email_notifications_log table (shared between pair)
   const sinceIso = new Date(Date.now() - RATE_LIMIT_MINUTES * 60_000).toISOString();
@@ -114,17 +267,22 @@ export default async function handler(req: Request): Promise<Response> {
     if (checkRes.ok) {
       const rows = (await checkRes.json()) as unknown[];
       if (Array.isArray(rows) && rows.length > 0) {
-        return jsonResponse(200, { sent: false, reason: "rate_limited" });
+        return jsonResponse(200, { sent: false, reason: "rate_limited" }, cors);
       }
     }
-    // If the check request itself fails we still attempt to send — better to
-    // risk a duplicate email than miss the notification entirely.
   } catch {
-    // swallow — rate-limit is best-effort
+    // Rate-limit check is best-effort — proceed on failure.
   }
 
-  // Compose email
-  const firstName = (receiverName || "there").split(" ")[0];
+  // If the email provider isn't configured, no-op (but we still ran the
+  // authz checks above so an attacker can't use THIS endpoint to probe
+  // connection existence for free).
+  if (!RESEND_API_KEY) {
+    return jsonResponse(200, { sent: false, reason: "email_not_configured" }, cors);
+  }
+
+  // Compose
+  const firstName = (receiver.name || "there").split(" ")[0];
   const safePreview = escapeHtml(messagePreview);
   const safeSender = escapeHtml(senderName);
   const subject = `${senderName} sent you a message on Bas Udrus`;
@@ -163,18 +321,17 @@ export default async function handler(req: Request): Promise<Response> {
       },
       body: JSON.stringify({
         from: RESEND_FROM,
-        to: [receiverEmail],
+        to: [receiver.email],
         subject,
         html,
         text,
       }),
     });
     if (!resendRes.ok) {
-      const errTxt = await resendRes.text().catch(() => "");
-      return jsonResponse(200, { sent: false, reason: "provider_error", status: resendRes.status, detail: errTxt.slice(0, 200) });
+      return jsonResponse(200, { sent: false, reason: "provider_error", status: resendRes.status }, cors);
     }
-  } catch (e) {
-    return jsonResponse(200, { sent: false, reason: "provider_exception", detail: String(e).slice(0, 200) });
+  } catch {
+    return jsonResponse(200, { sent: false, reason: "provider_exception" }, cors);
   }
 
   // Log for rate limiting (fire-and-forget)
@@ -197,5 +354,5 @@ export default async function handler(req: Request): Promise<Response> {
     // swallow
   }
 
-  return jsonResponse(200, { sent: true });
+  return jsonResponse(200, { sent: true }, cors);
 }

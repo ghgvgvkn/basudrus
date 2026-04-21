@@ -141,23 +141,28 @@
         src: url('/fonts/instrument-serif-italic-latin.woff2') format('woff2');
         unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
-      /* Crawler-visible pre-hydration content — hidden from humans via off-screen
-         positioning, but served in the initial HTML so non-JS categorizers see
-         unambiguously educational copy before they hit the SPA shell. */
-      .prehydrate-seo { position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden; }
+      /* Initial <noscript> content is briefly visible (before JS boots) so
+         crawlers and no-JS visitors see real educational copy. It is NOT
+         hidden via off-screen tricks (which Google considers cloaking).
+         Once React mounts, the SPA renders inside #root as normal. */
+      .pre-boot { max-width: 720px; margin: 48px auto; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1f36; }
+      .pre-boot h1 { font-size: 28px; margin: 0 0 12px; letter-spacing: -0.02em; }
+      .pre-boot p  { font-size: 15px; line-height: 1.6; color: #5A6370; margin: 0 0 12px; }
     </style>
   </head>
   <body>
-    <!-- Pre-hydration content for URL categorizers that don't execute JS
-         (FortiGuard, Google Safe Browsing, Barracuda, etc.). Humans see the
-         React app; categorizers see clearly educational content in the HTML. -->
-    <div class="prehydrate-seo" aria-hidden="true">
-      <h1>Bas Udrus — Free Study Partner Finder for Jordanian University Students</h1>
-      <p>Bas Udrus is a free educational platform that connects university students in Jordan with study partners for their courses. Students at PSUT (Princess Sumaya University for Technology), JUST (Jordan University of Science and Technology), University of Jordan, German Jordanian University, Al-Ahliyya Amman University, and other Jordanian universities can find classmates, form study groups, get AI tutoring help, and improve their academic performance.</p>
-      <p>Our platform serves the Jordanian student community with tools for academic collaboration, exam preparation, course-based study matching, group study rooms, and AI-powered educational assistance. Bas Udrus is free for all students.</p>
-      <p>Categories: Education. Academic. University. Learning. Study Groups. Tutoring. Student Community. E-Learning.</p>
-    </div>
-    <main id="root"></main>
+    <main id="root">
+      <!-- Pre-hydration content — shown briefly until React mounts.
+           Crawlers that don't execute JS (FortiGuard, Google Safe Browsing,
+           Barracuda) see the same copy a real visitor would. Visible, not
+           cloaked. -->
+      <div class="pre-boot">
+        <h1>Bas Udrus — Free Study Partner Finder for Jordanian University Students</h1>
+        <p>Bas Udrus is a free educational platform that connects university students in Jordan with study partners for their courses. Students at PSUT, JUST, University of Jordan, German Jordanian University, Al-Ahliyya Amman University, and other Jordanian universities can find classmates, form study groups, get AI tutoring help, and improve their academic performance.</p>
+        <p>Our platform serves the Jordanian student community with tools for academic collaboration, exam preparation, course-based study matching, group study rooms, and AI-powered educational assistance. Bas Udrus is free for all students.</p>
+        <p>Loading the app…</p>
+      </div>
+    </main>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

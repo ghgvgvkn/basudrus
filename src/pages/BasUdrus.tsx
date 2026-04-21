@@ -765,19 +765,23 @@ export default function BasUdrus() {
         message_type: "text",
       });
       if (error) { showNotif("Failed to schedule — try again", "err"); return; }
-      if (schedModal.email && user) {
-        fetch("/api/notify/message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            senderId: user.id,
-            receiverId: schedModal.id,
-            senderName: profile.name || "A student",
-            receiverEmail: schedModal.email,
-            receiverName: schedModal.name || "",
-            messagePreview: text,
-          }),
-        }).catch(() => {});
+      // Email notification — server verifies session + connection and looks
+      // up the receiver email itself; we only pass receiverId + preview.
+      if (user) {
+        (async () => {
+          try {
+            const { data: { session: notifSess } } = await supabase.auth.getSession();
+            if (!notifSess?.access_token) return;
+            await fetch("/api/notify/message", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${notifSess.access_token}`,
+              },
+              body: JSON.stringify({ receiverId: schedModal.id, messagePreview: text }),
+            });
+          } catch { /* best-effort */ }
+        })();
       }
       await loadMessages(schedModal.id);
       setSchedModal(null);
