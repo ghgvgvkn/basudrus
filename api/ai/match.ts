@@ -3,7 +3,7 @@ export const config = { runtime: "edge" };
 import {
   ALLOWED_ORIGINS,
   securityHeaders,
-  checkBodySize,
+  readCappedJson,
   checkRateLimit,
   rateLimitResponse,
   sanitizeLine,
@@ -25,9 +25,6 @@ export default async function handler(req: Request) {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: sH });
   }
-
-  const oversize = checkBodySize(req, MAX_BODY_BYTES, sH);
-  if (oversize) return oversize;
 
   try {
     // Rate limit — fails CLOSED. Match is silent on the client (background
@@ -56,7 +53,12 @@ export default async function handler(req: Request) {
       });
     }
 
-    const { myProfile, candidates } = await req.json();
+    const { data: body, error: bodyErr } = await readCappedJson<{
+      myProfile?: Record<string, unknown>; candidates?: unknown;
+    }>(req, MAX_BODY_BYTES, sH);
+    if (bodyErr) return bodyErr;
+    const myProfile = body?.myProfile;
+    const candidates = Array.isArray(body?.candidates) ? body!.candidates : [];
 
     if (!myProfile || !Array.isArray(candidates) || candidates.length === 0) {
       return new Response(JSON.stringify({ scores: [] }), {

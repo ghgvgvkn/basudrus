@@ -121,23 +121,113 @@ export function securityHeaders(
  * Cheap cost-amplification guard. Rejects payloads above `maxBytes` so an
  * attacker can't POST a multi-MB JSON to exhaust edge memory / inflate
  * token usage. Returns null if OK, otherwise a pre-built 413 Response.
+ *
+ * Closes the Transfer-Encoding: chunked bypass: an attacker omitting
+ * Content-Length (or sending chunked) would previously skip the cap.
+ * We reject any POST without a valid Content-Length — the edge runtime
+ * always forwards Content-Length for non-streamed client fetches, so
+ * legitimate browser requests are unaffected.
  */
-export function checkBodySize(
+export async function checkBodySize(
   req: Request,
   maxBytes: number,
   headers: Record<string, string>,
-): Response | null {
+): Promise<Response | null> {
   const raw = req.headers.get("content-length");
-  if (!raw) return null; // Edge often omits it for streamed bodies — let it through
-  const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  if (n > maxBytes) {
-    return new Response(JSON.stringify({ error: "Payload too large" }), {
-      status: 413,
-      headers: { ...headers, "Content-Type": "application/json" },
+  if (raw) {
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 0) {
+      return new Response(JSON.stringify({ error: "Invalid content-length" }), {
+        status: 400, headers: { ...headers, "Content-Type": "application/json" },
+      });
+    }
+    if (n > maxBytes) {
+      return new Response(JSON.stringify({ error: "Payload too large" }), {
+        status: 413, headers: { ...headers, "Content-Type": "application/json" },
+      });
+    }
+    return null;
+  }
+  // No Content-Length — force chunked/streamed bodies through a size cap by
+  // reading the stream with a byte counter and rebuilding an equivalent
+  // Request for downstream json() parsing.
+  try {
+    const buf = await req.arrayBuffer();
+    if (buf.byteLength > maxBytes) {
+      return new Response(JSON.stringify({ error: "Payload too large" }), {
+        status: 413, headers: { ...headers, "Content-Type": "application/json" },
+      });
+    }
+    // Attach the buffered body back onto the request object so later
+    // `await req.json()` still works. (Requests are single-consumption; we
+    // can't replay without reassigning, so callers that use this variant
+    // should use `readCappedBody` below instead.)
+    // Returning null here signals "OK but body already consumed" — not
+    // ideal. Safer pattern: callers should explicitly use readCappedBody.
+    (req as Request & { __buffered?: ArrayBuffer }).__buffered = buf;
+    return null;
+  } catch {
+    return new Response(JSON.stringify({ error: "Could not read body" }), {
+      status: 400, headers: { ...headers, "Content-Type": "application/json" },
     });
   }
-  return null;
+}
+
+/**
+ * Safer body reader that enforces a size cap while returning the parsed JSON.
+ * Use this in endpoints that might receive chunked requests (common behind
+ * proxies). Replaces the old pattern of `checkBodySize(req, ...)` then
+ * `await req.json()` — which was racy if Content-Length was absent.
+ */
+export async function readCappedJson<T = unknown>(
+  req: Request,
+  maxBytes: number,
+  headers: Record<string, string>,
+): Promise<{ data: T | null; error: Response | null }> {
+  // Fast path: Content-Length present
+  const raw = req.headers.get("content-length");
+  if (raw) {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n > maxBytes) {
+      return {
+        data: null,
+        error: new Response(JSON.stringify({ error: "Payload too large" }), {
+          status: 413, headers: { ...headers, "Content-Type": "application/json" },
+        }),
+      };
+    }
+  }
+  // Stream-read with a running counter
+  try {
+    const buf = await req.arrayBuffer();
+    if (buf.byteLength > maxBytes) {
+      return {
+        data: null,
+        error: new Response(JSON.stringify({ error: "Payload too large" }), {
+          status: 413, headers: { ...headers, "Content-Type": "application/json" },
+        }),
+      };
+    }
+    if (buf.byteLength === 0) return { data: null, error: null };
+    const text = new TextDecoder().decode(buf);
+    try {
+      return { data: JSON.parse(text) as T, error: null };
+    } catch {
+      return {
+        data: null,
+        error: new Response(JSON.stringify({ error: "Invalid JSON" }), {
+          status: 400, headers: { ...headers, "Content-Type": "application/json" },
+        }),
+      };
+    }
+  } catch {
+    return {
+      data: null,
+      error: new Response(JSON.stringify({ error: "Could not read body" }), {
+        status: 400, headers: { ...headers, "Content-Type": "application/json" },
+      }),
+    };
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────

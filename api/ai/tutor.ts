@@ -3,7 +3,7 @@ export const config = { runtime: "edge" };
 import {
   ALLOWED_ORIGINS,
   securityHeaders,
-  checkBodySize,
+  readCappedJson,
   checkRateLimit,
   rateLimitResponse,
   sanitizeLine,
@@ -737,9 +737,6 @@ export default async function handler(req: Request) {
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { ...sHeaders, "Content-Type": "application/json" } });
   }
 
-  const oversize = checkBodySize(req, MAX_BODY_BYTES, sHeaders);
-  if (oversize) return oversize;
-
   try {
     // Rate limit — fails CLOSED on missing auth / env / RPC error.
     const authHeader = req.headers.get("authorization");
@@ -761,7 +758,12 @@ export default async function handler(req: Request) {
       });
     }
 
-    const { messages, subject, major, year, uni, lang, memory } = await req.json();
+    const { data: body, error: bodyErr } = await readCappedJson<{
+      messages?: unknown; subject?: unknown; major?: unknown; year?: unknown;
+      uni?: unknown; lang?: unknown; memory?: unknown;
+    }>(req, MAX_BODY_BYTES, sHeaders);
+    if (bodyErr) return bodyErr;
+    const { messages, subject, major, year, uni, lang, memory } = body || {};
 
     // Sanitize every field that flows into the system prompt (prompt injection).
     const contextParts: string[] = [];

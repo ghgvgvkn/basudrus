@@ -1,11 +1,10 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
+import { supabase } from "@/lib/supabase";
 import type { Profile } from "@/lib/supabase";
 import { LIGHT, DARK, type Theme } from "@/lib/constants";
 import { useNetworkStatus } from "@/shared/useNetworkStatus";
 import { setCurrentScreen } from "@/services/analytics";
-
-const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL as string) || "ahm20250898@std.psut.edu.jo";
 
 const DEFAULT_PROFILE: Partial<Profile> = {
   name: "", uni: "", major: "", course: "", year: "", meet_type: "flexible",
@@ -44,7 +43,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { return localStorage.getItem("bas-udrus-dark") === "true"; } catch { return false; }
   });
   const T = darkMode ? DARK : LIGHT;
-  useEffect(() => { try { localStorage.setItem("bas-udrus-dark", String(darkMode)); } catch {} }, [darkMode]);
+  useEffect(() => { try { localStorage.setItem("bas-udrus-dark", String(darkMode)); } catch { /* storage unavailable */ } }, [darkMode]);
 
   const [screen, _setScreen] = useState<string>("landing");
   const setScreen = useCallback((s: string) => { setCurrentScreen(s); _setScreen(s); }, []);
@@ -62,7 +61,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [loading, setLoading] = useState(true);
   const isOnline = useNetworkStatus();
-  const isAdmin = user?.email === ADMIN_EMAIL;
+
+  // isAdmin is authoritative via the server-side is_admin() RPC. Prior code
+  // compared `user.email === ADMIN_EMAIL` which was trivially bypassable by
+  // anyone who could inspect the bundle. The RPC reads admin_users (locked
+  // behind a deny-all RLS) via SECURITY DEFINER, so the result is trustworthy
+  // for gating UI — though any real authorization still happens in DB RLS.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("is_admin");
+        if (cancelled) return;
+        setIsAdmin(!error && data === true);
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const value = useMemo<AppContextValue>(() => ({
     user, setUser, profile, setProfile,
@@ -71,7 +90,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     showNotif, notif,
     isOnline, isAdmin,
     loading, setLoading,
-  }), [user, profile, darkMode, T, screen, showNotif, notif, isOnline, isAdmin, loading]);
+  }), [user, profile, darkMode, T, screen, setScreen, showNotif, notif, isOnline, isAdmin, loading]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

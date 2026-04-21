@@ -3,7 +3,7 @@ export const config = { runtime: "edge" };
 import {
   ALLOWED_ORIGINS,
   securityHeaders,
-  checkBodySize,
+  readCappedJson,
   checkRateLimit,
   rateLimitResponse,
   sanitizeLine,
@@ -26,9 +26,6 @@ export default async function handler(req: Request) {
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: sH });
   }
 
-  const oversize = checkBodySize(req, MAX_BODY_BYTES, sH);
-  if (oversize) return oversize;
-
   try {
     // Rate limit — fails CLOSED.
     const authHeader = req.headers.get("authorization");
@@ -50,7 +47,12 @@ export default async function handler(req: Request) {
       });
     }
 
-    const { subjects, major, year, examDates, lang, uni } = await req.json();
+    const { data: body, error: bodyErr } = await readCappedJson<{
+      subjects?: unknown; major?: unknown; year?: unknown; examDates?: unknown;
+      lang?: unknown; uni?: unknown;
+    }>(req, MAX_BODY_BYTES, sH);
+    if (bodyErr) return bodyErr;
+    const { subjects, major, year, examDates, lang, uni } = body || {};
 
     const safeSubjects = sanitizeLine(subjects, 500);
     if (!safeSubjects) {

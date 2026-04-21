@@ -247,18 +247,50 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
   };
 
   // ── File / voice upload ──
+  // MIME / extension whitelist — prevents storing HTML/JS/SVG that would be
+  // served back as text/html and trigger stored XSS via the public Storage URL.
+  // Each msgType locks to a specific safe subset.
+  const MIME_WHITELIST: Record<"voice" | "image" | "file", { types: RegExp; exts: RegExp }> = {
+    voice: { types: /^audio\/(webm|mp4|ogg|mpeg|wav|x-m4a)(;.*)?$/i, exts: /^(webm|mp3|m4a|ogg|wav)$/i },
+    image: { types: /^image\/(jpeg|png|webp|gif|heic|heif)$/i, exts: /^(jpe?g|png|webp|gif|heic|heif)$/i },
+    file:  { types: /^(application\/(pdf|msword|vnd\.openxmlformats-officedocument\..+|vnd\.ms-powerpoint)|text\/plain)$/i, exts: /^(pdf|doc|docx|ppt|pptx|txt)$/i },
+  };
+
   const uploadAndSendFile = async (fileOrBlob: File | Blob, fileName: string, msgType: "voice" | "image" | "file") => {
     if (!user || !activeChat) return;
     if (!navigator.onLine) { showNotif(`You're offline — ${msgType === "voice" ? "voice message" : "file"} not sent.`, "err"); return; }
     const partnerId = activeChat.id;
+
+    // Validate MIME + extension against the msgType whitelist. Blocks .html,
+    // .svg, .js, .json, .xml, and any content-type that browsers would render
+    // inline (Supabase Storage serves uploads with the supplied contentType).
+    const rawExt = (fileName.split(".").pop() || "").toLowerCase();
+    const rawType = (fileOrBlob instanceof File ? fileOrBlob.type : fileOrBlob.type) || "";
+    const rule = MIME_WHITELIST[msgType];
+    const extOk = rule.exts.test(rawExt);
+    // Voice blobs from MediaRecorder may have no extension — allow empty ext if type matches
+    const typeOk = rule.types.test(rawType) || (msgType === "voice" && !rawExt && rawType.startsWith("audio/"));
+    if (!extOk || !typeOk) {
+      showNotif(`This file type isn't allowed here. Use ${msgType === "image" ? "JPG/PNG/WebP" : msgType === "voice" ? "an audio recording" : "PDF/DOC/PPT/TXT"}.`, "err");
+      return;
+    }
+    if (fileOrBlob.size > 20 * 1024 * 1024) {
+      showNotif("File too large — max 20MB", "err");
+      return;
+    }
+
     const displayText = msgType === "voice" ? "🎤 Voice message" : msgType === "image" ? `📷 ${fileName}` : `📎 ${fileName}`;
     const tempId = `temp-upload-${Date.now()}`;
     const optimistic: Message = { id: tempId, sender_id: user.id, receiver_id: partnerId, text: `⏳ Sending ${msgType}...`, message_type: msgType, file_url: null, file_name: fileName, created_at: new Date().toISOString() };
     setMessages(prev => ({ ...prev, [partnerId]: [...(prev[partnerId] || []), optimistic] }));
     try {
-      const ext = fileName.split(".").pop() || "bin";
-      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: fileOrBlob instanceof File ? fileOrBlob.type : (fileOrBlob.type || "audio/webm") });
+      // Construct a safe storage path — only letters/digits/dash/underscore/dot
+      // and the validated extension. Never trust the original fileName for path.
+      const safeExt = rawExt || (msgType === "voice" ? "webm" : "bin");
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+      // Force a safe contentType from our validated MIME, never the raw client value.
+      const safeContentType = typeOk && rawType ? rawType : (msgType === "voice" ? "audio/webm" : "application/octet-stream");
+      const { error: upErr } = await supabase.storage.from("chat-files").upload(path, fileOrBlob, { contentType: safeContentType });
       if (upErr) {
         logError("uploadChatFile", upErr);
         setMessages(prev => ({ ...prev, [partnerId]: (prev[partnerId] || []).filter(m => m.id !== tempId) }));

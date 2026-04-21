@@ -3,7 +3,7 @@ export const config = { runtime: "edge" };
 import {
   ALLOWED_ORIGINS,
   securityHeaders,
-  checkBodySize,
+  readCappedJson,
   checkRateLimit,
   rateLimitResponse,
   sanitizeLine,
@@ -474,9 +474,6 @@ export default async function handler(req: Request) {
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: sHeaders });
   }
 
-  const oversize = checkBodySize(req, MAX_BODY_BYTES, sHeaders);
-  if (oversize) return oversize;
-
   try {
     // Rate limit — fails CLOSED on missing auth / env / RPC error so the
     // endpoint cannot be farmed for free Anthropic calls.
@@ -499,7 +496,14 @@ export default async function handler(req: Request) {
       });
     }
 
-    const { messages, name, mood, mode, uni, major, lang, memory } = await req.json();
+    // readCappedJson enforces MAX_BODY_BYTES even when Content-Length is
+    // missing (Transfer-Encoding: chunked bypass).
+    const { data: body, error: bodyErr } = await readCappedJson<{
+      messages?: unknown; name?: unknown; mood?: unknown; mode?: unknown;
+      uni?: unknown; major?: unknown; lang?: unknown; memory?: unknown;
+    }>(req, MAX_BODY_BYTES, sHeaders);
+    if (bodyErr) return bodyErr;
+    const { messages, name, mood, mode, uni, major, lang, memory } = body || {};
 
     // Every field that flows into the system prompt is sanitized for
     // newlines/control chars + length-capped to defeat prompt-injection

@@ -2310,31 +2310,51 @@ export default function BasUdrus() {
                       <div style={{fontSize:14}}>Say hello to {activeChat.name.split(" ")[0]}!</div>
                     </div>
                   )}
-                  {(messages[activeChat.id]||[]).map(m=>(
+                  {(messages[activeChat.id]||[]).map(m=>{
+                    // XSS HARDENING: reject any file_url that isn't an https:// URL
+                    // from a host we trust. `javascript:` / `data:text/html` URLs
+                    // cannot end up in src= / href= / window.open() even if an
+                    // attacker crafts a message row directly via PostgREST.
+                    const safeFileUrl = (() => {
+                      if (!m.file_url || typeof m.file_url !== "string") return null;
+                      try {
+                        const u = new URL(m.file_url);
+                        if (u.protocol !== "https:") return null;
+                        // Allow our Supabase storage host + common CDNs we control
+                        if (!/\.supabase\.co$|supabase\.in$|basudrus\.com$/.test(u.hostname)) return null;
+                        return u.toString();
+                      } catch { return null; }
+                    })();
+                    const mt = (m.message_type||"text");
+                    return (
                     <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:m.sender_id===user?.id?"flex-end":"flex-start",maxWidth:"100%"}}>
-                      <div className={m.sender_id===user?.id?"msg-mine msg-bubble":"msg-theirs msg-bubble"} style={{maxWidth:"82%",padding:(m.message_type||"text")==="image"?"4px":"11px 15px",borderRadius:18,fontSize:15,lineHeight:1.5,overflow:"hidden",wordWrap:"break-word",overflowWrap:"break-word"}}>
-                        {(m.message_type||"text")==="voice"&&m.file_url?(
-                          <div style={{display:"flex",alignItems:"center",gap:8,padding:m.message_type==="image"?"8px 10px":0}}>
+                      <div className={m.sender_id===user?.id?"msg-mine msg-bubble":"msg-theirs msg-bubble"} style={{maxWidth:"82%",padding:mt==="image"?"4px":"11px 15px",borderRadius:18,fontSize:15,lineHeight:1.5,overflow:"hidden",wordWrap:"break-word",overflowWrap:"break-word"}}>
+                        {mt==="voice"&&safeFileUrl?(
+                          <div style={{display:"flex",alignItems:"center",gap:8,padding:0}}>
                             <span style={{fontSize:18}}>🎤</span>
-                            <audio controls preload="metadata" style={{height:36,maxWidth:"100%",width:220}} src={m.file_url}/>
+                            <audio controls preload="metadata" style={{height:36,maxWidth:"100%",width:220}} src={safeFileUrl}/>
                           </div>
-                        ):(m.message_type||"text")==="image"&&m.file_url?(
-                          <img src={m.file_url} alt={m.file_name||"Image"} loading="lazy" style={{maxWidth:"100%",maxHeight:280,borderRadius:12,display:"block",cursor:"pointer"}} onClick={()=>window.open(m.file_url!,"_blank")}/>
-                        ):(m.message_type||"text")==="file"&&m.file_url?(
-                          <a href={m.file_url} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:10,color:"inherit",textDecoration:"none"}}>
+                        ):mt==="image"&&safeFileUrl?(
+                          <img src={safeFileUrl} alt={m.file_name||"Image"} loading="lazy" style={{maxWidth:"100%",maxHeight:280,borderRadius:12,display:"block",cursor:"pointer"}} onClick={()=>window.open(safeFileUrl,"_blank","noopener,noreferrer")}/>
+                        ):mt==="file"&&safeFileUrl?(
+                          <a href={safeFileUrl} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",gap:10,color:"inherit",textDecoration:"none"}}>
                             <span style={{fontSize:24}}>📄</span>
                             <div style={{minWidth:0,flex:1}}>
                               <div style={{fontWeight:600,fontSize:14,wordBreak:"break-word"}}>{m.file_name||"File"}</div>
                               <div style={{fontSize:12,opacity:0.7,marginTop:2}}>Tap to open</div>
                             </div>
                           </a>
+                        ):(mt==="voice"||mt==="image"||mt==="file")&&!safeFileUrl?(
+                          // Media message with missing/invalid URL — show a safe placeholder
+                          <span style={{opacity:0.6,fontSize:13}}>[unavailable attachment]</span>
                         ):(
                           <>{m.text}</>
                         )}
                       </div>
                       <div style={{fontSize:11,color:T.muted,marginTop:4}}>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
                     </div>
-                  ))}
+                    );
+                  })}
                   <div ref={chatEndRef}/>
                 </div>
                 <input ref={chatFileRef} type="file" accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.txt" style={{display:"none"}} onChange={handleChatFileSelect}/>
