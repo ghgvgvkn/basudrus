@@ -1,1 +1,191 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Bas Udrus design tokens (Tailwind v4 @theme)
+   See docs/redesign-research.md §3 for the rationale behind each token.
+   ────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: "Instrument Serif", Georgia, serif;
+
+  --text-2xs: 0.6875rem;
+  --text-xs:  0.75rem;
+  --text-sm:  0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg:  1.0625rem;
+  --text-xl:  1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-4xl: 2.75rem;
+  --text-5xl: 3.5rem;
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
+  --radius-2xl: 28px;
+  --radius-full: 9999px;
+
+  --color-surface-0: var(--bu-surface-0);
+  --color-surface-1: var(--bu-surface-1);
+  --color-surface-2: var(--bu-surface-2);
+  --color-ink:       var(--bu-ink);
+  --color-ink-2:     var(--bu-ink-2);
+  --color-ink-3:     var(--bu-ink-3);
+  --color-line:      var(--bu-line);
+  --color-accent:    var(--bu-accent);
+  --color-accent-soft: var(--bu-accent-soft);
+  --color-accent-ink:  var(--bu-accent-ink);
+  --color-success:   var(--bu-success);
+  --color-danger:    var(--bu-danger);
+  --color-warn:      var(--bu-warn);
+
+  --ease-bu-out: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+  --duration-slow: 380ms;
+  --duration-hero: 560ms;
+}
+
+/* Light theme (default) */
+:root,
+:root[data-theme="light"] {
+  --bu-surface-0: #F5F4F0;
+  --bu-surface-1: #FFFFFF;
+  --bu-surface-2: #FAFAF7;
+  --bu-surface-glass: rgba(255, 255, 255, 0.72);
+
+  --bu-ink:   #0F1B2D;
+  --bu-ink-2: #3D4A5C;
+  --bu-ink-3: #5A6370;
+  --bu-line:  #EAEAEA;
+
+  --bu-accent:      #4A7CF7;
+  --bu-accent-ink:  #0C1F4D;
+  --bu-accent-soft: #EEF2FF;
+
+  --bu-success: #1B8A5A;
+  --bu-warn:    #B37A00;
+  --bu-danger:  #D93636;
+
+  --bu-ai-tutor:     linear-gradient(135deg, #4F46E5, #6366F1);
+  --bu-ai-wellbeing: linear-gradient(135deg, #059669, #10B981);
+  --bu-ai-match:     linear-gradient(135deg, #7C3AED, #8B5CF6);
+  --bu-ai-plan:      linear-gradient(135deg, #DC2626, #EF4444);
+
+  --bu-shadow-sm: 0 1px 2px rgba(15, 27, 45, 0.04), 0 1px 1px rgba(15, 27, 45, 0.03);
+  --bu-shadow-md: 0 4px 8px -1px rgba(15, 27, 45, 0.08), 0 2px 4px -1px rgba(15, 27, 45, 0.04), 0 0 0 1px rgba(15, 27, 45, 0.03);
+  --bu-shadow-lg: 0 12px 24px -4px rgba(15, 27, 45, 0.10), 0 6px 12px -4px rgba(15, 27, 45, 0.06), 0 0 0 1px rgba(15, 27, 45, 0.04);
+  --bu-shadow-xl: 0 24px 48px -12px rgba(15, 27, 45, 0.18), 0 12px 24px -8px rgba(15, 27, 45, 0.10), 0 0 0 1px rgba(15, 27, 45, 0.05);
+
+  --bu-shadow-ai-tutor:     0 12px 40px -8px rgba(99, 102, 241, 0.30), 0 6px 16px -4px rgba(99, 102, 241, 0.18);
+  --bu-shadow-ai-wellbeing: 0 12px 40px -8px rgba(16, 185, 129, 0.28), 0 6px 16px -4px rgba(16, 185, 129, 0.16);
+  --bu-shadow-ai-match:     0 12px 40px -8px rgba(139, 92, 246, 0.28), 0 6px 16px -4px rgba(139, 92, 246, 0.16);
+  --bu-shadow-ai-plan:      0 12px 40px -8px rgba(239, 68, 68, 0.26), 0 6px 16px -4px rgba(239, 68, 68, 0.15);
+}
+
+:root[data-theme="dark"] {
+  --bu-surface-0: #0D1117;
+  --bu-surface-1: #161B22;
+  --bu-surface-2: #1C2230;
+  --bu-surface-glass: rgba(22, 27, 34, 0.72);
+
+  --bu-ink:   #F0F6FF;
+  --bu-ink-2: #A0AAB5;
+  --bu-ink-3: #9CA4AD;
+  --bu-line:  #21262D;
+
+  --bu-accent:      #6B9CFF;
+  --bu-accent-ink:  #CBD5FF;
+  --bu-accent-soft: #1A2544;
+
+  --bu-success: #3DDC97;
+  --bu-warn:    #FFB938;
+  --bu-danger:  #FF6B6B;
+
+  --bu-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 1px rgba(0, 0, 0, 0.2);
+  --bu-shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.24);
+  --bu-shadow-lg: 0 12px 24px -4px rgba(0, 0, 0, 0.45), 0 6px 12px -4px rgba(0, 0, 0, 0.3);
+  --bu-shadow-xl: 0 24px 48px -12px rgba(0, 0, 0, 0.55), 0 12px 24px -8px rgba(0, 0, 0, 0.4);
+
+  --bu-shadow-ai-tutor:     0 12px 40px -8px rgba(99, 102, 241, 0.45), 0 6px 16px -4px rgba(99, 102, 241, 0.30);
+  --bu-shadow-ai-wellbeing: 0 12px 40px -8px rgba(16, 185, 129, 0.42), 0 6px 16px -4px rgba(16, 185, 129, 0.26);
+  --bu-shadow-ai-match:     0 12px 40px -8px rgba(139, 92, 246, 0.42), 0 6px 16px -4px rgba(139, 92, 246, 0.26);
+  --bu-shadow-ai-plan:      0 12px 40px -8px rgba(239, 68, 68, 0.40), 0 6px 16px -4px rgba(239, 68, 68, 0.24);
+}
+
+/* Custom utility classes for the depth + AI tokens so we can write
+   `shadow-bu-lg` and `bg-ai-tutor` in JSX. */
+@utility shadow-bu-sm { box-shadow: var(--bu-shadow-sm); }
+@utility shadow-bu-md { box-shadow: var(--bu-shadow-md); }
+@utility shadow-bu-lg { box-shadow: var(--bu-shadow-lg); }
+@utility shadow-bu-xl { box-shadow: var(--bu-shadow-xl); }
+@utility shadow-bu-ai-tutor     { box-shadow: var(--bu-shadow-ai-tutor); }
+@utility shadow-bu-ai-wellbeing { box-shadow: var(--bu-shadow-ai-wellbeing); }
+@utility shadow-bu-ai-match     { box-shadow: var(--bu-shadow-ai-match); }
+@utility shadow-bu-ai-plan      { box-shadow: var(--bu-shadow-ai-plan); }
+
+@utility bg-ai-tutor     { background: var(--bu-ai-tutor); }
+@utility bg-ai-wellbeing { background: var(--bu-ai-wellbeing); }
+@utility bg-ai-match     { background: var(--bu-ai-match); }
+@utility bg-ai-plan      { background: var(--bu-ai-plan); }
+@utility bg-glass {
+  background: var(--bu-surface-glass);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* Global reset + base */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: manipulation;
+  scroll-behavior: smooth;
+  color-scheme: light dark;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--bu-ink);
+  background: var(--bu-surface-0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  transition: background-color var(--duration-base) var(--ease-bu-out),
+              color var(--duration-base) var(--ease-bu-out);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--bu-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bu-line); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bu-ink-3); }
+
+/* Serif helper for editorial moments */
+.font-display {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+[data-pressable]:active { transform: translateY(1px); }
