@@ -1,6 +1,11 @@
 {
+  "cleanUrls": true,
   "rewrites": [
-    { "source": "/((?!api/|_next/|.*\\..*).*)", "destination": "/index.html" }
+    { "source": "/pricing", "destination": "/pricing.html" },
+    { "source": "/terms",   "destination": "/terms.html" },
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/refund",  "destination": "/refund.html" },
+    { "source": "/((?!api/|_next/|pricing|terms|privacy|refund|.*\\..*).*)", "destination": "/index.html" }
   ],
   "crons": [
     {
