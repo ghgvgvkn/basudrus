@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Profile, SubjectHistory } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
-import { logError } from "@/services/analytics";
+import { logError, trackEvent } from "@/services/analytics";
 import { getCourseGroups } from "@/services/uniData";
 import { useDebounce } from "@/shared/useDebounce";
 
@@ -196,24 +196,38 @@ export function useProfile(
       // Use a unique path per upload so CDN cache is never stale for other viewers.
       // The old avatar remains in storage but is orphaned; optionally cleaned up below.
       const newPath = `${user.id}/avatar-${Date.now()}.jpg`;
-      // Retry the upload once on transient edge errors (Cloudflare 520 / upstream
-      // timeouts between Vercel and Supabase storage). A user hit HTTP 520 on
-      // Apr 20 and had no recovery path — one retry fixes it silently.
+      // Retry with exponential backoff + jitter on transient edge errors.
+      // Prior version (2 attempts at flat 700ms) wasn't enough — an iPhone
+      // Safari user exhausted it on Apr 20 and still hit Cloudflare 520.
+      // Edge-to-origin hiccups on mobile can last 2-3s, so we need to give
+      // the cascade time to recover.
+      //
+      // Schedule: 500ms → 1200ms → 2500ms (total worst case ~4.2s + 3 upload attempts)
       type UploadErr = { message?: string; statusCode?: number; status?: number } | null;
       let upErr: UploadErr = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const backoffs = [500, 1200, 2500]; // 3 retries max (4 attempts total)
+      for (let attempt = 0; attempt < backoffs.length + 1; attempt++) {
         const res = await supabase.storage.from("avatars").upload(newPath, blob, {
           upsert: false,
           contentType: "image/jpeg",
           cacheControl: "3600",
         });
         upErr = (res.error as UploadErr) ?? null;
-        if (!upErr) break;
+        if (!upErr) {
+          if (attempt > 0) {
+            // Success after retry — log the recovery so we can see how often
+            // transient errors are actually caught by this.
+            trackEvent("photo_upload_recovered", { attempts: attempt + 1 });
+          }
+          break;
+        }
         const m = (upErr.message || "").toLowerCase();
         const code = Number(upErr.statusCode || upErr.status || 0);
-        const isTransient = /520|521|522|523|524|502|503|504|timeout|gateway|network|fetch failed|connection/i.test(m) || (code >= 500 && code <= 599);
-        if (!isTransient || attempt >= 1) break;
-        await new Promise(r => setTimeout(r, 700));
+        const isTransient = /520|521|522|523|524|502|503|504|timeout|gateway|network|fetch failed|connection|aborted/i.test(m) || (code >= 500 && code <= 599);
+        if (!isTransient || attempt >= backoffs.length) break;
+        // Exponential + 20% jitter to avoid synchronized retries across users
+        const jitter = Math.floor(backoffs[attempt] * (Math.random() * 0.4 - 0.2));
+        await new Promise(r => setTimeout(r, backoffs[attempt] + jitter));
       }
       if (upErr) {
         logError("cropAndUpload:upload", upErr);

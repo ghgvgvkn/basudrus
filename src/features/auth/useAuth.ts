@@ -8,7 +8,7 @@ export function useAuth(
   loadProfile: (userId: string) => Promise<Profile | null>,
   loadAllStudents: () => Promise<void>,
 ) {
-  const { user, setUser, profile, setProfile, setScreen, showNotif } = useApp();
+  const { user, setUser, profile, setProfile, setScreen, showNotif, screen } = useApp();
 
   const [authMode, setAuthMode] = useState<"signup"|"login"|"reset"|"reset-sent"|"new-password">("signup");
   const [authForm, setAuthForm] = useState({ email: "", password: "", name: "" });
@@ -23,6 +23,37 @@ export function useAuth(
   const onboardMajorRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState(1);
   const [onboardLoading, setOnboardLoading] = useState(false);
+
+  // ── Onboarding funnel telemetry ──
+  // 6 users in the last 48h signed up but never completed onboarding — we can
+  // only guess why. Adding funnel events lets us see where they drop:
+  //   onboard_view     — landed on the screen
+  //   onboard_step2    — clicked Next after step 1
+  //   onboard_complete — saved profile (already tracked in handleOnboard)
+  //   onboard_fail     — explicit error (already tracked)
+  // Gap between view → step2 = step 1 friction. Gap step2 → complete = step 2.
+  // Closed-tab users are invisible but we'll have the view event at least.
+  const onboardViewFired = useRef(false);
+  useEffect(() => {
+    if (screen === "onboard" && !onboardViewFired.current) {
+      onboardViewFired.current = true;
+      trackEvent("onboard_view", {
+        has_name: !!profile.name,
+        has_uni: !!profile.uni,
+        has_major: !!profile.major,
+      });
+    }
+    if (screen !== "onboard") onboardViewFired.current = false;
+  }, [screen, profile.name, profile.uni, profile.major]);
+
+  const onboardStep2Fired = useRef(false);
+  useEffect(() => {
+    if (screen === "onboard" && step === 2 && !onboardStep2Fired.current) {
+      onboardStep2Fired.current = true;
+      trackEvent("onboard_step2");
+    }
+    if (step === 1) onboardStep2Fired.current = false;
+  }, [screen, step]);
 
   // ── Auth handler (signup / login) ──
   // Friendly-translate common Supabase auth errors (the default messages are
