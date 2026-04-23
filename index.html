@@ -141,27 +141,45 @@
         src: url('/fonts/instrument-serif-italic-latin.woff2') format('woff2');
         unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
-      /* Initial <noscript> content is briefly visible (before JS boots) so
-         crawlers and no-JS visitors see real educational copy. It is NOT
-         hidden via off-screen tricks (which Google considers cloaking).
-         Once React mounts, the SPA renders inside #root as normal. */
-      .pre-boot { max-width: 720px; margin: 48px auto; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1f36; }
-      .pre-boot h1 { font-size: 28px; margin: 0 0 12px; letter-spacing: -0.02em; }
-      .pre-boot p  { font-size: 15px; line-height: 1.6; color: #5A6370; margin: 0 0 12px; }
+      /* Pre-boot skeleton — rendered before React hydrates. Visually
+         identical to the <LoadingShell /> React renders during Suspense,
+         so users see ONE consistent loading state instead of three
+         different screens flashing past them during a ~1s load.
+         SEO content moved to <noscript> below so crawlers still get it
+         (human visitors execute JS and never see the noscript block). */
+      .pre-boot { min-height: 100dvh; background: #F5F4F0; display: flex; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      .pre-boot-inner { text-align: center; }
+      .pre-boot-label { color: #5A6370; font-size: 14px; margin-top: 12px; }
     </style>
   </head>
   <body>
     <main id="root">
-      <!-- Pre-hydration content — shown briefly until React mounts.
-           Crawlers that don't execute JS (FortiGuard, Google Safe Browsing,
-           Barracuda) see the same copy a real visitor would. Visible, not
-           cloaked. -->
+      <!-- Pre-hydration skeleton — matches <LoadingShell/> in src/App.tsx.
+           Viral-traffic visitors see ONE consistent loading state (this +
+           Suspense fallback + app) instead of three flashing screens. -->
       <div class="pre-boot">
-        <h1>Bas Udrus — Free Study Partner Finder for Jordanian University Students</h1>
-        <p>Bas Udrus is a free educational platform that connects university students in Jordan with study partners for their courses. Students at PSUT, JUST, University of Jordan, German Jordanian University, Al-Ahliyya Amman University, and other Jordanian universities can find classmates, form study groups, get AI tutoring help, and improve their academic performance.</p>
-        <p>Our platform serves the Jordanian student community with tools for academic collaboration, exam preparation, course-based study matching, group study rooms, and AI-powered educational assistance. Bas Udrus is free for all students.</p>
-        <p>Loading the app…</p>
+        <div class="pre-boot-inner">
+          <svg width="260" height="104" viewBox="0 0 400 160" aria-hidden="true">
+            <text x="200" y="88" text-anchor="middle" font-family="Georgia, serif" font-weight="500" font-size="52" fill="#1a1f36" letter-spacing="-1">Bas Udrus</text>
+            <circle cx="318" cy="50" r="5" fill="#4F7EF7"/>
+            <line x1="130" y1="105" x2="270" y2="105" stroke="#4F7EF7" stroke-width="2"/>
+            <text x="200" y="124" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#888888" letter-spacing="4">STUDY SMARTER</text>
+          </svg>
+          <div class="pre-boot-label">Loading…</div>
+        </div>
       </div>
+
+      <!-- Non-rendered SEO content for crawlers / URL-reputation scanners
+           that don't execute JavaScript (FortiGuard, Google Safe Browsing,
+           Barracuda). Real human visitors execute JS and never see this. -->
+      <noscript>
+        <div style="max-width:720px;margin:48px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1f36">
+          <h1 style="font-size:28px;margin:0 0 12px;letter-spacing:-0.02em">Bas Udrus — Free Study Partner Finder for Jordanian University Students</h1>
+          <p style="font-size:15px;line-height:1.6;color:#5A6370;margin:0 0 12px">Bas Udrus is a free educational platform that connects university students in Jordan with study partners for their courses. Students at PSUT, JUST, University of Jordan, German Jordanian University, Al-Ahliyya Amman University, and other Jordanian universities can find classmates, form study groups, get AI tutoring help, and improve their academic performance.</p>
+          <p style="font-size:15px;line-height:1.6;color:#5A6370;margin:0 0 12px">Our platform serves the Jordanian student community with tools for academic collaboration, exam preparation, course-based study matching, group study rooms, and AI-powered educational assistance. Bas Udrus is free for all students.</p>
+          <p style="font-size:15px;line-height:1.6;color:#5A6370">This site requires JavaScript. Please enable it and refresh.</p>
+        </div>
+      </noscript>
     </main>
     <script type="module" src="/src/main.tsx"></script>
   </body>
