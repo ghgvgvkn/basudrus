@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, getSessionCached } from "@/lib/supabase";
 import type { Profile } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import { trackEvent } from "@/services/analytics";
@@ -162,7 +162,7 @@ export function useAI(allStudents: Profile[]) {
     try {
       const apiMsgs = fileCtx ? [...tutorMsgs, { role: "user" as const, content: msg + fileCtx }] : newMsgs;
       const memory = formatMemoryForPrompt("tutor");
-      const { data: { session: sess } } = await supabase.auth.getSession();
+      const { data: { session: sess } } = await getSessionCached();
       if (abortRef.current) { try { abortRef.current.abort(); } catch { /* already aborted */ } }
       abortRef.current = new AbortController();
       const res = await fetch("/api/ai/tutor", {
@@ -252,7 +252,7 @@ export function useAI(allStudents: Profile[]) {
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
       const memory = formatMemoryForPrompt("wellbeing");
-      const { data: { session: wSess } } = await supabase.auth.getSession();
+      const { data: { session: wSess } } = await getSessionCached();
       if (abortRef.current) { try { abortRef.current.abort(); } catch { /* already aborted */ } }
       abortRef.current = new AbortController();
       const res = await fetch("/api/ai/wellbeing", {
@@ -324,7 +324,7 @@ export function useAI(allStudents: Profile[]) {
     try {
       // Pass the user's session token so the server can rate-limit AND log the call
       // against the right user (otherwise auth.uid() is null and ai_usage misses the row).
-      const { data: { session: mSess } } = await supabase.auth.getSession();
+      const { data: { session: mSess } } = await getSessionCached();
       const res = await fetch("/api/ai/match", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(mSess?.access_token ? { "Authorization": `Bearer ${mSess.access_token}` } : {}) },
@@ -346,7 +346,7 @@ export function useAI(allStudents: Profile[]) {
     saveTrendingTopic(planSubjects.split(",")[0]?.trim() || planSubjects);
     try {
       // Pass auth token so the server logs this plan generation under the right user.
-      const { data: { session: pSess } } = await supabase.auth.getSession();
+      const { data: { session: pSess } } = await getSessionCached();
       const res = await fetch("/api/ai/study-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(pSess?.access_token ? { "Authorization": `Bearer ${pSess.access_token}` } : {}) },

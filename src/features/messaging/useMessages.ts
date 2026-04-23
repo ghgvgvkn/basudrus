@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, getSessionCached } from "@/lib/supabase";
 import type { Profile, Message } from "@/lib/supabase";
-import { BADGES_DEF } from "@/lib/constants";
 import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
 import { generateClientId } from "@/shared/useNetworkStatus";
@@ -220,7 +219,7 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       // Unauthenticated or non-connected calls are rejected server-side.
       (async () => {
         try {
-          const { data: { session: notifSess } } = await supabase.auth.getSession();
+          const { data: { session: notifSess } } = await getSessionCached();
           if (!notifSess?.access_token) return;
           await fetch("/api/notify/message", {
             method: "POST",
@@ -319,7 +318,7 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       // token and looks up the receiver email itself (prevents abuse).
       (async () => {
         try {
-          const { data: { session: notifSess } } = await supabase.auth.getSession();
+          const { data: { session: notifSess } } = await getSessionCached();
           if (!notifSess?.access_token) return;
           await fetch("/api/notify/message", {
             method: "POST",
@@ -424,18 +423,10 @@ export function useMessages(awardBadge: (badgeId: string) => Promise<void>) {
       if (error) { showNotif("Rating failed — try again", "err"); return; }
       setRatings(prev => ({ ...prev, [partnerId]: stars }));
       setRateModal(null);
-      if (stars === 5) {
-        try {
-          const { data: partnerProfile } = await supabase.from("profiles").select("badges,xp").eq("id", partnerId).maybeSingle();
-          if (partnerProfile && !(partnerProfile.badges || []).includes("top_rated")) {
-            const b = BADGES_DEF.find(b => b.id === "top_rated");
-            if (b) {
-              const newBadges = [...(partnerProfile.badges || []), "top_rated"];
-              await supabase.from("profiles").update({ badges: newBadges, xp: (partnerProfile.xp || 0) + b.xp }).eq("id", partnerId);
-            }
-          }
-        } catch {}
-      }
+      // NOTE: we USED to try to award a "top_rated" badge to the partner here,
+      // but that UPDATE is blocked by the profiles_update_own RLS policy
+      // (auth.uid() = id), so it silently failed every time. Awarding a badge
+      // to another user requires a SECURITY DEFINER RPC — tracked as follow-up.
       showNotif("Thanks for rating! ⭐");
     } catch { showNotif("Rating failed", "err"); }
   };

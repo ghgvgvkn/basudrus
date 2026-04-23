@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, memo } from "react";
 import { motion } from "framer-motion";
-import { supabase } from "@/lib/supabase";
+import { supabase, getSessionCached } from "@/lib/supabase";
 import type { Profile, Message, HelpRequest } from "@/lib/supabase";
 import { clearAllMemory } from "@/lib/ai-memory";
 import { logError, setErrorUserId, trackEvent, trackClick } from "@/services/analytics";
@@ -269,7 +269,7 @@ export default function BasUdrus() {
   // ── Auth listener ────────────────────────────────────────────────────
   useEffect(() => {
     const loadTimeout = setTimeout(() => setLoading(false), 5000);
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    getSessionCached().then(async ({ data: { session } }) => {
       clearTimeout(loadTimeout);
       if (session?.user) {
         setUser({ id: session.user.id, email: session.user.email ?? "" });
@@ -340,7 +340,7 @@ export default function BasUdrus() {
     if (!user) return;
     const setOffline = () => {
       // Get the current session token for proper RLS auth
-      supabase.auth.getSession().then(({ data: { session } }) => {
+      getSessionCached().then(({ data: { session } }) => {
         const token = session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY;
         fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, {
           method: "PATCH",
@@ -709,7 +709,7 @@ export default function BasUdrus() {
     if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
     connectTimerRef.current = setTimeout(async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await getSessionCached();
         if (!session) {
           showNotif("Session expired — please sign in again", "err");
           setFlyCard(null); connectingRef.current = false; setScreen("auth");
@@ -770,7 +770,7 @@ export default function BasUdrus() {
       if (user) {
         (async () => {
           try {
-            const { data: { session: notifSess } } = await supabase.auth.getSession();
+            const { data: { session: notifSess } } = await getSessionCached();
             if (!notifSess?.access_token) return;
             await fetch("/api/notify/message", {
               method: "POST",

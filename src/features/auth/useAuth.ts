@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, getSessionCached } from "@/lib/supabase";
 import type { Profile } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
@@ -205,7 +205,7 @@ export function useAuth(
       // Race session lookup against a 3s timeout; if getSession() hangs (IndexedDB
       // lock contention with other concurrent auth calls), fall back to the user
       // already in React state. Upsert will still include the auth token.
-      const sessionPromise = supabase.auth.getSession().then(r => r.data.session).catch(() => null);
+      const sessionPromise = getSessionCached().then(r => r.data.session).catch(() => null);
       const session = await Promise.race([
         sessionPromise,
         new Promise<null>(r => setTimeout(() => r(null), 3000)),
@@ -244,7 +244,7 @@ export function useAuth(
         const msg = (error.message || "").toLowerCase();
         const isTransient = msg.includes("load failed") || msg.includes("fetch") || msg.includes("network") || msg.includes("timeout") || !navigator.onLine;
         if (!isTransient) break;
-        const { data: { session: s2 } } = await supabase.auth.getSession();
+        const { data: { session: s2 } } = await getSessionCached();
         if (!s2) { await supabase.auth.refreshSession().catch(()=>{}); }
         await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
       }
