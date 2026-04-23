@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, getSessionCached } from "@/lib/supabase";
 import type { GroupRoom, Profile } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import { logError, trackEvent } from "@/services/analytics";
@@ -74,16 +74,13 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
     if (roomActionLoading) return;
     setRoomActionLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSessionCached();
       if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
-      await supabase.from("profiles").upsert({
-        id: user.id, email: user.email, name: profile.name || "", uni: profile.uni || "", major: profile.major || "",
-        year: profile.year || "", course: profile.course || "", meet_type: profile.meet_type || "flexible",
-        bio: profile.bio || "", avatar_emoji: profile.avatar_emoji || "🫶", avatar_color: profile.avatar_color || "#6C8EF5",
-        photo_mode: profile.photo_mode || "initials", photo_url: profile.photo_url || null,
-        streak: profile.streak ?? 0, xp: profile.xp ?? 0, badges: profile.badges ?? [], online: true,
-        sessions: profile.sessions ?? 0, rating: profile.rating ?? 0, subjects: profile.subjects ?? [],
-      }, { onConflict: "id" });
+      // NOTE: profile row is auto-created by the on_auth_user_created trigger,
+      // and onboarding fills in uni/major/year. We do NOT re-upsert the full
+      // profile here — prior version would clobber badges/xp/streak/sessions
+      // with whatever was in React state at the moment, which on race conditions
+      // (fast-navigate before loadProfile resolves) reset everything to zero.
       const { data, error } = await supabase.from("group_rooms").insert({
         host_id: user.id,
         subject: newGrp.subject,
@@ -119,7 +116,7 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
     if (roomActionLoading) return;
     setRoomActionLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSessionCached();
       if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
       if (editingRoom.host_id !== user.id) { showNotif("Only the room creator can edit", "err"); return; }
       const newSpots = Number(editGrp.spots) || 4;
@@ -147,7 +144,7 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
     if (roomActionLoading) return;
     setRoomActionLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSessionCached();
       if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
       const room = groups.find(g => g.id === groupId);
       if (!room || room.host_id !== user.id) { showNotif("Only the room creator can delete", "err"); return; }
@@ -166,7 +163,7 @@ export function useRooms(awardBadge: (badgeId: string) => Promise<void>) {
     if (joiningGroupRef.current.has(groupId)) return;
     joiningGroupRef.current.add(groupId);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await getSessionCached();
       if (!session) { showNotif("Session expired — please sign in again", "err"); return; }
       if (joined) {
         const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", user.id);

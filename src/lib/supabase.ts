@@ -21,6 +21,47 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+// ── Session access helper ──────────────────────────────────────────────────
+// supabase-js serializes auth reads through an IndexedDB lock with a "steal"
+// acquisition policy. When multiple hot paths call `getSession()` in parallel
+// (and this app has 12+ such call sites — profile load, rooms, notify relay,
+// AI endpoints, messaging, etc.) the lock gets stolen mid-read and throws
+// `AbortError: Lock was stolen by another request`. On slow mobile Safari this
+// was the top runtime error.
+//
+// `getSessionCached()` collapses concurrent callers onto a single in-flight
+// promise and caches the result for a short TTL so burst reads (e.g. the 10
+// parallel loaders fired from BasUdrus.tsx on sign-in) share one lock cycle.
+// `onAuthStateChange` invalidates the cache on sign-in/out/token-refresh so we
+// never serve a stale token.
+type SessionResult = Awaited<ReturnType<typeof supabase.auth.getSession>>;
+let sessionInflight: Promise<SessionResult> | null = null;
+let sessionCache: { at: number; result: SessionResult } | null = null;
+const SESSION_TTL_MS = 2000;
+
+export function getSessionCached(): Promise<SessionResult> {
+  const now = Date.now();
+  if (sessionCache && now - sessionCache.at < SESSION_TTL_MS) {
+    return Promise.resolve(sessionCache.result);
+  }
+  if (sessionInflight) return sessionInflight;
+  sessionInflight = supabase.auth.getSession()
+    .then((result) => { sessionCache = { at: Date.now(), result }; return result; })
+    .finally(() => { sessionInflight = null; });
+  return sessionInflight;
+}
+
+supabase.auth.onAuthStateChange((event) => {
+  // Any auth transition invalidates the cache. TOKEN_REFRESHED is included
+  // because the access_token changes — stale cache would hand out the old JWT.
+  if (event === "SIGNED_IN" || event === "SIGNED_OUT" ||
+      event === "TOKEN_REFRESHED" || event === "USER_UPDATED" ||
+      event === "PASSWORD_RECOVERY") {
+    sessionCache = null;
+    sessionInflight = null;
+  }
+});
+
 export type Profile = {
   id: string;
   name: string;
