@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { ErrorBoundary } from "@/shared/ErrorBoundary";
 import { AppProvider } from "@/context/AppContext";
 
@@ -22,6 +23,7 @@ export default function App() {
         <Suspense fallback={<LoadingShell />}>
           <BasUdrus />
         </Suspense>
+        <SpeedInsights />
       </AppProvider>
     </ErrorBoundary>
   );
