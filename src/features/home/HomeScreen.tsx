@@ -70,8 +70,14 @@ export function HomeScreen() {
       <TopBar onOpenPalette={openPalette} />
       <div className="max-w-[1200px] mx-auto px-4 lg:px-8 py-6 lg:py-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
-          {/* Greeting + AI */}
-          <section className="lg:col-span-8 bu-card p-6 lg:p-8">
+          {/* Greeting + AI
+              Mobile order: 1st (top, after greeting). Same as desktop.
+              Phone reorder explanation: user requested matches above
+              streak on the phone view, while keeping the desktop
+              grid (AI col-8 next to Streak col-4) intact. We do that
+              with `order-*` on mobile + `lg:order-*` to restore
+              original DOM order at desktop breakpoint. */}
+          <section className="order-1 lg:order-1 lg:col-span-8 bu-card p-6 lg:p-8">
             <div className="serif text-2xl lg:text-4xl text-ink-1 mb-1" style={{ fontStyle: "italic" }}>
               {greet}, {name}.
             </div>
@@ -111,8 +117,10 @@ export function HomeScreen() {
             </div>
           </section>
 
-          {/* Streak */}
-          <section className="lg:col-span-4 bu-card p-6 flex flex-col gap-3">
+          {/* Streak
+              Mobile order: 3rd (after Matches). Desktop order: 2nd
+              (next to AI in the right column). */}
+          <section className="order-3 lg:order-2 lg:col-span-4 bu-card p-6 flex flex-col gap-3">
             <div className="flex items-center gap-2 text-ink-3 text-xs uppercase tracking-wider">
               <Flame className="h-4 w-4" /> Streak
             </div>
@@ -129,8 +137,11 @@ export function HomeScreen() {
             </button>
           </section>
 
-          {/* Match suggestions */}
-          <section className="lg:col-span-8 bu-card p-6">
+          {/* Match suggestions
+              Mobile order: 2nd (right after AI — user wants this
+              promoted). Desktop order: 3rd (back to its original
+              row in the grid). */}
+          <section className="order-2 lg:order-3 lg:col-span-8 bu-card p-6">
             <div className="flex items-baseline justify-between mb-4">
               <h2 className="serif text-xl text-ink-1" style={{ fontStyle: "italic" }}>New matches for you</h2>
               <button onClick={() => setScreen("discover")} className="h-9 px-4 rounded-full bg-accent-soft text-accent-ink text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-accent hover:text-white transition-colors active:scale-95">View all <ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" /></button>
@@ -183,8 +194,8 @@ export function HomeScreen() {
             </ul>
           </section>
 
-          {/* Today's rooms */}
-          <section className="lg:col-span-4 bu-card p-6">
+          {/* Today's rooms — order is the same on mobile + desktop */}
+          <section className="order-4 lg:order-4 lg:col-span-4 bu-card p-6">
             <div className="flex items-baseline justify-between mb-4">
               <h2 className="serif text-xl text-ink-1" style={{ fontStyle: "italic" }}>Rooms today</h2>
               <button onClick={() => setScreen("rooms")} className="text-xs text-accent font-medium">See all</button>
@@ -215,8 +226,9 @@ export function HomeScreen() {
           </section>
 
           {/* Activity feed — real Supabase data: help_requests +
-              group_rooms + connections, mixed by created_at desc. */}
-          <section className="lg:col-span-12 bu-card p-6">
+              group_rooms + connections, mixed by created_at desc.
+              Always last, both desktop + mobile. */}
+          <section className="order-5 lg:order-5 lg:col-span-12 bu-card p-6">
             <h2 className="serif text-xl text-ink-1 mb-4" style={{ fontStyle: "italic" }}>Recent activity</h2>
             {activityLoading ? (
               <ul className="space-y-3">
