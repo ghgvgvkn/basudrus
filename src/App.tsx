@@ -33,15 +33,60 @@ import { QuizPrompt } from "@/features/match/QuizPrompt";
 //
 // React.lazy needs a default export. Our screens use named exports,
 // so the .then() shim re-exposes the named export as `default`.
-const DiscoverScreen      = lazy(() => import("@/features/discover/DiscoverScreen").then(m => ({ default: m.DiscoverScreen })));
-const AIScreen            = lazy(() => import("@/features/ai/AIScreen").then(m => ({ default: m.AIScreen })));
-const ConnectScreen       = lazy(() => import("@/features/messaging/ConnectScreen").then(m => ({ default: m.ConnectScreen })));
-const RoomsScreen         = lazy(() => import("@/features/rooms/RoomsScreen").then(m => ({ default: m.RoomsScreen })));
-const ProfileScreen       = lazy(() => import("@/features/profile/ProfileScreen").then(m => ({ default: m.ProfileScreen })));
-const NotificationsScreen = lazy(() => import("@/features/notifications/NotificationsScreen").then(m => ({ default: m.NotificationsScreen })));
-const SettingsScreen      = lazy(() => import("@/features/settings/SettingsScreen").then(m => ({ default: m.SettingsScreen })));
-const SubscriptionScreen  = lazy(() => import("@/features/subscription/SubscriptionScreen").then(m => ({ default: m.SubscriptionScreen })));
-const OnboardingScreen    = lazy(() => import("@/features/onboarding/OnboardingScreen").then(m => ({ default: m.OnboardingScreen })));
+
+/**
+ * Wraps a dynamic import so a "Failed to fetch dynamically imported
+ * module" error (which fires when the user's cached index.js refers
+ * to a chunk hash that doesn't exist anymore — i.e. they've been on
+ * the site since BEFORE the latest deploy) triggers a single full-
+ * page reload. After reload, index.html is fresh and points to the
+ * new chunk hashes, so the lazy import succeeds.
+ *
+ * Without this wrapper, every Vercel deploy puts every active user
+ * one navigation away from a fatal "Importing a module script
+ * failed" error caught by ErrorBoundary. With it, the app
+ * self-heals on the next route change.
+ *
+ * The reload is guarded by a sessionStorage flag so we never enter
+ * a reload loop if the chunk genuinely 404s (e.g. CDN down).
+ */
+function safeLazy<T extends { default: React.ComponentType<unknown> }>(
+  loader: () => Promise<T>,
+) {
+  return lazy(async () => {
+    try {
+      return await loader();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isChunkLoadFailure =
+        /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i
+          .test(message);
+      if (isChunkLoadFailure && typeof window !== "undefined") {
+        const RELOAD_KEY = "bu:chunk-reload-attempt";
+        try {
+          if (!sessionStorage.getItem(RELOAD_KEY)) {
+            sessionStorage.setItem(RELOAD_KEY, "1");
+            window.location.reload();
+            // Browser starts navigating; throw to keep React from
+            // rendering an Error UI in the brief gap before reload.
+            return await new Promise<T>(() => {});
+          }
+        } catch { /* sessionStorage unavailable */ }
+      }
+      throw err;
+    }
+  });
+}
+
+const DiscoverScreen      = safeLazy(() => import("@/features/discover/DiscoverScreen").then(m => ({ default: m.DiscoverScreen })));
+const AIScreen            = safeLazy(() => import("@/features/ai/AIScreen").then(m => ({ default: m.AIScreen })));
+const ConnectScreen       = safeLazy(() => import("@/features/messaging/ConnectScreen").then(m => ({ default: m.ConnectScreen })));
+const RoomsScreen         = safeLazy(() => import("@/features/rooms/RoomsScreen").then(m => ({ default: m.RoomsScreen })));
+const ProfileScreen       = safeLazy(() => import("@/features/profile/ProfileScreen").then(m => ({ default: m.ProfileScreen })));
+const NotificationsScreen = safeLazy(() => import("@/features/notifications/NotificationsScreen").then(m => ({ default: m.NotificationsScreen })));
+const SettingsScreen      = safeLazy(() => import("@/features/settings/SettingsScreen").then(m => ({ default: m.SettingsScreen })));
+const SubscriptionScreen  = safeLazy(() => import("@/features/subscription/SubscriptionScreen").then(m => ({ default: m.SubscriptionScreen })));
+const OnboardingScreen    = safeLazy(() => import("@/features/onboarding/OnboardingScreen").then(m => ({ default: m.OnboardingScreen })));
 
 /** Tiny inline fallback shown for the ~50–200ms gap while a route's
  *  chunk downloads. Centered brand wordmark — matches the SignInGate
