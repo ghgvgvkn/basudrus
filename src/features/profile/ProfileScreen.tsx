@@ -499,12 +499,24 @@ export function ProfileScreen() {
   );
 }
 
+/**
+ * Field — label + children wrapper. Uses `<div>` not `<label>`.
+ *
+ * Why not <label>: when a label wraps an input AND nested
+ * interactive elements (e.g. CoursesPicker dropdown buttons),
+ * browsers redirect clicks on those nested buttons to the input
+ * via the implicit label-form-control association. The button's
+ * onClick never fires — items look clickable but do nothing.
+ *
+ * <div> avoids the redirect so each nested control gets its own
+ * click events. Visual look is identical.
+ */
 function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="block text-xs text-ink-3 mb-1.5 font-medium uppercase tracking-wide">{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
 

@@ -609,12 +609,29 @@ function GoogleGlyph() {
   );
 }
 
+/**
+ * Field — label + children wrapper for form rows.
+ *
+ * Uses a `<div>`, NOT a `<label>`, on purpose: when a `<label>`
+ * wraps an input AND nested buttons (like the CoursesPicker
+ * dropdown items), browsers redirect clicks on those buttons to
+ * the input via the implicit-association rule. The user clicks
+ * "Anatomy I", focus goes to the search input, the button's
+ * onClick never fires. Symptom: dropdown items look clickable
+ * but nothing happens.
+ *
+ * Switching to `<div>` removes the implicit association — each
+ * inner control receives its own clicks. The label-text/control
+ * relationship is mostly visual here anyway; the controls all
+ * have proper aria attributes from their own components
+ * (placeholder, role="radio", etc.).
+ */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="block text-sm text-ink/60 mb-2">{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
 
