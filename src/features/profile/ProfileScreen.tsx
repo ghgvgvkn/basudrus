@@ -43,6 +43,10 @@ export function ProfileScreen() {
   // an auto-save lands. Lets the user know their pick persisted
   // without needing to click the main Save button.
   const [coursesJustSaved, setCoursesJustSaved] = useState(false);
+  // Sign-out busy state — disables the button + shows "Signing out…"
+  // so the user knows the click registered while we wait for the
+  // server round-trip + page reload.
+  const [signingOut, setSigningOut] = useState(false);
   // The Supabase universities table uses uuid as the FK key for
   // uni_majors. The profile only stores the display name (`uni`),
   // so we keep `uniId` as edit-time state, derived from the picked
@@ -459,10 +463,26 @@ export function ProfileScreen() {
 
         {!isGuest && (
           <button
-            onClick={() => { void signOutEverywhere(); }}
-            className="w-full h-12 rounded-full text-ink-3 hover:bg-surface-2 inline-flex items-center justify-center gap-2 text-sm"
+            onClick={() => {
+              // Light confirmation — no modal needed; a quick
+              // window.confirm prevents accidental clicks on mobile
+              // where the row is right above the bottom nav.
+              const ok = typeof window !== "undefined"
+                ? window.confirm("Sign out of Bas Udrus? You'll need to sign in again to come back.")
+                : true;
+              if (!ok) return;
+              setSigningOut(true);
+              // signOutEverywhere ends with window.location.href = "/"
+              // so we never come back to this render — but if the
+              // promise rejects somehow, we want the busy state to
+              // unstick. .finally() handles that edge case.
+              signOutEverywhere().finally(() => setSigningOut(false));
+            }}
+            disabled={signingOut}
+            className="w-full h-12 rounded-full text-ink-3 hover:bg-surface-2 inline-flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <LogOut className="h-4 w-4" /> Sign out
+            <LogOut className="h-4 w-4" />
+            {signingOut ? "Signing out…" : "Sign out"}
           </button>
         )}
       </div>

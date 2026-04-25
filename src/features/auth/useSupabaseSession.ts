@@ -109,16 +109,55 @@ export function useSupabaseSession(): AuthState {
   return state;
 }
 
-/** Sign out + clear local storage hints. Call from Profile → Sign out. */
+/**
+ * Sign out everywhere. Called from Profile → Sign out button.
+ *
+ * Three responsibilities:
+ *   1. Tell Supabase to invalidate the session ON ALL DEVICES (scope:
+ *      "global"). Default scope is "local" which only clears the
+ *      current tab's tokens — confusing for users who signed in on
+ *      phone + laptop and expect "sign out" to mean "log out from
+ *      everywhere."
+ *
+ *   2. Clear EVERY `bu:` prefixed localStorage entry, not just a
+ *      hand-curated list. The previous version typed "bu:onb" but
+ *      the actual key is "bu:onboarded" — so the onboarding-complete
+ *      flag survived sign-out. Iterating + prefix-filter catches
+ *      every current key AND any future ones we add.
+ *
+ *   3. Force a full page reload to "/". The auth listener would
+ *      propagate the state change anyway, but a hard reload
+ *      guarantees:
+ *        - All React state (drafts, chat, ephemeral UI) is nuked
+ *        - Realtime subscriptions tear down cleanly
+ *        - The user sees the sign-in form immediately on landing
+ *      Avoids subtle half-signed-out states.
+ *
+ * Errors anywhere don't block — sign-out is "do what you can."
+ * Even if the Supabase call fails (network down), the local
+ * cleanup + reload still puts the UI in a clean signed-out state;
+ * the server session gets cleaned up by token expiry later.
+ */
 export async function signOutEverywhere() {
-  await supabase.auth.signOut();
+  // 1. Server-side sign-out, global scope.
   try {
-    // Any redesign-specific localStorage entries the AppContext
-    // set during mock sign-in — clear them so the UI resets to
-    // the anonymous state without a hard refresh.
-    [
-      "bu:auth", "bu:sub", "bu:onb", "bu:personality",
-      "bu:open-thread", "bu:open-thread-meta", "bu:bypass-auth",
-    ].forEach(k => localStorage.removeItem(k));
-  } catch { /* noop */ }
+    await supabase.auth.signOut({ scope: "global" });
+  } catch { /* network / already-signed-out — proceed */ }
+
+  // 2. Wipe every bu:-prefixed localStorage entry. Snapshot keys
+  // first so removeItem() doesn't shift indexes mid-loop.
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("bu:")) keys.push(k);
+    }
+    keys.forEach(k => localStorage.removeItem(k));
+  } catch { /* localStorage unavailable — proceed */ }
+
+  // 3. Hard reload to home. Every realtime channel, every useState,
+  // every cached query gets a fresh slate.
+  if (typeof window !== "undefined") {
+    window.location.href = "/";
+  }
 }
