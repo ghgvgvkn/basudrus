@@ -501,9 +501,10 @@ export default async function handler(req: Request) {
     const { data: body, error: bodyErr } = await readCappedJson<{
       messages?: unknown; name?: unknown; mood?: unknown; mode?: unknown;
       uni?: unknown; major?: unknown; lang?: unknown; memory?: unknown;
+      personality?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, name, mood, mode, uni, major, lang, memory } = body || {};
+    const { messages, name, mood, mode, uni, major, lang, memory, personality } = body || {};
 
     // Every field that flows into the system prompt is sanitized for
     // newlines/control chars + length-capped to defeat prompt-injection
@@ -519,6 +520,17 @@ export default async function handler(req: Request) {
     if (safeMood) contextParts.push(`Current mood they selected: ${safeMood} — factor this into your tone`);
     const safeMode = sanitizeLine(mode, 60);
     if (safeMode) contextParts.push(`Support mode they chose: ${safeMode}`);
+    // Personality summary built client-side from match_quiz.answers.
+    // Same prompt-injection defense as tutor.ts — sanitized + capped.
+    // For Noor specifically, this matters most for STRESS RESPONSE
+    // ("freezes under pressure" → softer tone) and COMMUNICATION
+    // STYLE ("gentle delivery — discourages easily" → more careful).
+    const safePersonality = sanitizeLine(personality, 300);
+    if (safePersonality) {
+      contextParts.push(
+        `Student's study/life style (use this to soften or sharpen your tone — never quote it back at them): ${safePersonality}`,
+      );
+    }
     if (lang === "ar") contextParts.push("CRITICAL: Respond ONLY in Arabic (Jordanian/Levantine dialect). Use Arabic for everything. Be natural — يلا، عادي، اطمن، خير.");
     if (lang === "en") contextParts.push("CRITICAL: Respond ONLY in English. Do not use any Arabic.");
     const safeMemory = sanitizeMemory(memory);

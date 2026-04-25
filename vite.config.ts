@@ -1,68 +1,27 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import path from "path";
-import { compression } from "vite-plugin-compression2";
+import path from "node:path";
 
-function inlineCssPlugin(): Plugin {
-  return {
-    name: "inline-css",
-    enforce: "post",
-    transformIndexHtml: {
-      order: "post",
-      handler(html, ctx) {
-        if (!ctx.bundle) return html;
-        const cssAssets = Object.values(ctx.bundle).filter(
-          (a): a is Extract<typeof a, { type: "asset" }> =>
-            a.type === "asset" && a.fileName.endsWith(".css"),
-        );
-        for (const css of cssAssets) {
-          const linkTag = new RegExp(
-            `<link[^>]*href="[^"]*${css.fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*>`,
-          );
-          const source =
-            typeof css.source === "string"
-              ? css.source
-              : new TextDecoder().decode(css.source);
-          html = html.replace(linkTag, `<style>${source}</style>`);
-          delete ctx.bundle[css.fileName];
-        }
-        return html;
-      },
-    },
-  };
-}
-
+// Vite 5 + Tailwind 4 (beta). The `@tailwindcss/vite` plugin is the
+// v4 replacement for the old postcss pipeline — it reads `@theme`
+// blocks from src/index.css and generates utility classes on demand.
+//
+// The `@` alias matches the legacy repo's tsconfig so imports can
+// be copy-pasted between projects without rewriting paths.
 export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-    inlineCssPlugin(),
-    compression({ algorithm: "gzip", exclude: [/\.(png|jpg|jpeg|gif|woff2?)$/i] }),
-    compression({ algorithm: "brotliCompress", exclude: [/\.(png|jpg|jpeg|gif|woff2?)$/i] }),
-  ],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
-    },
-    dedupe: ["react", "react-dom"],
-  },
-  root: path.resolve(import.meta.dirname),
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    cssCodeSplit: false,
-    modulePreload: { polyfill: false },
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          "vendor-react": ["react", "react-dom"],
-          "vendor-supabase": ["@supabase/supabase-js"],
-        },
-      },
+      "@": path.resolve(__dirname, "src"),
     },
   },
   server: {
-    port: 3000,
+    port: 5173,
+    strictPort: false,
+  },
+  build: {
+    outDir: "dist",
+    sourcemap: true,
   },
 });

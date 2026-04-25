@@ -760,10 +760,10 @@ export default async function handler(req: Request) {
 
     const { data: body, error: bodyErr } = await readCappedJson<{
       messages?: unknown; subject?: unknown; major?: unknown; year?: unknown;
-      uni?: unknown; lang?: unknown; memory?: unknown;
+      uni?: unknown; lang?: unknown; memory?: unknown; personality?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, subject, major, year, uni, lang, memory } = body || {};
+    const { messages, subject, major, year, uni, lang, memory, personality } = body || {};
 
     // Sanitize every field that flows into the system prompt (prompt injection).
     const contextParts: string[] = [];
@@ -775,6 +775,18 @@ export default async function handler(req: Request) {
     if (safeYear) contextParts.push(`Year: ${safeYear}`);
     const safeUni = sanitizeLine(uni, 80);
     if (safeUni) contextParts.push(`University: ${safeUni}`);
+    // Personality summary built client-side from match_quiz.answers.
+    // Capped at 300 chars and sanitized (control-char strip, length
+    // cap) so a malicious quiz answer can't inject "ignore prior
+    // instructions" via this field. The summary is descriptive
+    // ("Evening peak hours, deep-work blocks, group-friendly"), so
+    // the model adapts naturally without us having to over-direct it.
+    const safePersonality = sanitizeLine(personality, 300);
+    if (safePersonality) {
+      contextParts.push(
+        `Student's study style (use this to adapt your tone, pacing, and examples — never quote it back at them): ${safePersonality}`,
+      );
+    }
     if (lang === "ar") contextParts.push("CRITICAL: Respond ONLY in Arabic (Jordanian/Levantine dialect). Use Arabic for everything except technical terms that have no Arabic equivalent.");
     if (lang === "en") contextParts.push("CRITICAL: Respond ONLY in English. Do not use any Arabic.");
     const safeMemory = sanitizeMemory(memory);

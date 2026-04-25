@@ -42,6 +42,7 @@ const ALLOWED_ORIGINS = [
   "https://basudrus.com",
   "https://www.basudrus.com",
   "https://basudrus.vercel.app",
+  "https://basudrus-redesign.vercel.app",
 ];
 
 function exactOriginMatch(origin: string | null | undefined): boolean {

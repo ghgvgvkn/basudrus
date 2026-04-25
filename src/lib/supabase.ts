@@ -1,3 +1,18 @@
+/**
+ * Supabase client + cached session helper + shared row types.
+ *
+ * Ported verbatim from the production repo (`bas-udrus-project`) so
+ * the redesign speaks the same types as the live site. When we cut
+ * over production to this codebase, every hook keeps compiling.
+ *
+ * Env vars: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY — both live
+ * in `.env`. The anon key is publishable/public by design.
+ *
+ * getSessionCached() collapses concurrent auth reads onto one
+ * in-flight promise (2s TTL). On sign-in, 10+ hot paths race
+ * supabase.auth.getSession() — the IndexedDB lock has a "steal"
+ * policy that throws AbortError in mobile Safari. Caching fixes it.
+ */
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
@@ -5,35 +20,18 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    autoRefreshToken: true,        // Keep sessions alive (prevents 401s)
-    persistSession: true,          // Survive page refreshes
-    detectSessionInUrl: true,      // Handle OAuth redirects
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
   },
   realtime: {
-    params: {
-      eventsPerSecond: 10,         // Rate-limit realtime events (prevents flooding at 2000 users)
-    },
+    params: { eventsPerSecond: 10 },
   },
   global: {
-    headers: {
-      "x-client-info": "bas-udrus/1.0",  // Identify app in Supabase logs
-    },
+    headers: { "x-client-info": "bas-udrus-redesign/1.0" },
   },
 });
 
-// ── Session access helper ──────────────────────────────────────────────────
-// supabase-js serializes auth reads through an IndexedDB lock with a "steal"
-// acquisition policy. When multiple hot paths call `getSession()` in parallel
-// (and this app has 12+ such call sites — profile load, rooms, notify relay,
-// AI endpoints, messaging, etc.) the lock gets stolen mid-read and throws
-// `AbortError: Lock was stolen by another request`. On slow mobile Safari this
-// was the top runtime error.
-//
-// `getSessionCached()` collapses concurrent callers onto a single in-flight
-// promise and caches the result for a short TTL so burst reads (e.g. the 10
-// parallel loaders fired from BasUdrus.tsx on sign-in) share one lock cycle.
-// `onAuthStateChange` invalidates the cache on sign-in/out/token-refresh so we
-// never serve a stale token.
 type SessionResult = Awaited<ReturnType<typeof supabase.auth.getSession>>;
 let sessionInflight: Promise<SessionResult> | null = null;
 let sessionCache: { at: number; result: SessionResult } | null = null;
@@ -52,8 +50,6 @@ export function getSessionCached(): Promise<SessionResult> {
 }
 
 supabase.auth.onAuthStateChange((event) => {
-  // Any auth transition invalidates the cache. TOKEN_REFRESHED is included
-  // because the access_token changes — stale cache would hand out the old JWT.
   if (event === "SIGNED_IN" || event === "SIGNED_OUT" ||
       event === "TOKEN_REFRESHED" || event === "USER_UPDATED" ||
       event === "PASSWORD_RECOVERY") {
@@ -62,9 +58,21 @@ supabase.auth.onAuthStateChange((event) => {
   }
 });
 
+// ── Row types — match the live Supabase schema 1-to-1 ──
+
 export type Profile = {
   id: string;
   name: string;
+  /**
+   * NOTE: privacy of this field is currently best-effort only — every
+   * authenticated user can SELECT email cross-user. A previous
+   * column-level revoke broke `select("*")` queries app-wide and was
+   * rolled back (see migration `restore_profiles_select_grant`). The
+   * fix needs to come back as a public-facing view or a SECURITY
+   * DEFINER getter, with all `.select("*")` queries migrated to use
+   * the explicit-columns list. Until then, prefer reading the user's
+   * own email from `session.user.email` rather than this field.
+   */
   email: string;
   uni: string;
   major: string;
@@ -85,6 +93,11 @@ export type Profile = {
   subjects: string[];
   can_post?: boolean;
   created_at: string;
+  /** Updated by `touch_last_seen` RPC every ~5 min via the heartbeat
+   *  in useSupabaseSession. Used to render presence dots on avatars
+   *  and to power "active in the last 7 days" feed sorting in
+   *  Discover. Nullable for users who haven't been seen yet. */
+  last_seen_at?: string | null;
 };
 
 export type Connection = {
@@ -134,23 +147,18 @@ export type GroupRoom = {
   joined?: boolean;
 };
 
-export type SubjectHistory = {
+export type RoomMessage = {
   id: string;
-  user_id: string;
-  subject: string;
-  status: string;
-  note: string;
+  room_id: string;
+  sender_id: string;
+  text: string;
+  message_type: string;            // "text" | "voice" | "file"
+  file_url: string | null;
+  file_name: string | null;
+  client_id?: string | null;       // optimistic dedup key
   created_at: string;
-};
-
-export type Report = {
-  id: string;
-  reporter_id: string;
-  reported_id: string;
-  reason: string;
-  created_at: string;
-  reporter?: Profile;
-  reported?: Profile;
+  /** Optional join — present when fetched with profile */
+  sender?: Profile;
 };
 
 export type Notification = {

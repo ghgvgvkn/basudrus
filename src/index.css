@@ -1,1 +1,258 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ============================================================
+   Bas Udrus — Global stylesheet
+   Tailwind v4 via @import, design tokens via @theme, plus the
+   base element styles + component utility classes the redesign
+   relies on (.bu-card, .bu-pill, .bu-btn, etc.)
+
+   Everything here is scoped to the <body> so it can't bleed into
+   the landing/auth screens that still use the legacy constants.ts
+   theme — those render inside a `.bu-legacy` boundary that resets
+   back to the old palette. Gradually we'll migrate those too.
+   ============================================================ */
+
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────
+   @theme — registers tokens as both CSS custom props AND Tailwind
+   utility classes. `--color-accent` becomes `bg-accent`, `text-accent`,
+   `border-accent`, etc. Same for `--radius-lg` → `rounded-lg`, etc.
+   See https://tailwindcss.com/docs/theme
+   ────────────────────────────────────────────────────────────── */
+@theme {
+  /* ── Surfaces ── warm, not grey ── */
+  --color-surface-0:  #F4F1EA;   /* page bg */
+  --color-surface-1:  #FFFFFF;   /* cards */
+  --color-surface-2:  #FAF7F0;   /* inset, empty */
+  --color-surface-3:  #EDE7DB;   /* hover/pressed */
+
+  /* Flat aliases — the redesign's new screens (AI, Subscription,
+     Onboarding, etc.) use `bg-bg` / `text-ink` rather than the
+     ladder. They point at the top of each ladder. */
+  --color-bg:  #F4F1EA;
+  --color-ink: #0E1014;
+
+  /* ── Ink ladder ── */
+  --color-ink-1: #0E1014;
+  --color-ink-2: #2B2F38;
+  --color-ink-3: #5A6070;
+  --color-ink-4: #8E93A1;
+  --color-line:   #E7E1D4;
+  --color-line-2: #D6CEB9;
+
+  /* ── Accent — the single Ustaz voice ── */
+  --color-accent:      #5B4BF5;
+  --color-accent-2:    #8A5CF7;
+  --color-accent-ink:  #1B1466;
+  --color-accent-soft: #EDEBFF;
+
+  /* ── Secondary signals ── */
+  --color-warm:      #E8743B;
+  --color-warm-soft: #FDE7D8;
+  --color-mint:      #1A8F6B;
+  --color-mint-soft: #D6EFE3;
+  --color-rose:      #D94D6C;
+  --color-rose-soft: #FCE2E8;
+  --color-sand:      #C8A04F;
+
+  /* ── Radius ── */
+  --radius-xs:   6px;
+  --radius-sm:  10px;
+  --radius-md:  14px;
+  --radius-lg:  20px;
+  --radius-xl:  28px;
+  --radius-2xl: 36px;
+
+  /* ── Fonts ── */
+  --font-sans:    "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Instrument Serif", "Cormorant Garamond", Georgia, serif;
+  --font-serif:   "Instrument Serif", "Cormorant Garamond", Georgia, serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  /* ── Motion easings (usable as `transition-[--ease-spring]` at call site) ── */
+  --ease-out-expo:   cubic-bezier(.2, .8, .2, 1);
+  --ease-spring:     cubic-bezier(.25, 1.4, .4, 1);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Dark-mode token overrides. next-themes toggles `class="dark"` on
+   <html>; we also respond to `data-theme="dark"` so the legacy
+   AppContext darkMode keeps working until migrated.
+   ────────────────────────────────────────────────────────────── */
+.dark,
+[data-theme="dark"] {
+  --color-surface-0:  #0B0A12;
+  --color-surface-1:  #15131E;
+  --color-surface-2:  #1D1A2A;
+  --color-surface-3:  #28243A;
+
+  /* Flat dark aliases. */
+  --color-bg:  #0B0A12;
+  --color-ink: #F4F0FF;
+
+  --color-ink-1: #F4F0FF;
+  --color-ink-2: #C9C2DD;
+  --color-ink-3: #8E87A3;
+  --color-ink-4: #5F5A75;
+  --color-line:   #2A2640;
+  --color-line-2: #3C3756;
+
+  --color-accent:      #9688FF;
+  --color-accent-2:    #B98EFF;
+  --color-accent-ink:  #E4DFFF;
+  --color-accent-soft: #1F1A3D;
+
+  --color-warm-soft: #3A1E12;
+  --color-mint-soft: #0E2A22;
+  --color-rose-soft: #3A1A22;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Non-token CSS vars (gradients, shadows, motion durations). These
+   can't live in @theme because they're not single colors/lengths
+   — but we still want them under a single root so tweaks are easy.
+   ────────────────────────────────────────────────────────────── */
+:root {
+  /* AI persona gradients */
+  --g-ustaz: linear-gradient(135deg, #5B4BF5 0%, #8A5CF7 60%, #E16FBE 100%);
+  --g-noor:  linear-gradient(135deg, #0E8A6B 0%, #3BC79E 60%, #DFF5B7 100%);
+  --g-match: linear-gradient(135deg, #C23F6C 0%, #E8743B 100%);
+  --g-plan:  linear-gradient(135deg, #1B1B4B 0%, #5B4BF5 60%, #8A5CF7 100%);
+
+  /* Depth — always multi-stop, never a single blur */
+  --shadow-xs: 0 1px 1.5px rgba(14,16,20,.05), 0 0 0 1px rgba(14,16,20,.04);
+  --shadow-sm: 0 1px 2px rgba(14,16,20,.04), 0 2px 4px rgba(14,16,20,.04), 0 0 0 1px rgba(14,16,20,.04);
+  --shadow-md: 0 2px 4px rgba(14,16,20,.04), 0 8px 16px -4px rgba(14,16,20,.08), 0 0 0 1px rgba(14,16,20,.04);
+  --shadow-lg: 0 4px 8px -2px rgba(14,16,20,.06), 0 16px 32px -8px rgba(14,16,20,.12), 0 0 0 1px rgba(14,16,20,.05);
+  --shadow-xl: 0 8px 16px -4px rgba(14,16,20,.08), 0 32px 64px -16px rgba(14,16,20,.20), 0 0 0 1px rgba(14,16,20,.06);
+  --shadow-ai: 0 8px 24px -8px rgba(91,75,245,.35), 0 16px 48px -16px rgba(138,92,247,.28), 0 0 0 1px rgba(91,75,245,.12);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,.7), inset 0 0 0 1px rgba(14,16,20,.04);
+
+  /* Motion */
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 380ms;
+  --dur-hero: 640ms;
+}
+
+.dark {
+  --shadow-xs: 0 1px 1.5px rgba(0,0,0,.4);
+  --shadow-sm: 0 2px 4px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.05);
+  --shadow-lg: 0 12px 32px -8px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
+  --shadow-xl: 0 24px 64px -16px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.08);
+  --shadow-ai: 0 16px 48px -12px rgba(138,92,247,.5), 0 0 0 1px rgba(150,136,255,.2);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Base body styling. NOT global resets — those belong to Tailwind's
+   own preflight. Just the things specific to this app.
+   ────────────────────────────────────────────────────────────── */
+html {
+  color-scheme: light dark;
+}
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ink-2);
+  background: var(--color-surface-0);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.01em;
+  /* stop the page bouncing when a drawer opens on iOS */
+  overscroll-behavior-y: none;
+}
+h1, h2, h3, h4 {
+  color: var(--color-ink-1);
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* The serif-italic display style the logo + hero numbers use. Apply
+   via `.font-display italic` in components, or via this convenience
+   class where a single word inside a body-text sentence needs it. */
+.serif {
+  font-family: var(--font-display);
+  font-style: italic;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   RTL niceties. LocaleContext sets `dir="rtl"` on <html>; we
+   mirror just the few places where logical properties aren't
+   enough (fixed Arabic numerals, font-feature tweaks).
+   ────────────────────────────────────────────────────────────── */
+[dir="rtl"] {
+  font-feature-settings: normal;
+  letter-spacing: 0;
+}
+[dir="rtl"] .serif {
+  letter-spacing: 0;
+}
+/* Numbers inside Arabic text should stay Latin (not Arabic-Indic). */
+[dir="rtl"] .tabular { font-variant-numeric: tabular-nums; direction: ltr; display: inline-block; }
+
+/* ──────────────────────────────────────────────────────────────
+   Component classes. shadcn/ui primitives cover most interactive
+   widgets — these are for the two shapes that appear everywhere
+   and are easier as utility classes than as component wrappers:
+     - .bu-card — the card surface with the correct shadow ladder
+     - .bu-pill — the label chip used on every screen
+
+   Buttons and form fields use shadcn. Don't add a .bu-btn here.
+   ────────────────────────────────────────────────────────────── */
+.bu-card {
+  background: var(--color-surface-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.bu-card[data-elev="md"] { box-shadow: var(--shadow-md); }
+.bu-card[data-elev="lg"] { box-shadow: var(--shadow-lg); }
+
+.bu-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-ink-3);
+  font: 500 12px/1 var(--font-sans);
+  border: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Scrollbar taming. Most surfaces scroll with `overflow-y-auto`;
+   this just makes the thumb not-ugly in Chromium. Firefox uses
+   scrollbar-width.
+   ────────────────────────────────────────────────────────────── */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--color-line-2) transparent; }
+
+/* ──────────────────────────────────────────────────────────────
+   Legacy boundary. Old screens inside src/features/auth still read
+   from constants.ts → LIGHT/DARK. Wrap them in `.bu-legacy` to
+   reset back to `#F5F4F0` + navy text so the new global body
+   colors don't leak in.
+   ────────────────────────────────────────────────────────────── */
+.bu-legacy {
+  background: #F5F4F0;
+  color: #1A2332;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+.dark .bu-legacy,
+[data-theme="dark"] .bu-legacy {
+  background: #0D1117;
+  color: #E6EDF3;
+}
