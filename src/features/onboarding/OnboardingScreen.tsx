@@ -22,7 +22,7 @@
  *   - Auth step lets the user **skip** ("Continue as guest") — the
  *     Profile banner will then nudge them to sign in later.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { PersonalityAnswers as LegacyPersonalityAnswers } from "@/shared/types";
 import { Mail, ArrowRight } from "lucide-react";
@@ -31,6 +31,8 @@ import { supabase } from "@/lib/supabase";
 import { CoursesPicker } from "@/features/profile/CoursesPicker";
 import type { PersonalityAnswers } from "@/features/match/personalityQuestions";
 import { PersonalityQuizStep } from "@/features/match/PersonalityQuizStep";
+import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
+import { useRealProfile } from "@/features/profile/useRealProfile";
 
 type Step = 0 | 1 | 2 | 3 | 4;
 
@@ -43,6 +45,41 @@ const YEARS: number[] = [1, 2, 3, 4, 5, 6, 7];
 export function OnboardingScreen() {
   const { completeOnboarding, setProfile, profile, signIn } = useApp();
   const [step, setStep] = useState<Step>(0);
+  // Watch for an active session — relevant for users who arrive here
+  // post Google OAuth callback. After Google auth, Supabase redirects
+  // back to / and we land on this screen. The user is already
+  // authenticated so the Welcome + Auth steps are useless friction —
+  // skip straight to the Profile-basics step (or finish onboarding
+  // entirely if they have a complete profile already).
+  const { user } = useSupabaseSession();
+  const real = useRealProfile();
+
+  // Auto-advance for users who arrive already authenticated (Google
+  // OAuth callback, returning visitors, etc.). Two outcomes:
+  //
+  //   1. They have a complete profile (uni + major + year all set)
+  //      → call completeOnboarding(null) and let AppGate hand off
+  //        to the SignInGate / Shell. They never see this screen.
+  //
+  //   2. They're authed but missing profile data (typical for first
+  //      Google sign-in) → jump from Welcome (step 0) or Auth
+  //      (step 1) straight to Profile basics (step 2).
+  //
+  // We only ever ADVANCE — never roll a user backwards. So if they
+  // manually navigated to step 3 (Quiz) and their session is fine,
+  // we leave them where they are.
+  useEffect(() => {
+    if (!user) return;
+    const p = real.profile;
+    if (p && p.uni && p.major && p.year) {
+      // Already onboarded in a previous session — finish out so the
+      // gate hands off to the main app. Pass null so we don't
+      // overwrite any existing personality answers.
+      completeOnboarding(null);
+      return;
+    }
+    if (step === 0 || step === 1) setStep(2);
+  }, [user, real.profile, step, completeOnboarding]);
 
   // Auth form state. "pick" = provider chooser; "signup" / "signin"
   // = email + password forms. OTP was removed because Supabase
