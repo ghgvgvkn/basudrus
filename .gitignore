@@ -1,11 +1,26 @@
-node_modules
-dist
-.env
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Vite / runtime
+.vite/
+.vercel/
+
+# Local env overrides (NOT the committed .env which holds the public
+# Supabase URL + anon key — safe to commit, see:
+# https://supabase.com/docs/guides/api/api-keys)
 .env.local
 .env.*.local
-*.log
+
+# Editor
 .DS_Store
-.vite
-.replit-artifact
-serve.js
-*.backup
+.idea/
+.vscode/
+
+# Generated vite config artifacts
+vite.config.d.ts
+vite.config.js
+.env
