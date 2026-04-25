@@ -25,7 +25,7 @@
 import { useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { PersonalityAnswers as LegacyPersonalityAnswers } from "@/shared/types";
-import { Mail, Apple, ArrowRight } from "lucide-react";
+import { Mail, ArrowRight } from "lucide-react";
 import { useUniversities, useMajors } from "./useOnboardingCatalog";
 import { supabase } from "@/lib/supabase";
 import { CoursesPicker } from "@/features/profile/CoursesPicker";
@@ -89,26 +89,11 @@ export function OnboardingScreen() {
   // real data behind RLS and surfaced fake stubs instead, which
   // looked broken to real users. Sign-up is free and takes 10s.
 
-  // Google OAuth. Requires `basudrus-redesign.vercel.app` to be
-  // in Supabase → Authentication → URL Configuration → Redirect URLs.
-  // Until you add it, this will fail — the guest button stays safe.
-  const oauth = async (provider: "google" | "apple") => {
-    setAuthError(null);
-    setAuthBusy(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: `${window.location.origin}/`,
-        },
-      });
-      if (error) throw error;
-      // Full-page redirect takes over — we don't reach here.
-    } catch (e) {
-      setAuthError(e instanceof Error ? e.message : `${provider} sign-in failed. Try email instead.`);
-      setAuthBusy(false);
-    }
-  };
+  // OAuth (Google / Apple) handlers removed — providers weren't
+  // configured on this Supabase project, so the buttons errored.
+  // To restore: enable the providers in Supabase → Authentication
+  // → Providers, whitelist the redirect URL, then re-add the
+  // signInWithOAuth wrapper.
 
   // uniId holds the Supabase university_id (uuid) once picked. `uni`
   // holds the human-readable name so we can store it on the profile.
@@ -271,16 +256,14 @@ export function OnboardingScreen() {
 
               {authMode === "pick" && (
                 <div className="mt-8 space-y-2.5">
-                  <AuthButton
-                    onClick={() => oauth("google")}
-                    label="Continue with Google"
-                    icon={<GoogleGlyph />}
-                  />
-                  <AuthButton
-                    onClick={() => oauth("apple")}
-                    label="Continue with Apple"
-                    icon={<Apple size={18} />}
-                  />
+                  {/* Google + Apple OAuth REMOVED — those providers
+                      aren't configured on this Supabase project, so
+                      the buttons just produced an error toast. Email
+                      sign-up is the only working path. To re-enable
+                      OAuth: enable the provider in Supabase →
+                      Authentication → Providers, add the redirect
+                      URL (basudrus.com) to URL Configuration, then
+                      restore the AuthButton blocks here. */}
                   <AuthButton
                     onClick={() => { setAuthError(null); setAuthMode("signup"); }}
                     label="Sign up with email"
@@ -539,16 +522,9 @@ function AuthButton({ icon, label, onClick }: { icon: React.ReactNode; label: st
   );
 }
 
-function GoogleGlyph() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
-      <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
-      <path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
-      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.167 6.656 3.58 9 3.58z" fill="#EA4335"/>
-    </svg>
-  );
-}
+// GoogleGlyph SVG removed — only used by the Continue-with-Google
+// button which is gone. If you re-enable Google OAuth, restore the
+// SVG from git history (commit 46f231f or earlier).
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
