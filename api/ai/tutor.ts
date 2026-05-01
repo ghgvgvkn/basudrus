@@ -1270,10 +1270,33 @@ export default async function handler(req: Request) {
       });
     }
 
-    // UPGRADE 8: one retry on transient Anthropic failure (5xx / 429
-    // / network) before surfacing an error. Wraps the fetch in a
-    // closure so we can call it twice if the first attempt fails.
-    const callAnthropic = () => fetch("https://api.anthropic.com/v1/messages", {
+    // ── Anthropic call with two-layer resilience ──
+    // Layer 1 (transient retries): on 429 / 502 / 503 / 504, wait 2s
+    //   and retry once before giving up.
+    // Layer 2 (tools fallback):    if the first attempt returns ANY
+    //   non-OK status (especially a 4xx from a malformed `tools`
+    //   block), retry once WITHOUT tools so students stay unblocked.
+    //   This protected against the web_search 400 we hit in
+    //   production on 2026-05-01: a misconfigured tool spec
+    //   shouldn't take down the entire tutor.
+    //
+    // The web_search tool itself is GA on Haiku 4.5, but we keep the
+    // fallback as a safety net — Anthropic occasionally tightens its
+    // tool schema, and we'd rather degrade to "tutor without web
+    // search" than "tutor totally offline".
+    const WEB_SEARCH_TOOL = {
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: 3,
+      user_location: {
+        type: "approximate",
+        country: "JO",
+        city: "Amman",
+        timezone: "Asia/Amman",
+      },
+    } as const;
+
+    const callAnthropic = (withTools: boolean) => fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1287,54 +1310,44 @@ export default async function handler(req: Request) {
         system: systemPrompt,
         messages: apiMessages,
         stream: true,
-        // ── Web search tool (Anthropic-hosted) ──
-        // Lets Bas Udros research a specific Jordanian professor or
-        // course in real time and ground predicted-exam-question
-        // responses in actual sources, instead of hallucinating
-        // confidently from training data alone.
-        //
-        // Cost / safety:
-        //   - max_uses: 3 caps spend at ~$0.03 per turn worst case.
-        //   - user_location biases results to Jordanian + regional
-        //     sources (.edu.jo, psutarchive.com, AR-language forums).
-        //   - The system prompt restricts WHEN the tool fires so
-        //     general-concept questions never trigger a search.
-        //   - Streaming is unaffected: server_tool_use blocks come
-        //     through the SSE stream as non-text deltas, which the
-        //     existing parser silently ignores. Only text deltas
-        //     (the model's prose, including post-search answer)
-        //     reach the student.
-        tools: [
-          {
-            type: "web_search_20250305",
-            name: "web_search",
-            max_uses: 3,
-            user_location: {
-              type: "approximate",
-              country: "JO",
-              city: "Amman",
-              timezone: "Asia/Amman",
-            },
-          },
-        ],
+        ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
       }),
     });
 
-    // First attempt; on transient failure, wait 2s and retry once.
-    let response = await callAnthropic();
+    // First attempt — with web_search if enabled.
+    let response = await callAnthropic(true);
     const isTransient = (status: number) => status === 429 || status === 502 || status === 503 || status === 504;
+
     if (!response.ok && isTransient(response.status)) {
       await new Promise((r) => setTimeout(r, 2000));
-      // Drain the prior body so the connection can be reused.
       try { await response.body?.cancel(); } catch { /* noop */ }
-      response = await callAnthropic();
+      response = await callAnthropic(true);
+    }
+
+    // If a non-transient 4xx slipped through (most likely a bad tool
+    // schema rejection), capture the upstream error for diagnosis +
+    // retry once without tools so the student still gets an answer.
+    if (!response.ok && !isTransient(response.status)) {
+      // Capture upstream body BEFORE the fallback retry — body can
+      // only be read once. Truncated for logging safety.
+      let upstreamSnippet = "";
+      try {
+        const errBody = await response.clone().text();
+        upstreamSnippet = errBody.slice(0, 800);
+      } catch { /* body already consumed */ }
+      // eslint-disable-next-line no-console
+      console.error(`Anthropic ${response.status} with tools — falling back without tools. Upstream: ${upstreamSnippet}`);
+      try { await response.body?.cancel(); } catch { /* noop */ }
+      response = await callAnthropic(false);
     }
 
     if (!response.ok) {
-      // Never expose Anthropic's raw error message to the student.
-      // Log status for ops, return a friendly generic message.
+      // Final failure — log status + a snippet of the upstream body
+      // for ops, return a friendly generic message to the student.
+      let upstreamSnippet = "";
+      try { upstreamSnippet = (await response.text()).slice(0, 400); } catch { /* noop */ }
       // eslint-disable-next-line no-console
-      console.error("Anthropic API error:", response.status);
+      console.error(`Anthropic API error: ${response.status} | upstream: ${upstreamSnippet}`);
       return new Response(
         JSON.stringify({ error: "AI service temporarily unavailable" }),
         { status: 502, headers: { ...sHeaders, "Content-Type": "application/json" } },
