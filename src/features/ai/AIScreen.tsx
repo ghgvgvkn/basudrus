@@ -508,8 +508,24 @@ function AIMessageView({ msg }: { msg: AIMessage }) {
     <div className="flex justify-start">
       <div className="max-w-[92%] md:max-w-[88%] w-full">
         <div className="relative rounded-3xl overflow-hidden">
+          {/* iPhone Portrait Mode vibe: blur the rendered 3D
+              background so the message text becomes the clear focal
+              point while the design / palette of the artwork still
+              comes through softly behind it. The slight scale-up
+              prevents the blur from revealing transparent edges at
+              the bubble corners (standard CSS-blur trick).
+              `transform` + `filter` are GPU-accelerated, so this
+              stays cheap to scroll even on a long chat. */}
           <div className="absolute inset-0"
-            style={{ backgroundImage: bgUrl ? `url(${bgUrl})` : fallback, backgroundSize: "cover", backgroundPosition: "center", filter: "saturate(0.85)" }} aria-hidden />
+            style={{
+              backgroundImage: bgUrl ? `url(${bgUrl})` : fallback,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              filter: "blur(14px) saturate(0.8) brightness(0.92)",
+              transform: "scale(1.08)",
+              transformOrigin: "center",
+            }}
+            aria-hidden />
           {/* Stronger, more uniform overlay so white text stays
               readable no matter what palette the per-message 3D
               rendered. Bumped from `from-black/45 via-black/50
