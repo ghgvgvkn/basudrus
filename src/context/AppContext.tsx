@@ -26,6 +26,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type { Profile, ScreenId, Subscription, PersonalityAnswers } from "@/shared/types";
+import { PAYMENTS_LIVE } from "@/lib/featureFlags";
 
 interface AppValue {
   screen: ScreenId;
@@ -161,6 +162,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [subscription, persistSub]);
 
   const upgradeToPro = useCallback(() => {
+    // ── Kill-switch ──
+    // Until a real payment processor (Paddle / Lemon Squeezy / Stripe)
+    // is wired up, this function is a no-op so no code path can flip
+    // a user to Pro for free. The SubscriptionScreen also disables
+    // its CTA when PAYMENTS_LIVE is false; this is defence-in-depth
+    // for any other surface that calls upgradeToPro directly.
+    // To enable: set PAYMENTS_LIVE = true in src/lib/featureFlags.ts.
+    if (!PAYMENTS_LIVE) {
+      if (import.meta.env.DEV) {
+        console.warn("[AppContext] upgradeToPro called but PAYMENTS_LIVE is false — ignoring.");
+      }
+      return;
+    }
     persistSub({
       tier: "pro",
       aiQuota: Infinity,

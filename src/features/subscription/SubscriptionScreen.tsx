@@ -15,7 +15,8 @@
  */
 import { useApp } from "@/context/AppContext";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
-import { Check, Infinity as InfinityIcon, Sparkles, Zap } from "lucide-react";
+import { Check, Infinity as InfinityIcon, Sparkles, Zap, Clock } from "lucide-react";
+import { PAYMENTS_LIVE } from "@/lib/featureFlags";
 
 export function SubscriptionScreen() {
   const { subscription, upgradeToPro, cancelPro, setScreen } = useApp();
@@ -71,6 +72,7 @@ function ShowUpgrade({
             price="JD 3.99"
             cadence="/ month"
             featured
+            comingSoon={!PAYMENTS_LIVE}
             features={[
               { icon: <InfinityIcon size={14}/>, text: "Unlimited AI (Omar + Noor)" },
               { icon: <Zap size={14}/>, text: "Priority Discover placement" },
@@ -80,26 +82,49 @@ function ShowUpgrade({
               "Early access to new features",
             ]}
             cta={
-              <button
-                onClick={onUpgrade}
-                className="w-full h-12 rounded-full bg-bg text-ink font-medium hover:bg-bg/90 transition"
-              >
-                Upgrade — JD 3.99 / mo
-              </button>
+              PAYMENTS_LIVE ? (
+                <button
+                  onClick={onUpgrade}
+                  className="w-full h-12 rounded-full bg-bg text-ink font-medium hover:bg-bg/90 transition"
+                >
+                  Upgrade — JD 3.99 / mo
+                </button>
+              ) : (
+                // Payments not yet wired — show a disabled, designed
+                // state so the plan card still looks beautiful but
+                // nobody can flip themselves to Pro for free.
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="w-full h-12 rounded-full bg-bg/30 text-bg/80 font-medium cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  <Clock size={14} />
+                  Coming soon
+                </button>
+              )
             }
           />
         </div>
 
-        <p className="mt-8 text-center text-ink/50 text-xs">
-          Billed monthly. Cancel anytime. Student pricing for .edu.eg emails.
-        </p>
+        {PAYMENTS_LIVE ? (
+          <p className="mt-8 text-center text-ink/50 text-xs">
+            Billed monthly. Cancel anytime. Student pricing for .edu.eg emails.
+          </p>
+        ) : (
+          <p className="mt-8 text-center text-ink/55 text-xs max-w-md mx-auto">
+            Pro is coming soon — payments are still being set up. Free tier
+            is fully active and will stay free for every student. We'll
+            announce when Pro is live.
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
 function Plan({
-  name, price, cadence, features, featured, current, cta,
+  name, price, cadence, features, featured, current, cta, comingSoon,
 }: {
   name: string;
   price: string;
@@ -108,6 +133,9 @@ function Plan({
   featured?: boolean;
   current?: boolean;
   cta?: React.ReactNode;
+  /** Show a "Coming soon" pill in the header. Used for Pro while
+   *  payments are still being set up. */
+  comingSoon?: boolean;
 }) {
   const base = featured
     ? "bg-ink text-bg border-ink"
@@ -118,6 +146,11 @@ function Plan({
         <span className="text-sm font-medium uppercase tracking-wider opacity-70">{name}</span>
         {current && !featured && (
           <span className="text-xs px-2 h-6 inline-flex items-center rounded-full bg-ink/10">Current</span>
+        )}
+        {comingSoon && (
+          <span className={`text-[10.5px] px-2.5 h-6 inline-flex items-center rounded-full uppercase tracking-wider font-medium ${featured ? "bg-bg/15 text-bg" : "bg-ink/10 text-ink/70"}`}>
+            Coming soon
+          </span>
         )}
       </div>
       <div className="mt-3 flex items-baseline gap-1">
