@@ -33,6 +33,7 @@ import { useLocale } from "@/context/LocaleContext";
 import type { AIMessage, AIPersona, AISubject } from "@/shared/types";
 import { fallbackGradient, inferSubject } from "./messageBg";
 import { StudyPlanArtifact } from "./studyPlanArtifact";
+import { TutorMessageBody } from "./TutorMessageBody";
 import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
@@ -505,17 +506,20 @@ function AIMessageView({ msg }: { msg: AIMessage }) {
   }, [msg.id, msg.persona, subject]);
   return (
     <div className="flex justify-start">
-      <div className="max-w-[90%] md:max-w-[85%] w-full">
+      <div className="max-w-[92%] md:max-w-[88%] w-full">
         <div className="relative rounded-3xl overflow-hidden">
           <div className="absolute inset-0"
-            style={{ backgroundImage: bgUrl ? `url(${bgUrl})` : fallback, backgroundSize: "cover", backgroundPosition: "center", filter: "saturate(0.9)" }} aria-hidden />
-          {/* Stronger, more uniform overlay so white text stays readable
-              no matter what palette the per-message 3D rendered. Was
-              `from-transparent via-black/20 to-black/65` — that left
-              light-palette frames washed out at the top. */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/50 to-black/75" aria-hidden />
-          <div className="relative px-5 py-6 md:px-7 md:py-8">
-            <div className="flex items-center gap-2 mb-3">
+            style={{ backgroundImage: bgUrl ? `url(${bgUrl})` : fallback, backgroundSize: "cover", backgroundPosition: "center", filter: "saturate(0.85)" }} aria-hidden />
+          {/* Stronger, more uniform overlay so white text stays
+              readable no matter what palette the per-message 3D
+              rendered. Bumped from `from-black/45 via-black/50
+              to-black/75` to a slightly heavier mix so the new
+              larger body text reads cleanly even on bright shader
+              frames. The body itself also adds a stronger
+              text-shadow (in TutorMessageBody) for extra crispness. */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/60 to-black/80" aria-hidden />
+          <div className="relative px-6 py-7 md:px-8 md:py-9">
+            <div className="flex items-center gap-2 mb-4">
               <span className="w-6 h-6 rounded-full bg-white/25 backdrop-blur inline-flex items-center justify-center text-white">
                 {msg.persona === "omar" ? <Brain size={12} /> : <Heart size={12} />}
               </span>
@@ -526,9 +530,13 @@ function AIMessageView({ msg }: { msg: AIMessage }) {
                 <span className="text-white/80 text-[11px] uppercase tracking-wider" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}>· {msg.subject}</span>
               )}
             </div>
-            {/* drop-shadow keeps the body text crisp against the 3D
-                background even when the shader output ends up bright. */}
-            <p className="text-white text-[16px] md:text-[17px] leading-[1.55] whitespace-pre-wrap" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.45)" }}>{msg.body}</p>
+            {/* TutorMessageBody renders **bold**, *italic*, lists,
+                headers, and code blocks (the system prompt instructs
+                Bas Udros to use these). Previously we showed the raw
+                literal asterisks/hashes which hurt readability.
+                Component also bumps font sizes + line-height for the
+                "more noticeable / easier to read" experience. */}
+            <TutorMessageBody body={msg.body} />
           </div>
         </div>
         {msg.artifact && <StudyPlanArtifact artifact={msg.artifact} />}
