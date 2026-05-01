@@ -2,11 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "rewrites": [
+    { "source": "/about",   "destination": "/about.html" },
     { "source": "/pricing", "destination": "/pricing.html" },
     { "source": "/terms",   "destination": "/terms.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/refund",  "destination": "/refund.html" },
-    { "source": "/((?!api/|_next/|pricing|terms|privacy|refund|.*\\..*).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|_next/|about|pricing|terms|privacy|refund|.*\\..*).*)", "destination": "/index.html" }
   ],
   "crons": [
     {

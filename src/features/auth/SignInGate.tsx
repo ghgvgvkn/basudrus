@@ -153,8 +153,27 @@ function SignInForm() {
         : "Sign in to your account so your matches, rooms, and messages follow you.";
 
   return (
-    <div className="min-h-dvh bg-bg text-ink flex items-center justify-center p-6">
+    <div className="min-h-dvh bg-bg text-ink flex flex-col p-6">
+      <div className="flex-1 flex items-center justify-center">
       <div className="w-full max-w-md">
+        {/* Quick product context for first-time visitors AND for any
+            payment-processor reviewer who lands on the sign-in screen
+            before approving the store. Without this, basudrus.com root
+            looks like an empty form with no explanation of what the
+            product is — which is exactly why Lemon Squeezy bounced the
+            first application. The "About" link routes to the public
+            /about page (static HTML, no auth required) where reviewers
+            can see screenshots, features, FAQ, and pricing. */}
+        {mode === "in" && (
+          <div className="mb-6 -mt-4 text-center">
+            <a
+              href="/about"
+              className="inline-flex items-center gap-1.5 text-xs text-ink/55 hover:text-ink underline-offset-2 hover:underline"
+            >
+              New here? Learn about Bas Udrus →
+            </a>
+          </div>
+        )}
         <div className="font-serif italic text-5xl leading-[1.02] mb-3" style={{ letterSpacing: "-0.02em" }}>
           {heading}
         </div>
@@ -272,6 +291,26 @@ function SignInForm() {
             then saw fake stub data and empty Discover (RLS denied
             everything for the anon role). Real auth or nothing. */}
       </div>
+      </div>
+
+      {/* Footer with legal links — REQUIRED on the sign-in screen so
+          payment-processor crawlers (Paddle, Lemon Squeezy, Stripe)
+          can find Terms, Privacy, and Refund policies from the
+          basudrus.com root. Without these links, automated reviewers
+          flag the application as missing required policy disclosures.
+          Plain anchor tags route through the Vercel rewrites in
+          vercel.json which serve the static HTML pages. */}
+      <footer className="pt-10 pb-2 text-center text-xs text-ink/50">
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mb-2">
+          <a href="/about" className="hover:text-ink hover:underline underline-offset-2">About</a>
+          <a href="/pricing" className="hover:text-ink hover:underline underline-offset-2">Pricing</a>
+          <a href="/terms" className="hover:text-ink hover:underline underline-offset-2">Terms</a>
+          <a href="/privacy" className="hover:text-ink hover:underline underline-offset-2">Privacy</a>
+          <a href="/refund" className="hover:text-ink hover:underline underline-offset-2">Refund</a>
+          <a href="mailto:basudrusjo@gmail.com" className="hover:text-ink hover:underline underline-offset-2">Contact</a>
+        </div>
+        <div className="text-ink/40">© 2026 Bas Udrus · Operated from Amman, Jordan</div>
+      </footer>
     </div>
   );
 }

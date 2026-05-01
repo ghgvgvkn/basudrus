@@ -22,7 +22,6 @@ import { useRealRooms, type RoomFeedItem } from "./useRealRooms";
 import { useRoomMembers, type RoomMember } from "./useRoomMembers";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { useCourseSearch } from "@/features/discover/useCourseSearch";
-import { usePhotoGuard } from "@/features/profile/usePhotoGuard";
 import { useMatchScores } from "@/features/match/useMatchScores";
 import { MatchBadge } from "@/features/match/MatchBadge";
 
@@ -54,17 +53,14 @@ export function RoomsScreen() {
   const { user } = useSupabaseSession();
   const { profile } = useApp();
   const { rooms, loading, error, toggleJoin, submitRoom } = useRealRooms();
-  const { requirePhoto } = usePhotoGuard();
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const startCreate = () => {
-    requirePhoto(
-      () => setCreating(true),
-      "Please upload your profile photo first so members know whose room they're joining.",
-    );
-  };
+  // No photo gate for room creation — the policy is "photo required
+  // only for posting help requests". Anyone signed in can spin up
+  // a study room. Removed `usePhotoGuard()` here intentionally.
+  const startCreate = () => setCreating(true);
 
   // ⚠️ All hooks MUST run before the early return.
   const filtered = useMemo(() => {

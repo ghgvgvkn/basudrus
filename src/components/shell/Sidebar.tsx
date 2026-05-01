@@ -31,6 +31,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { useLocale } from "@/context/LocaleContext";
 import { Logo } from "@/shared/Logo";
+import { useRealNotifications } from "@/features/notifications/useRealNotifications";
 
 interface NavItem {
   id: string;
@@ -48,11 +49,13 @@ export function Sidebar({
 }) {
   const { screen, setScreen, profile, isOnline } = useApp();
   const { t } = useLocale();
+  // Real unread notifications count drives the Notifications badge.
+  // The hook subscribes to realtime INSERTs so the badge updates the
+  // moment a new notification lands. When zero, NavButton hides the
+  // pill entirely. (Messages unread is tracked client-side per-thread
+  // and isn't aggregated to a sidebar count yet — port lands separately.)
+  const { unreadCount: notifUnread } = useRealNotifications();
 
-  // TODO: wire badge counts from useNotifications + useMessages in
-  // slice 3. For now the values come through on props from the
-  // screen-level data loaders via AppContext — once those are
-  // plumbed we'll replace the hardcoded nulls below.
   const primary: NavItem[] = [
     { id: "home",     icon: <Home className="h-[18px] w-[18px]" />,     labelKey: "nav.home" },
     { id: "discover", icon: <Compass className="h-[18px] w-[18px]" />,  labelKey: "nav.discover" },
@@ -62,7 +65,7 @@ export function Sidebar({
   ];
 
   const secondary: NavItem[] = [
-    { id: "notifications", icon: <Bell className="h-[18px] w-[18px]" />,          labelKey: "nav.notifications" },
+    { id: "notifications", icon: <Bell className="h-[18px] w-[18px]" />,          labelKey: "nav.notifications", badge: notifUnread > 0 ? notifUnread : null },
     { id: "profile",       icon: <User className="h-[18px] w-[18px]" />,          labelKey: "nav.profile" },
     { id: "settings",      icon: <SettingsIcon className="h-[18px] w-[18px]" />,  labelKey: "nav.settings" },
   ];

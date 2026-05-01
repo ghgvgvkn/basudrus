@@ -29,7 +29,11 @@ export function CoursesPicker({
     const v = name.trim();
     if (!v) return;
     if (selected.length >= max) return;
-    if (selected.some(s => s.toLowerCase() === v.toLowerCase())) return;
+    // Trim BOTH sides of the comparison — older DB rows can carry
+    // stray whitespace from earlier code paths, and a one-sided trim
+    // lets duplicates like "Calculus" + "Calculus " sneak in.
+    const vKey = v.toLowerCase();
+    if (selected.some(s => s.trim().toLowerCase() === vKey)) return;
     onChange([...selected, v]);
     setQuery("");
   };

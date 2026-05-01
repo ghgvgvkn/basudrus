@@ -422,8 +422,26 @@ export function OnboardingScreen() {
                 </div>
               )}
 
-              <p className="mt-8 text-[11px] text-ink/40 text-center">
-                By continuing you agree to our Terms and Privacy Policy.
+              {/* Real anchor tags so payment-processor crawlers (and
+                  obviously real users) can reach the legal policies
+                  from the onboarding screen. Plain text was a Paddle
+                  / Lemon Squeezy verification miss — they look for
+                  clickable links to Terms + Privacy + Refund. */}
+              <p className="mt-8 text-[11px] text-ink/50 text-center">
+                By continuing you agree to our{" "}
+                <a
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ink/80 underline-offset-2 hover:underline"
+                >Terms</a>
+                {" "}and{" "}
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ink/80 underline-offset-2 hover:underline"
+                >Privacy Policy</a>.
               </p>
 
               <div className="mt-6">

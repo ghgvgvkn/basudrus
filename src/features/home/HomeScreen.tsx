@@ -82,7 +82,7 @@ export function HomeScreen() {
               {greet}, {name}.
             </div>
             <p className="text-ink-3 text-sm lg:text-base mb-5">
-              Ask AI (Omar) anything — study help, wellbeing, planning, who to study with.
+              Ask AI (Omar) anything — study help, exam stress, planning, who to study with.
             </p>
             <div className="flex gap-2">
               <div className="flex-1 flex items-center gap-2 h-12 px-4 rounded-full bg-surface-2 border border-line focus-within:border-accent transition-colors">

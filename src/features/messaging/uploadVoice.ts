@@ -28,20 +28,42 @@ export interface VoiceUploadResult {
 
 const BUCKET = "chat-files";
 
+/** Storage-side cap is 10 MiB; we mirror it client-side so a slow
+ *  network doesn't waste time on a doomed upload AND we get a useful
+ *  error before the request fires. The recorder UI already caps
+ *  duration at ~3 min, but a 3-min Opus blob is well under the cap so
+ *  this guard is mostly defense-in-depth. */
+const MAX_BYTES = 10 * 1024 * 1024;
+
+/** Audio MIME types we know the bucket accepts and the playback path
+ *  can decode. Anything outside this list is rejected client-side
+ *  rather than landing in Storage with the wrong contentType. */
+const ALLOWED_MIME = /^audio\/(webm|ogg|mp4|mpeg|wav|x-m4a)(?:;|$)/i;
+
 /** Upload a Blob/File from MediaRecorder. Returns a public URL ready
  *  to write into messages.file_url. Throws on permission, size, or
  *  network errors — caller should show a toast. */
 export async function uploadVoice(blob: Blob, userId: string): Promise<VoiceUploadResult> {
   if (!supabase) throw new Error("Storage unavailable.");
+  if (!blob || blob.size === 0) throw new Error("Empty recording — try again.");
+  if (blob.size > MAX_BYTES) {
+    throw new Error("That recording is over 10 MiB. Trim it and try again.");
+  }
 
   // Pick a friendly extension from the recorder MIME, defaulting to
   // .webm because that's what Chrome/Firefox/Edge produce by default
   // and what production has stored historically.
   const mimeType = blob.type || "audio/webm";
+  if (!ALLOWED_MIME.test(mimeType)) {
+    // Reject non-audio blobs at the gate. The bucket also rejects them
+    // server-side, but failing fast saves a round-trip and gives the
+    // user a clearer error than Supabase's generic 415.
+    throw new Error("Unsupported audio format.");
+  }
   const ext =
     /audio\/webm/i.test(mimeType) ? "webm" :
     /audio\/ogg/i.test(mimeType)  ? "ogg" :
-    /audio\/mp4/i.test(mimeType)  ? "m4a" :
+    /audio\/(mp4|x-m4a)/i.test(mimeType)  ? "m4a" :
     /audio\/mpeg/i.test(mimeType) ? "mp3" :
     /audio\/wav/i.test(mimeType)  ? "wav" :
     "webm";

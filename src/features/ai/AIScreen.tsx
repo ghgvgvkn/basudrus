@@ -102,7 +102,7 @@ export function AIScreen() {
         role: "system",
         persona: activePersona,
         body: activePersona === "noor"
-          ? "Switching you to Noor — this sounds like a wellbeing question."
+          ? "Switching you to Noor — this sounds like an exam-stress / motivation question."
           : "Switching you to Omar — this sounds like a study question.",
         createdAt: new Date().toISOString(),
       });
@@ -150,6 +150,14 @@ export function AIScreen() {
       };
       setMessages((m) => [...m, aiMsg]);
     } else {
+      // User-initiated cancel — silently drop the in-flight stream
+      // without surfacing an error bubble. The streamed partial (if
+      // any) is already wiped by the abort() call in the hook; there's
+      // nothing to show, and an error message would be confusing
+      // ("I cancelled, why is it telling me there was an error?").
+      if (result.reason === "aborted") {
+        return;
+      }
       // Surface real errors visibly. Where possible, include the
       // server's actual message (e.g. "Service temporarily
       // unavailable" → env vars missing on Vercel). Generic lines
@@ -267,7 +275,7 @@ export function AIScreen() {
           <p className="mt-2 text-[11px] text-ink/40 text-center">
             {persona === "omar"
               ? "Omar can be wrong. Check important answers."
-              : "Noor is a companion, not a therapist. In crisis, call 08008880700."}
+              : "Noor is a study-motivation aid, not a therapist or medical service. In a crisis call your local emergency number."}
           </p>
         </div>
       </div>

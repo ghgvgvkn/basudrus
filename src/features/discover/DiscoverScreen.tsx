@@ -135,8 +135,17 @@ export function DiscoverScreen() {
             <button
               onClick={() => {
                 try {
-                  localStorage.removeItem("bu:bypass-auth");
-                  localStorage.removeItem("bu:onb");
+                  // Wipe every bu:- prefixed key (matches signOutEverywhere
+                  // behaviour). The previous hand-curated list typed
+                  // "bu:onb" but the actual key is "bu:onboarded", so the
+                  // onboarding flag survived. Iterating + prefix-filter
+                  // catches every current key AND any future ones.
+                  const keys: string[] = [];
+                  for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && k.startsWith("bu:")) keys.push(k);
+                  }
+                  keys.forEach(k => localStorage.removeItem(k));
                 } catch { /* noop */ }
                 window.location.reload();
               }}

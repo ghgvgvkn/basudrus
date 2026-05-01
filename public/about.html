@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About Bas Udrus — Study partners for Jordanian university students</title>
+  <meta name="description" content="Bas Udrus matches Jordanian university students with study partners by university, major, and personality. Free for every student. Optional Pro tier for power users of our AI study tutor.">
+  <meta name="theme-color" content="#0F1B2D">
+  <link rel="canonical" href="https://basudrus.com/about">
+  <meta property="og:title" content="About Bas Udrus">
+  <meta property="og:description" content="Find study partners at your Jordanian university. AI-assisted study tools. Free for every student.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://basudrus.com/about">
+  <meta property="og:image" content="https://basudrus.com/og-image.png">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#F5F4F0;color:#0F1B2D;line-height:1.65;font-size:16px;-webkit-font-smoothing:antialiased}
+
+    /* nav */
+    nav.top{position:sticky;top:0;z-index:10;background:rgba(245,244,240,.9);backdrop-filter:blur(12px);border-bottom:1px solid #EAEAEA}
+    nav.top .nav-inner{max-width:1100px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+    nav.top .brand{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-size:22px;color:#0F1B2D;text-decoration:none}
+    nav.top .links{display:flex;gap:24px;align-items:center}
+    nav.top .links a{color:#3D4A5C;text-decoration:none;font-size:14px}
+    nav.top .links a:hover{color:#0F1B2D}
+    nav.top .cta{background:#0F1B2D;color:#F5F4F0;padding:9px 18px;border-radius:99px;font-size:14px;font-weight:600;text-decoration:none}
+    nav.top .cta:hover{opacity:.9}
+    @media(max-width:640px){nav.top .links a:not(.cta){display:none}}
+
+    /* sections */
+    section{padding:72px 24px}
+    .container{max-width:1080px;margin:0 auto}
+    .narrow{max-width:760px;margin:0 auto}
+
+    /* hero */
+    .hero{padding:96px 24px 72px;text-align:center}
+    .hero h1{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-weight:400;font-size:64px;letter-spacing:-0.02em;line-height:1.05;margin-bottom:18px}
+    .hero .lede{font-size:19px;color:#3D4A5C;max-width:640px;margin:0 auto 32px}
+    .hero .cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .btn-primary{background:#0F1B2D;color:#F5F4F0;padding:14px 28px;border-radius:99px;font-weight:600;font-size:15px;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+    .btn-primary:hover{opacity:.92}
+    .btn-secondary{background:transparent;color:#0F1B2D;padding:14px 28px;border-radius:99px;font-weight:600;font-size:15px;text-decoration:none;border:1.5px solid #0F1B2D}
+    .btn-secondary:hover{background:#0F1B2D;color:#F5F4F0}
+    @media(max-width:640px){.hero h1{font-size:42px}.hero .lede{font-size:16px}}
+
+    /* sub-hero pill */
+    .pill{display:inline-flex;align-items:center;gap:8px;background:#FFF;border:1px solid #EAEAEA;border-radius:99px;padding:6px 14px;font-size:13px;color:#3D4A5C;margin-bottom:24px}
+    .pill .dot{width:7px;height:7px;border-radius:50%;background:#1B8A5A}
+
+    /* feature grid */
+    .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+    @media(max-width:760px){.grid-3{grid-template-columns:1fr}}
+    .card{background:#FFF;border:1px solid #EAEAEA;border-radius:18px;padding:28px}
+    .card h3{font-size:18px;font-weight:700;margin-bottom:8px}
+    .card p{color:#3D4A5C;font-size:14.5px;line-height:1.55}
+    .card .icon{width:38px;height:38px;border-radius:10px;background:#0F1B2D;color:#F5F4F0;display:grid;place-items:center;margin-bottom:14px;font-size:18px}
+
+    /* section heads */
+    h2.section{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-weight:400;font-size:40px;letter-spacing:-0.02em;line-height:1.1;margin-bottom:14px;text-align:center}
+    p.section-lede{color:#3D4A5C;text-align:center;max-width:600px;margin:0 auto 48px;font-size:16px}
+    @media(max-width:640px){h2.section{font-size:30px}}
+
+    /* how it works */
+    .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:32px}
+    @media(max-width:760px){.steps{grid-template-columns:1fr 1fr}}
+    @media(max-width:480px){.steps{grid-template-columns:1fr}}
+    .step{background:#FFF;border:1px solid #EAEAEA;border-radius:14px;padding:22px}
+    .step .num{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-size:34px;color:#4A7CF7;line-height:1;margin-bottom:12px}
+    .step h4{font-size:15px;font-weight:700;margin-bottom:6px}
+    .step p{font-size:13.5px;color:#3D4A5C}
+
+    /* trust strip */
+    .trust{background:#FFF;border-top:1px solid #EAEAEA;border-bottom:1px solid #EAEAEA;padding:40px 24px}
+    .trust .row{max-width:980px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:24px;text-align:center}
+    @media(max-width:760px){.trust .row{grid-template-columns:1fr 1fr}}
+    .trust .num{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-size:34px;line-height:1;color:#0F1B2D}
+    .trust .lbl{font-size:13px;color:#5A6370;margin-top:4px}
+
+    /* universities */
+    .unis{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:24px}
+    .unis span{background:#FFF;border:1px solid #EAEAEA;border-radius:99px;padding:8px 16px;font-size:13.5px;color:#3D4A5C}
+
+    /* faq */
+    .faq{max-width:760px;margin:0 auto}
+    details{background:#FFF;border:1px solid #EAEAEA;border-radius:14px;padding:18px 22px;margin-bottom:10px}
+    details[open]{border-color:#4A7CF7}
+    summary{font-weight:600;font-size:15.5px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;color:#0F1B2D}
+    summary::after{content:"+";font-size:22px;color:#5A6370;transition:transform .2s}
+    details[open] summary::after{content:"−"}
+    details p{margin-top:12px;color:#3D4A5C;font-size:14.5px;line-height:1.6}
+    details a{color:#4A7CF7}
+
+    /* contact */
+    .contact{text-align:center}
+    .contact .email{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Mono",monospace;display:inline-block;background:#FFF;border:1px solid #EAEAEA;border-radius:99px;padding:10px 22px;font-size:14px;color:#0F1B2D;text-decoration:none;margin-top:14px}
+    .contact .email:hover{border-color:#4A7CF7}
+
+    /* footer */
+    footer.site{background:#0F1B2D;color:rgba(245,244,240,.8);padding:48px 24px}
+    footer.site .row{max-width:1080px;margin:0 auto;display:flex;flex-wrap:wrap;gap:32px;justify-content:space-between;align-items:start}
+    footer.site .col{min-width:160px}
+    footer.site h5{color:#F5F4F0;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px}
+    footer.site a{display:block;color:rgba(245,244,240,.65);text-decoration:none;font-size:13.5px;margin-bottom:8px}
+    footer.site a:hover{color:#F5F4F0}
+    footer.site .meta{margin-top:32px;padding-top:24px;border-top:1px solid rgba(245,244,240,.1);font-size:12px;color:rgba(245,244,240,.45);text-align:center}
+    .brand-foot{font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-size:24px;color:#F5F4F0;display:block;margin-bottom:8px}
+  </style>
+</head>
+<body>
+
+  <nav class="top">
+    <div class="nav-inner">
+      <a href="/about" class="brand">Bas Udrus</a>
+      <div class="links">
+        <a href="/about#features">Features</a>
+        <a href="/about#how">How it works</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/about#faq">FAQ</a>
+        <a href="/" class="cta">Sign in</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <div class="pill"><span class="dot"></span> Free for every Jordanian university student</div>
+      <h1>Find your study partner.<br>Pass the semester together.</h1>
+      <p class="lede">Bas Udrus matches Jordanian university students by university, major, and study habits — so finals week is a group project, not a solo crisis. Free forever. Optional Pro tier for power users of our AI tutor.</p>
+      <div class="cta-row">
+        <a href="/" class="btn-primary">Sign up — free →</a>
+        <a href="/pricing" class="btn-secondary">See pricing</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST STRIP -->
+  <div class="trust">
+    <div class="row">
+      <div>
+        <div class="num">600+</div>
+        <div class="lbl">Students signed up</div>
+      </div>
+      <div>
+        <div class="num">25+</div>
+        <div class="lbl">Universities supported</div>
+      </div>
+      <div>
+        <div class="num">100%</div>
+        <div class="lbl">Free core features</div>
+      </div>
+      <div>
+        <div class="num">14-day</div>
+        <div class="lbl">Pro money-back</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="container">
+      <h2 class="section">What you get on day one</h2>
+      <p class="section-lede">Everything below is free. The Pro tier unlocks unlimited AI usage — that's the only locked-down feature.</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="icon">🎯</div>
+          <h3>Smart match scoring</h3>
+          <p>An 8-question study-style quiz pairs you with classmates whose chronotype, focus length, and exam-prep style fit yours. Filter by course, university, or major.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon">💬</div>
+          <h3>Real-time messaging</h3>
+          <p>Text, voice notes, and file-sharing with anyone you've connected with. End-to-end encrypted in transit. Never trained on by an AI model.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon">👥</div>
+          <h3>Group study rooms</h3>
+          <p>Create a "Calculus II — Sunday 7pm" room. Invite anyone in the same course. Capacity, location, online or on-campus — your call.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon">📚</div>
+          <h3>Ustaz — AI tutor</h3>
+          <p>Ask "explain integration by parts in Arabic" and get a step-by-step walkthrough. Speaks Arabic and English fluently. 30 free messages a day.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon">🗓️</div>
+          <h3>Smart study planner</h3>
+          <p>Drop your exam date and your weak topics; get a day-by-day study plan. Updates as you check off topics. 15 plans free per day.</p>
+        </div>
+
+        <div class="card">
+          <div class="icon">🆘</div>
+          <h3>Help requests</h3>
+          <p>Stuck on Pharmacology a week before the exam? Post it. Anyone studying the same course can offer to study together — free.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how" style="background:#FFF;border-top:1px solid #EAEAEA;border-bottom:1px solid #EAEAEA">
+    <div class="container">
+      <h2 class="section">How it works</h2>
+      <p class="section-lede">Four steps. No friction. Sign-up to first match in under three minutes.</p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <h4>Sign up</h4>
+          <p>Email + password or Google — under 30 seconds. We never sell your data.</p>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <h4>Pick your basics</h4>
+          <p>University, major, year, the courses you're taking this semester.</p>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <h4>Take the 8-question quiz</h4>
+          <p>Two minutes. Drives every match score you'll see, end-to-end deterministic.</p>
+        </div>
+        <div class="step">
+          <div class="num">4</div>
+          <h4>Match, message, study</h4>
+          <p>Browse Discover, hit "Say hi" on a strong match, start a study room. That's the loop.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- UNIVERSITIES -->
+  <section>
+    <div class="container narrow" style="text-align:center">
+      <h2 class="section">Built for Jordanian universities</h2>
+      <p class="section-lede">Course catalogs and student verification are tuned to the schools below. Other Jordanian universities work too — we onboard new courses on request.</p>
+      <div class="unis">
+        <span>University of Jordan (JU)</span>
+        <span>Jordan University of Science and Technology (JUST)</span>
+        <span>Princess Sumaya University for Technology (PSUT)</span>
+        <span>Hashemite University</span>
+        <span>Yarmouk University</span>
+        <span>Mutah University</span>
+        <span>German Jordanian University</span>
+        <span>Applied Science Private University</span>
+        <span>Al-Balqa Applied University</span>
+        <span>+ many more</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" style="background:#FFF;border-top:1px solid #EAEAEA">
+    <div class="container">
+      <h2 class="section">Common questions</h2>
+      <p class="section-lede">Anything we missed? Email <a href="mailto:basudrusjo@gmail.com" style="color:#4A7CF7">basudrusjo@gmail.com</a> — a real human (the founder) replies within a day.</p>
+
+      <div class="faq">
+        <details>
+          <summary>Is Bas Udrus really free?</summary>
+          <p>Yes — the entire core product (matching, messaging, study rooms, help requests, AI tutor with daily quotas) is free for every Jordanian university student. The optional Pro tier ($5/month) only unlocks unlimited AI usage for students who hit the daily caps — see the <a href="/pricing">pricing page</a> for the full breakdown.</p>
+        </details>
+
+        <details>
+          <summary>What does the Pro subscription actually unlock?</summary>
+          <p>Three things: unlimited AI tutor / planner messages (no daily cap), longer AI context window (40k → 120k characters so you can paste an entire chapter), and priority response speed during exam weeks. That's it. No paywall on social features. Cancel anytime — every subscription comes with a 14-day full money-back guarantee.</p>
+        </details>
+
+        <details>
+          <summary>Who's behind Bas Udrus?</summary>
+          <p>Bas Udrus is built and operated from Amman, Jordan. The platform is run by a small team led by the founder, who responds personally to every support email at <a href="mailto:basudrusjo@gmail.com">basudrusjo@gmail.com</a>. We're not a venture-backed startup with an investor agenda — the platform is built sustainably from Pro subscriptions to keep the free tier free.</p>
+        </details>
+
+        <details>
+          <summary>Is my data safe? Will my messages be used to train an AI?</summary>
+          <p>No, never. Your messages stay on our infrastructure (Supabase, AWS Tokyo) and are not used to train any AI model. When you talk to our AI tutor, prompts are sent to Anthropic Claude under their zero-retention contract — they don't store or train on prompts either. We don't sell data, don't use ad networks, and don't run trackers. See the full <a href="/privacy">Privacy Policy</a>.</p>
+        </details>
+
+        <details>
+          <summary>How are you handling payments?</summary>
+          <p>Pro subscriptions are processed by an established Merchant of Record (currently Paddle, with Stripe as a fallback during onboarding). They handle payment collection, tax (VAT/sales tax), invoicing, and chargebacks. Your card details never touch our servers. See the <a href="/refund">Refund Policy</a> for the full refund process.</p>
+        </details>
+
+        <details>
+          <summary>Can I cancel anytime?</summary>
+          <p>Yes. Cancel from the billing portal in two clicks. Your access stays active until the end of the paid month, then drops back to Free. No retention calls, no "wait, are you sure?" pop-ups, no dark patterns.</p>
+        </details>
+
+        <details>
+          <summary>What about refunds?</summary>
+          <p>Every new Pro subscription comes with a 14-day no-questions-asked money-back guarantee. After 14 days we refund duplicate charges, billing errors, and extended outages. EU/UK residents retain the full 14-day statutory right of withdrawal independently. Email <a href="mailto:basudrusjo@gmail.com">basudrusjo@gmail.com</a> and we respond within 2 working days. Full <a href="/refund">Refund Policy</a>.</p>
+        </details>
+
+        <details>
+          <summary>Is this a dating app?</summary>
+          <p>Absolutely not. Bas Udrus is strictly an academic study-partner platform. Soliciting romantic or commercial relationships is a banned use, and we suspend accounts that try. Match scores reflect study compatibility — chronotype, focus length, exam-prep style — not romantic interest. See our <a href="/terms">Terms of Service §4</a>.</p>
+        </details>
+
+        <details>
+          <summary>How do you keep students safe?</summary>
+          <p>Every profile is moderated. Every user can block or report another user from their card — reports go to a human (currently the founder) and are reviewed within 48 hours. We use Row-Level Security on every database table so users can only see what they're allowed to see. Account deletion is honoured within 30 days. We notify of any data breach within 72 hours per GDPR.</p>
+        </details>
+
+        <details>
+          <summary>Can I use Bas Udrus if I'm not in Jordan?</summary>
+          <p>You can sign up and browse, but matching is currently optimised for Jordanian university courses. Expansion to other regions is on the roadmap. If you're studying abroad as a Jordanian student or you'd like us to support your university, drop us a line.</p>
+        </details>
+
+        <details>
+          <summary>How do I contact support?</summary>
+          <p>Email <a href="mailto:basudrusjo@gmail.com">basudrusjo@gmail.com</a> — that goes straight to the founder. Average response time is well under 24 hours. We don't have a phone line yet (small team), but every email gets a real human reply.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section>
+    <div class="container narrow contact">
+      <h2 class="section">Talk to us</h2>
+      <p class="section-lede">Press, partnerships, support, or just to say hi — same email, same human.</p>
+      <a href="mailto:basudrusjo@gmail.com" class="email">basudrusjo@gmail.com</a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="site">
+    <div class="row">
+      <div class="col">
+        <span class="brand-foot">Bas Udrus</span>
+        <div style="font-size:13px;color:rgba(245,244,240,.55);max-width:260px">Study partners for Jordanian university students. Free, forever, for the core product.</div>
+      </div>
+
+      <div class="col">
+        <h5>Product</h5>
+        <a href="/about">About</a>
+        <a href="/about#features">Features</a>
+        <a href="/about#how">How it works</a>
+        <a href="/pricing">Pricing</a>
+      </div>
+
+      <div class="col">
+        <h5>Company</h5>
+        <a href="/about#faq">FAQ</a>
+        <a href="mailto:basudrusjo@gmail.com">Contact</a>
+        <a href="/about#contact">Support</a>
+      </div>
+
+      <div class="col">
+        <h5>Legal</h5>
+        <a href="/terms">Terms of Service</a>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/refund">Refund Policy</a>
+        <a href="/pricing">Pricing &amp; Billing</a>
+      </div>
+    </div>
+    <div class="meta">
+      © 2026 Bas Udrus · Operated from Amman, Jordan · <a href="mailto:basudrusjo@gmail.com" style="color:rgba(245,244,240,.55)">basudrusjo@gmail.com</a>
+    </div>
+  </footer>
+
+</body>
+</html>

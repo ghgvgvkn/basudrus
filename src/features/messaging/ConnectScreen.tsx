@@ -671,6 +671,11 @@ function VoiceBubble({ m }: { m: Extract<Msg, { kind: "voice" }> }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0); // 0..1
+  // Set to true when the <audio> element fails to load m.src — usually
+  // means the file was removed from Storage or the URL expired. We
+  // swap the play button + waveform for a "Couldn't play" hint so the
+  // user isn't stuck poking a dead button.
+  const [loadError, setLoadError] = useState(false);
   const rafRef = useRef<number | null>(null);
   const startRef = useRef<number>(0);
   const baseRef = useRef<number>(0);
@@ -731,6 +736,20 @@ function VoiceBubble({ m }: { m: Extract<Msg, { kind: "voice" }> }) {
     : Math.round((m.durationMs * (playing ? pos : (baseRef.current / m.durationMs || 0))) / 1000);
   const totalSec = Math.round(m.durationMs / 1000);
 
+  // Failed-to-load fallback — shown when the <audio> element fired
+  // onError. Avoids the "tap play, nothing happens" dead-end UI when
+  // a voice file is missing from Storage.
+  if (hasSrc && loadError) {
+    return (
+      <div className={m.mine ? "flex justify-end" : "flex"}>
+        <div className={`max-w-[76%] px-4 py-2 rounded-2xl inline-flex items-center gap-2 text-xs ${m.mine ? "bg-accent/40 text-white/80" : "bg-surface-2 text-ink-3"}`}>
+          <span aria-hidden>🎤</span>
+          <span>Couldn't load this voice note.</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={m.mine ? "flex justify-end" : "flex"}>
       <div className={`max-w-[76%] pe-4 ps-2 py-2 rounded-2xl inline-flex items-center gap-3 ${m.mine ? "bg-accent text-white" : "bg-surface-2 text-ink-1"}`}>
@@ -758,6 +777,7 @@ function VoiceBubble({ m }: { m: Extract<Msg, { kind: "voice" }> }) {
             onPlay={onPlay}
             onPause={onPause}
             onEnded={onEnded}
+            onError={() => setLoadError(true)}
           />
         )}
       </div>

@@ -23,7 +23,7 @@ export interface ChatMsg {
   content: string;
 }
 
-export type StreamErrorReason = "daily_limit" | "hourly_limit" | "cooldown" | "rate" | "network" | "auth";
+export type StreamErrorReason = "daily_limit" | "hourly_limit" | "cooldown" | "rate" | "network" | "auth" | "aborted";
 
 export interface StreamingAIState {
   send: (
@@ -67,7 +67,14 @@ export function useStreamingAI(): StreamingAIState {
     setLoading(true);
     setPartial("");
 
-    const guard = setTimeout(() => abort(), 90_000);
+    // Distinguishing flag for the 90s hang guard. Both deliberate user
+    // cancel and the timeout call abort() → AbortError, which is
+    // indistinguishable in the catch block. We flip this before
+    // calling abort() from the timeout so the catch can pick the
+    // right error reason ("network" + "took too long") instead of
+    // silently dropping the way a user-initiated cancel does.
+    let timedOut = false;
+    const guard = setTimeout(() => { timedOut = true; abort(); }, 90_000);
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
@@ -177,7 +184,17 @@ export function useStreamingAI(): StreamingAIState {
       setPartial("");
       if (reader) try { reader.cancel(); } catch { /* already done */ }
       const aborted = e instanceof DOMException && e.name === "AbortError";
-      return { ok: false, reason: aborted ? "rate" : "network", message: aborted ? "Cancelled" : "Network error" } as const;
+      // Three possible paths into this catch:
+      //   1. Network error → reason: "network"
+      //   2. 90s hang guard fired → still aborted, but `timedOut` is
+      //      set; surface a real error so the user knows the stream
+      //      stalled rather than getting silently dropped.
+      //   3. User clicked cancel → "aborted"; AIScreen skips the
+      //      error bubble (cancel is intentional, not a failure).
+      if (aborted && timedOut) {
+        return { ok: false, reason: "network", message: "The AI took too long to respond. Try again." } as const;
+      }
+      return { ok: false, reason: aborted ? "aborted" : "network", message: aborted ? "Cancelled" : "Network error" } as const;
     }
   }, [loading, abort, profile, personalitySummary]);
 

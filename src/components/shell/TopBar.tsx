@@ -21,6 +21,7 @@ import type { ReactNode } from "react";
 import { ArrowLeft, Search, Bell } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useLocale } from "@/context/LocaleContext";
+import { useRealNotifications } from "@/features/notifications/useRealNotifications";
 
 export interface TopBarProps {
   /** If set, shows a back arrow; clicking navigates to this screen. */
@@ -47,6 +48,10 @@ export function TopBar({
 }: TopBarProps) {
   const { screen, setScreen } = useApp();
   const { t } = useLocale();
+  // Real unread count drives the bell dot. The hook subscribes to
+  // realtime INSERTs on `notifications`, so this auto-updates without
+  // a refresh. When zero, the dot is hidden entirely.
+  const { unreadCount } = useRealNotifications();
 
   // Home has no title — the feed is self-explanatory and the serif
   // would fight with the greeting card. Other screens get the
@@ -93,12 +98,23 @@ export function TopBar({
           <button
             type="button"
             onClick={() => setScreen("notifications")}
-            aria-label={t("top.notifications")}
+            aria-label={
+              unreadCount > 0
+                ? `${t("top.notifications")} (${unreadCount} unread)`
+                : t("top.notifications")
+            }
             className="h-10 w-10 grid place-items-center text-ink-2 rounded-full hover:bg-surface-2 active:scale-95 transition-transform relative"
           >
             <Bell className="h-[18px] w-[18px]" />
-            {/* Unread dot — TODO: wire real count in slice 3 */}
-            <span className="absolute top-2 end-2 h-2 w-2 rounded-full bg-accent" />
+            {/* Unread dot — only shown when there are real unread
+                notifications. Auto-updates via realtime subscription
+                in useRealNotifications. */}
+            {unreadCount > 0 && (
+              <span
+                className="absolute top-2 end-2 h-2 w-2 rounded-full bg-accent"
+                aria-hidden
+              />
+            )}
           </button>
         )}
       </div>
