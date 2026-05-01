@@ -11,12 +11,31 @@
  *
  * The 90-second hang guard mirrors prod — without it, a stalled
  * stream locks the user out of sending the next message.
+ *
+ * UPGRADE (Bas Udros):
+ *   - Loads durable per-subject session memory from tutor_sessions /
+ *     tutor_progress before the first send, so the system prompt
+ *     references previous work, weak/strong areas, and overdue topics.
+ *   - Persists every (user, assistant) message pair to tutor_sessions
+ *     in real time — never batched.
+ *   - Triggers post-session analysis when the active subject changes
+ *     or when the consumer calls endActiveSession() (e.g. on unmount).
+ *   - All persistence is best-effort: a Supabase outage NEVER blocks
+ *     the streaming response or surfaces an error to the student.
  */
 import { useCallback, useRef, useState } from "react";
 import { getSessionCached } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import type { AIPersona } from "@/shared/types";
 import { useViewerPersonality } from "@/features/match/useViewerPersonality";
+import {
+  startOrResumeSession,
+  appendMessages,
+  analyzeAndCloseSession,
+  type SessionHandle,
+  type TutorMode,
+  type TutorMessage,
+} from "./tutorSession";
 
 export interface ChatMsg {
   role: "user" | "assistant";
@@ -30,11 +49,26 @@ export interface StreamingAIState {
     persona: AIPersona,
     body: string,
     history: ChatMsg[],
-    context?: { subject?: string; major?: string; year?: string | number; uni?: string; lang?: "en" | "ar" | "auto" },
+    context?: {
+      subject?: string;
+      major?: string;
+      year?: string | number;
+      uni?: string;
+      lang?: "en" | "ar" | "auto";
+      /** Optional: 'study_mode' for proactive teaching, default
+       *  'homework_help' (full Socratic). UI doesn't expose this yet
+       *  — the field is wired in advance for a future toggle. */
+      mode?: TutorMode;
+    },
   ) => Promise<{ ok: true; assistant: string } | { ok: false; reason: StreamErrorReason; message?: string }>;
   loading: boolean;
   partial: string;
   abort: () => void;
+  /** End the current Bas Udros tutor session (subject change, screen
+   *  unmount, manual "end session" action). Triggers post-session
+   *  analysis in the background. Safe to call when no session is
+   *  active — the call is a no-op. */
+  endActiveSession: () => void;
 }
 
 export function useStreamingAI(): StreamingAIState {
@@ -47,6 +81,25 @@ export function useStreamingAI(): StreamingAIState {
   const [loading, setLoading] = useState(false);
   const [partial, setPartial] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  // Active Bas Udros tutor session — recreated when subject changes.
+  // Stored in a ref (not state) because the value is read inside
+  // send()'s closure and we don't want a stale-state issue across
+  // rapid sends. The cached access token is reused so each send
+  // doesn't pay an extra round-trip to /auth/v1/user.
+  const sessionRef = useRef<SessionHandle | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
+
+  /** Trigger post-session analysis on the currently active session,
+   *  then clear the ref so the next send opens a fresh session. */
+  const endActiveSession = useCallback(() => {
+    const handle = sessionRef.current;
+    const token = accessTokenRef.current;
+    sessionRef.current = null;
+    if (handle?.sessionId && token) {
+      // Fire-and-forget — analyzer is idempotent and never throws.
+      void analyzeAndCloseSession(handle.sessionId, token);
+    }
+  }, []);
 
   const abort = useCallback(() => {
     if (abortRef.current) {
@@ -87,6 +140,37 @@ export function useStreamingAI(): StreamingAIState {
         setLoading(false);
         return { ok: false, reason: "auth", message: "Sign in to use the AI." } as const;
       }
+      accessTokenRef.current = access;
+
+      // ── Bas Udros tutor-session bookkeeping ──
+      // Only the tutor endpoint uses the durable per-subject memory
+      // tables; the wellbeing endpoint stays on its own (Noor) flow.
+      // If the active session's subject differs from this turn's
+      // subject, close the old one first so its analysis runs.
+      const subjectForSession = (context.subject ?? "general").trim() || "general";
+      let tutorMemory: string | null = null;
+      if (endpoint === "/api/ai/tutor") {
+        const active = sessionRef.current;
+        if (active && active.subject !== subjectForSession) {
+          // Subject change → analyse + close + open fresh.
+          void analyzeAndCloseSession(active.sessionId, access);
+          sessionRef.current = null;
+        }
+        if (!sessionRef.current) {
+          // Best-effort load; failure leaves sessionRef null and the
+          // request still goes through with no tutor memory.
+          try {
+            sessionRef.current = await startOrResumeSession(
+              session.user.id,
+              subjectForSession,
+              context.mode ?? "homework_help",
+            );
+          } catch {
+            sessionRef.current = null;
+          }
+        }
+        tutorMemory = sessionRef.current?.memoryContext ?? null;
+      }
 
       const apiMsgs = [...history, { role: "user" as const, content: body }];
 
@@ -110,6 +194,11 @@ export function useStreamingAI(): StreamingAIState {
           // and explanation style to the student. Null when the user
           // hasn't taken the quiz; the API endpoint skips the block.
           personality: personalitySummary ?? undefined,
+          // Bas Udros (UPGRADE 3 + 7): durable session memory + mode.
+          // Tutor endpoint reads them; wellbeing endpoint ignores
+          // unknown fields, so this is safe to send to both.
+          tutorMemory: tutorMemory ?? undefined,
+          mode: context.mode ?? "homework_help",
         }),
         signal: abortRef.current.signal,
       });
@@ -177,6 +266,21 @@ export function useStreamingAI(): StreamingAIState {
       setLoading(false);
       setPartial("");
       abortRef.current = null;
+
+      // UPGRADE 3: persist this user/assistant pair to tutor_sessions
+      // in real time. Best-effort — failure is silent and never blocks
+      // the chat. Only runs for the tutor endpoint, since the wellbeing
+      // endpoint has its own (Noor) state if/when that's wired later.
+      const handle = sessionRef.current;
+      if (handle?.sessionId && endpoint === "/api/ai/tutor") {
+        const nowIso = new Date().toISOString();
+        const newMsgs: TutorMessage[] = [
+          { role: "user", content: body, ts: nowIso },
+          { role: "assistant", content: assistant, ts: new Date().toISOString() },
+        ];
+        void appendMessages(handle.sessionId, newMsgs);
+      }
+
       return { ok: true, assistant } as const;
     } catch (e) {
       clearTimeout(guard);
@@ -198,5 +302,5 @@ export function useStreamingAI(): StreamingAIState {
     }
   }, [loading, abort, profile, personalitySummary]);
 
-  return { send, loading, partial, abort };
+  return { send, loading, partial, abort, endActiveSession };
 }

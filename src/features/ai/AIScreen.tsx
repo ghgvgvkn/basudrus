@@ -69,6 +69,21 @@ export function AIScreen() {
   const ai = useStreamingAI();
   const isThinking = ai.loading;
 
+  // Bas Udros tutor: when AIScreen unmounts (user navigates to a
+  // different screen, signs out, etc.) close the active session so
+  // post-session analysis runs in the background. Subject changes
+  // during the same mount are handled inside useStreamingAI itself —
+  // it auto-closes the previous session and opens a fresh one.
+  // Stable ref so the cleanup picks up the latest endActiveSession
+  // without retriggering on every render.
+  const endSessionRef = useRef(ai.endActiveSession);
+  endSessionRef.current = ai.endActiveSession;
+  useEffect(() => {
+    return () => {
+      try { endSessionRef.current(); } catch { /* swallow — never block unmount */ }
+    };
+  }, []);
+
   // Consume prefill from command palette.
   useEffect(() => {
     if (aiPrefill) {
