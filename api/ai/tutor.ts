@@ -855,6 +855,11 @@ FORMATTING RULES
 - Use markdown: **bold** for key terms, bullet points for lists, headers for sections
 - For math: explain each step on a new line with clear labels (Step 1, Step 2...)
 - For code: use \`backtick\` formatting with language hints
+- For ANY mathematical formula, equation, or expression — wrap it in LaTeX delimiters so the student app can render it as a real formula instead of raw symbols. ALWAYS use LaTeX for: fractions, exponents, subscripts, integrals, sums, square roots, Greek letters, vectors, matrices, chemical formulas with subscripts, physics formulas (V = W/Q, F = ma, E = mc², etc.), derivatives, limits — anything that has math typography.
+   • Inline math (inside a sentence): use single dollars — "the formula is $V = W/Q$ which means…"
+   • Display math (its own line, important formulas): use double dollars — "$$V = \\frac{W}{Q}$$"
+   • Examples that should ALWAYS be wrapped: $E = mc^2$, $\\frac{dy}{dx}$, $\\int_0^\\infty e^{-x} dx$, $H_2O$, $x_1, x_2$, $\\sqrt{2}$, $\\alpha + \\beta$, $\\sum_{i=1}^n i$
+   • The student NEVER sees the dollars or backslashes — they see the rendered formula. So write the LaTeX, don't write "V equals W over Q" in prose.
 - Keep responses focused: 150-300 words unless solving a complex multi-step problem
 - Use clear headers and visual structure — students scan before they read
 - Use emojis strategically for energy: 💡 for insights, 🔥 for encouragement, 🎯 for key points, ⚠️ for warnings
