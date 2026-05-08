@@ -50,6 +50,7 @@ import { paletteFor } from "./subjectPalette";
 import { useTutorMemory } from "./useTutorMemory";
 import { decideRouting } from "./personaRouting";
 import { MentalHealthScreenModal } from "./MentalHealthScreenModal";
+import { StudySessionModal, getSessionContext, getBannerText, type SessionPhase } from "./StudySessionModal";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
@@ -109,6 +110,12 @@ export function AIScreen() {
   // next message. Crisis-flagged results route through Day 8's
   // force-switch flow (already in place via wellbeing.ts CRISIS_MODE).
   const [screenOpen, setScreenOpen] = useState(false);
+  // Day 18 — solo focus session state. studySession holds the live
+  // phase (or null when no session is running). When non-null + active,
+  // we show a small banner at top and pass session context to the AI
+  // on each message send so Omar's prompt switches to focus mode.
+  const [studyModalOpen, setStudyModalOpen] = useState(false);
+  const [studySession, setStudySession] = useState<SessionPhase | null>(null);
 
   // Bas Udros tutor: when AIScreen unmounts (user navigates to a
   // different screen, signs out, etc.) close the active session so
@@ -395,6 +402,14 @@ export function AIScreen() {
       // Tutor mode (Omar only) — homework_help / study_mode /
       // homework_helper. Noor ignores this.
       mode: activePersona === "omar" ? tutorMode : undefined,
+      // Day 18 — when a focus session is active, pass the session
+      // context so Omar's prompt switches into focus mode (more
+      // structured, gently redirects off-topic, helps wrap up cleanly
+      // near the end). Null when no session is active or persona
+      // is Noor (mental-health side ignores this).
+      studySession: activePersona === "omar"
+        ? getSessionContext(studySession) ?? undefined
+        : undefined,
     });
 
     if (result.ok) {
@@ -547,6 +562,50 @@ export function AIScreen() {
           }}
         />
       )}
+      {/* Day 18 — focus-session modal. We persist the active phase in
+          AIScreen state so the modal can be closed/reopened without
+          losing the session in progress. The modal pushes a system
+          notice into the chat at start + end so Omar's next reply
+          has context, plus passes session context on every send. */}
+      {studyModalOpen && (
+        <StudySessionModal
+          initialPhase={studySession ?? undefined}
+          onClose={() => setStudyModalOpen(false)}
+          onPhaseChange={(p) => {
+            const wasActive = studySession?.kind === "active";
+            const isActive = p?.kind === "active";
+            // Update the held session state.
+            setStudySession(p);
+            // Push a "session started" system notice the first time we
+            // transition into active.
+            if (!wasActive && isActive && p?.kind === "active") {
+              setMessages((m) => [
+                ...m,
+                {
+                  id: `study-start-${Date.now()}`,
+                  role: "system",
+                  persona: "omar",
+                  body: `Focus session started — ${p.subject}: ${p.goal} · ${p.totalDurationMin} min`,
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
+            }
+            // And a "session ended" notice when summary phase shows.
+            if (p?.kind === "summary") {
+              setMessages((m) => [
+                ...m,
+                {
+                  id: `study-end-${Date.now()}`,
+                  role: "system",
+                  persona: "omar",
+                  body: `Focus session ended — ${p.totalElapsedMin} min on ${p.subject} · ${p.focusBlocksCompleted} focus block(s) completed`,
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
+            }
+          }}
+        />
+      )}
       {/* Header — persona toggle is always visible now so users can
           manually override the auto-switch, and the chat never feels
           like it's locked to one mode. */}
@@ -589,6 +648,27 @@ export function AIScreen() {
         <MilestoneToast event={milestone} onDismiss={() => setMilestone(null)} />
       )}
 
+      {/* Day 18 — in-session banner. Visible whenever a focus session
+          is active. Tap reopens the modal (timer + actions). Hidden
+          when no session is running. Shown for both personas because
+          the banner is informational (the AI behavior change applies
+          to Omar specifically). */}
+      {getBannerText(studySession) && (
+        <button
+          type="button"
+          onClick={() => setStudyModalOpen(true)}
+          className="w-full px-4 md:px-6 py-2 border-b border-[#5B4BF5]/20 bg-[#5B4BF5]/8 hover:bg-[#5B4BF5]/12 transition text-start active:scale-[0.998]"
+        >
+          <div className="max-w-3xl mx-auto flex items-center gap-2 text-[12px] text-[#5B4BF5]">
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#5B4BF5] animate-pulse" />
+              {getBannerText(studySession)}
+            </span>
+            <span className="ml-auto text-[11px] text-[#5B4BF5]/70">tap to manage →</span>
+          </div>
+        </button>
+      )}
+
       {/* Body — chat stream. The empty state is just a minimal greeting
           + quick prompts; the composer sits at the bottom like any
           real chat. No more giant persona-picker box. */}
@@ -598,6 +678,7 @@ export function AIScreen() {
             persona={persona}
             onQuick={(text) => sendWith(text, null)}
             onOpenScreen={() => setScreenOpen(true)}
+            onOpenSession={() => setStudyModalOpen(true)}
           />
         ) : (
           <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
@@ -720,7 +801,7 @@ export function AIScreen() {
  *  text color) so "Quiz me on math" looks visually different from
  *  the generic "Build me a 5-day plan" — the personalised ones are
  *  meant to be the eye's first stop. */
-function EmptyChatState({ persona, onQuick, onOpenScreen }: { persona: AIPersona; onQuick: (text: string) => void; onOpenScreen?: () => void }) {
+function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { persona: AIPersona; onQuick: (text: string) => void; onOpenScreen?: () => void; onOpenSession?: () => void }) {
   const memory = useTutorMemory(persona);
   const accent = memory.recentSubject ? paletteFor(memory.recentSubject) : null;
   // The first N prompts are memory-driven; the rest are generic.
@@ -754,6 +835,27 @@ function EmptyChatState({ persona, onQuick, onOpenScreen }: { persona: AIPersona
                  with a relationship prompt; Noor's relationship-advisor
                  system prompt block takes it from there. Both hidden
                  for Omar (he has his own surfaces). */}
+        {/* Omar entry card — Start focus session (Day 18). Lives on
+            the empty state so it's discoverable without Omar having
+            to suggest it every conversation. Shown only when there
+            isn't an active session already. */}
+        {persona === "omar" && onOpenSession && (
+          <div className="mt-6 max-w-md mx-auto">
+            <button
+              onClick={onOpenSession}
+              className="w-full text-start rounded-2xl border border-[#5B4BF5]/30 hover:border-[#5B4BF5]/55 bg-[#5B4BF5]/[6%] hover:bg-[#5B4BF5]/[10%] transition px-4 py-3.5 active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-full bg-[#5B4BF5]/15 inline-flex items-center justify-center shrink-0 text-base">🎯</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-ink text-[14px]">Start focus session</div>
+                  <div className="text-[12.5px] text-ink/55 mt-0.5">Pomodoro timer + I'll keep you on track. Pick a subject and a goal.</div>
+                </div>
+                <span className="text-ink/40 text-base shrink-0">→</span>
+              </div>
+            </button>
+          </div>
+        )}
         {persona === "noor" && (
           <div className="mt-6 max-w-md mx-auto space-y-2">
             {onOpenScreen && (

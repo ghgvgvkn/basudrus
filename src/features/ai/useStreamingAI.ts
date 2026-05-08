@@ -84,6 +84,19 @@ export interface StreamingAIState {
        *  ("Lecture notes.txt"). Surfaced in the prompt so the AI
        *  can reference the source naturally. */
       documentLabel?: string;
+      /** Day 18 — when a focus study session is active, this carries
+       *  the live session context (subject, goal, elapsed/remaining
+       *  minutes, current Pomodoro block). The tutor endpoint reads
+       *  it and switches Omar into "focus mode" — more structured,
+       *  gentle redirect on off-topic, ready to wrap up near end.
+       *  Undefined when no session is running or persona is Noor. */
+      studySession?: {
+        subject: string;
+        goal: string;
+        elapsedMin: number;
+        remainingMin: number;
+        currentBlock: "focus" | "break";
+      };
     },
   ) => Promise<{ ok: true; assistant: string } | { ok: false; reason: StreamErrorReason; message?: string }>;
   loading: boolean;
@@ -248,6 +261,10 @@ export function useStreamingAI(): StreamingAIState {
           // Injected as a fenced block in the system prompt.
           documentContext: context.documentContext ?? undefined,
           documentLabel:   context.documentLabel   ?? undefined,
+          // Day 18 — focus session context. Tutor endpoint reads it
+          // to switch Omar into focus mode. Undefined when no session
+          // is running.
+          studySession: context.studySession ?? undefined,
         }),
         signal: abortRef.current.signal,
       });
