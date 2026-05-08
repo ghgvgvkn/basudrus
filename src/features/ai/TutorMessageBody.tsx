@@ -114,15 +114,27 @@ function prettifyLatex(src: string): string {
 // ─────────────────────────────────────────────────────────────────
 
 interface InlineSegment {
-  kind: "text" | "math";
+  kind: "text" | "math" | "math-display";
   content: string;
 }
 
-/** Split a string on inline math delimiters. Recognised pairs:
- *    $...$    \(...\)
- *  $$...$$ on a single line is treated as inline display math here
- *  (block-level $$..$$ is handled at the block parser instead).
- *  Unclosed delimiters become plain text — common during streaming. */
+/** Split a string on math delimiters. Recognised pairs (in order):
+ *    $$...$$  → display math (renders as a centered tile, even
+ *               when surrounded by trailing text like "✓" or "and...")
+ *    \[...\]  → display math (LaTeX escape-bracket form)
+ *    \(...\)  → inline math (escape-paren form)
+ *    $...$    → inline math (single dollar — skip $$ and skip
+ *               currency strings like "$5" or "$1.50")
+ *
+ *  Why $$...$$ also lives here, not just in parseBlocks(): the AI
+ *  often emits things like "$$E = mc^2$$ ✓" or "the result is $$X$$
+ *  which means..." — block-level detection needs the line to start
+ *  with $$ AND end with $$. Trailing content broke it. Inline
+ *  detection handles that case fine.
+ *
+ *  Unclosed delimiters become plain text — common mid-stream when
+ *  the AI is still typing. Once the closer arrives the next render
+ *  picks it up. */
 function splitInlineMath(line: string): InlineSegment[] {
   const segments: InlineSegment[] = [];
   let i = 0;
@@ -137,7 +149,38 @@ function splitInlineMath(line: string): InlineSegment[] {
   while (i < line.length) {
     const ch = line[i];
 
-    // \( ... \) — escape-paren form
+    // $$ ... $$ — display math (highest priority). Must come before
+    // the $...$ branch so the doubled-$ isn't mis-parsed as two
+    // back-to-back inline math regions.
+    if (ch === "$" && line[i + 1] === "$") {
+      const close = line.indexOf("$$", i + 2);
+      if (close !== -1) {
+        const inner = line.slice(i + 2, close).trim();
+        if (inner.length > 0) {
+          flushPlain(i);
+          segments.push({ kind: "math-display", content: inner });
+          i = close + 2;
+          plainStart = i;
+          continue;
+        }
+      }
+      // Unclosed $$ — fall through and treat the $$ as text. Mid-stream
+      // tokens get re-parsed once the closer arrives.
+    }
+
+    // \[ ... \] — display math (LaTeX escape-bracket form)
+    if (ch === "\\" && line[i + 1] === "[") {
+      const close = line.indexOf("\\]", i + 2);
+      if (close !== -1) {
+        flushPlain(i);
+        segments.push({ kind: "math-display", content: line.slice(i + 2, close).trim() });
+        i = close + 2;
+        plainStart = i;
+        continue;
+      }
+    }
+
+    // \( ... \) — escape-paren inline form
     if (ch === "\\" && line[i + 1] === "(") {
       const close = line.indexOf("\\)", i + 2);
       if (close !== -1) {
@@ -149,9 +192,9 @@ function splitInlineMath(line: string): InlineSegment[] {
       }
     }
 
-    // $...$ — single-dollar form. Skip $$ (handled at block level)
-    // and skip when it looks like currency ($ followed by a digit
-    // and no closing $ on this line).
+    // $...$ — single-dollar inline form. Skip $$ (handled above) and
+    // skip when it looks like currency ($ followed by a digit and no
+    // closing $ on this line).
     if (ch === "$" && line[i + 1] !== "$") {
       // Find next un-escaped $ that isn't doubled
       let j = i + 1;
@@ -194,29 +237,62 @@ function renderInline(text: string, keyPrefix: string, katexReady: boolean): Rea
   const out: ReactNode[] = [];
 
   mathSegs.forEach((seg, segIdx) => {
-    if (seg.kind === "math") {
-      const html = katexReady ? tryRenderMath(seg.content, false) : null;
+    if (seg.kind === "math" || seg.kind === "math-display") {
+      const isDisplay = seg.kind === "math-display";
+      const html = katexReady ? tryRenderMath(seg.content, isDisplay) : null;
       if (html) {
-        out.push(
-          <span
-            key={`${keyPrefix}-m-${segIdx}`}
-            className="inline-block align-middle"
-            // KaTeX-produced HTML — safe per latexRenderer's options.
-            dangerouslySetInnerHTML={{ __html: html }}
-          />,
-        );
+        // Display math gets its own block tile inside a paragraph —
+        // we render it as a div so it breaks the flow naturally.
+        // Inline math stays inline.
+        if (isDisplay) {
+          // <span style="display: block"> instead of <div> because
+          // this can be rendered inside a <p> tag (renderInline runs
+          // in paragraph context). A <div> child would auto-close the
+          // <p> in HTML5 and cause layout breakage.
+          out.push(
+            <span
+              key={`${keyPrefix}-md-${segIdx}`}
+              dir="ltr"
+              className="my-2 rounded-xl bg-white/8 px-4 py-3 overflow-x-auto text-white"
+              style={{ textShadow: "none", display: "block" }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />,
+          );
+        } else {
+          out.push(
+            <span
+              key={`${keyPrefix}-m-${segIdx}`}
+              className="inline-block align-middle"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />,
+          );
+        }
       } else {
         // Fallback: prettified Unicode while KaTeX loads (or if the
         // formula is broken). Italicised so it visually reads like
-        // a math token, not body prose.
-        out.push(
-          <em
-            key={`${keyPrefix}-mp-${segIdx}`}
-            className="not-italic font-mono text-[0.95em] px-1 py-0.5 rounded bg-white/10"
-          >
-            {prettifyLatex(seg.content)}
-          </em>,
-        );
+        // a math token, not body prose. Display math gets a tile
+        // even in fallback so it stands out from prose.
+        if (isDisplay) {
+          out.push(
+            <span
+              key={`${keyPrefix}-mdp-${segIdx}`}
+              dir="ltr"
+              className="my-2 rounded-xl bg-white/8 px-4 py-3 overflow-x-auto font-mono text-[15px] text-white/95"
+              style={{ textShadow: "none", display: "block" }}
+            >
+              {prettifyLatex(seg.content)}
+            </span>,
+          );
+        } else {
+          out.push(
+            <em
+              key={`${keyPrefix}-mp-${segIdx}`}
+              className="not-italic font-mono text-[0.95em] px-1 py-0.5 rounded bg-white/10"
+            >
+              {prettifyLatex(seg.content)}
+            </em>,
+          );
+        }
       }
       return;
     }
