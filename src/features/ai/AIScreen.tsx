@@ -732,22 +732,39 @@ function EmptyChatState({ persona, onQuick, onOpenScreen }: { persona: AIPersona
             Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Omar)" : "AI (Noor)"}</span>. I'll switch modes if the topic calls for it.
           </p>
         )}
-        {/* Mental health check-in card — Noor only. A standing
-            offer to take a validated PHQ-9 or GAD-7 self-screen.
-            Lives here so it's discoverable without Noor having to
-            announce it every conversation. Hidden for Omar (Day 6+
-            tutor screen has its own discovery surface). */}
-        {persona === "noor" && onOpenScreen && (
-          <div className="mt-6 max-w-md mx-auto">
+        {/* Noor entry cards — discoverable hooks into Noor's deeper
+            capabilities. Two cards in v1:
+              1. Mental health check-in (Day 13) → opens PHQ-9/GAD-7 modal
+              2. Talk about a relationship (Day 15) → seeds the chat
+                 with a relationship prompt; Noor's relationship-advisor
+                 system prompt block takes it from there. Both hidden
+                 for Omar (he has his own surfaces). */}
+        {persona === "noor" && (
+          <div className="mt-6 max-w-md mx-auto space-y-2">
+            {onOpenScreen && (
+              <button
+                onClick={onOpenScreen}
+                className="w-full text-start rounded-2xl border border-[#0E8A6B]/30 hover:border-[#0E8A6B]/55 bg-[#0E8A6B]/[6%] hover:bg-[#0E8A6B]/[10%] transition px-4 py-3.5 active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-full bg-[#0E8A6B]/15 inline-flex items-center justify-center shrink-0 text-base">💚</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-ink text-[14px]">Take a 2-min check-in</div>
+                    <div className="text-[12.5px] text-ink/55 mt-0.5">Validated PHQ-9 or GAD-7 — private, not a diagnosis.</div>
+                  </div>
+                  <span className="text-ink/40 text-base shrink-0">→</span>
+                </div>
+              </button>
+            )}
             <button
-              onClick={onOpenScreen}
-              className="w-full text-start rounded-2xl border border-[#0E8A6B]/30 hover:border-[#0E8A6B]/55 bg-[#0E8A6B]/[6%] hover:bg-[#0E8A6B]/[10%] transition px-4 py-3.5 active:scale-[0.99]"
+              onClick={() => onQuick("I want to talk about something happening in a relationship — could be romantic, a friendship, or family.")}
+              className="w-full text-start rounded-2xl border border-[#C23F6C]/25 hover:border-[#C23F6C]/45 bg-[#C23F6C]/[5%] hover:bg-[#C23F6C]/[9%] transition px-4 py-3.5 active:scale-[0.99]"
             >
               <div className="flex items-center gap-3">
-                <span className="w-9 h-9 rounded-full bg-[#0E8A6B]/15 inline-flex items-center justify-center shrink-0 text-base">💚</span>
+                <span className="w-9 h-9 rounded-full bg-[#C23F6C]/15 inline-flex items-center justify-center shrink-0 text-base">🫂</span>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-ink text-[14px]">Take a 2-min check-in</div>
-                  <div className="text-[12.5px] text-ink/55 mt-0.5">Validated PHQ-9 or GAD-7 — private, not a diagnosis.</div>
+                  <div className="font-semibold text-ink text-[14px]">Talk about a relationship</div>
+                  <div className="text-[12.5px] text-ink/55 mt-0.5">Romantic, friendship, family — anything that's complicated right now.</div>
                 </div>
                 <span className="text-ink/40 text-base shrink-0">→</span>
               </div>
