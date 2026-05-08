@@ -144,8 +144,11 @@ export interface AIMessage {
   createdAt: string;
   /** Subject inference. AI messages set this; user messages may omit. */
   subject?: AISubject;
-  /** Optional structured artifact — rendered by the AIScreen. */
-  artifact?: StudyPlanArtifact;
+  /** Optional structured artifact — rendered by the AIScreen. The
+   *  artifact union expands as we add more types (study plans,
+   *  professor emails, CVs, etc.). The renderer dispatches on
+   *  artifact.kind. */
+  artifact?: StudyPlanArtifact | ProfessorEmailArtifact;
   /** Optional attachment the user sent with this message. */
   attachment?: {
     name: string;
@@ -210,6 +213,39 @@ export interface StudyPlanArtifact {
       topic?: string;
     }[];
   }[];
+}
+
+/** Day 14 — drafted email to a professor (or TA, advisor, dean,
+ *  scholarship office, etc.). Rendered as a premium card with the
+ *  subject line, body, and copy / open-in-mail-app actions. */
+export interface ProfessorEmailArtifact {
+  kind: "professorEmail";
+  /** Recipient header — typically "Dr. <FamilyName>" / "د. <اسم العائلة>".
+   *  Jordanian academic norms: "Dr." is the universal address for
+   *  any PhD-holder, regardless of faculty rank. */
+  recipient: string;
+  /** Email subject line (concise, <8 words ideally). */
+  subject: string;
+  /** Body — plain text with line breaks preserved. The renderer
+   *  shows it in a monospace-readable card the student can copy
+   *  verbatim. */
+  body: string;
+  /** Sign-off including the student's name. If the AI doesn't know
+   *  the student's name yet, it uses "[your name]" so the student
+   *  sees the placeholder and replaces it. */
+  signOff: string;
+  /** Language of the email. Drives copy direction (LTR/RTL) and
+   *  the localized "Copy" / "Open in mail" labels. */
+  lang: "en" | "ar";
+  /** Tone tier the AI selected. Surfaces as a small tag in the card
+   *  header so the student knows which dial they're on and can ask
+   *  for a different tone. */
+  tone: "formal" | "respectful_warm" | "casual_respectful";
+  /** Optional one-paragraph coaching note from Omar — WHY he wrote
+   *  it this way, what to watch out for, what to do if the prof
+   *  rejects. Rendered below the card in subdued text, NOT inside
+   *  the email body the student copies. */
+  coachingNote?: string;
 }
 
 /** One conversation in the AI history drawer. */
