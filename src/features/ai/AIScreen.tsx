@@ -43,6 +43,7 @@ import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
 import { paletteFor } from "./subjectPalette";
 import { useTutorMemory } from "./useTutorMemory";
 import { decideRouting } from "./personaRouting";
+import { MentalHealthScreenModal } from "./MentalHealthScreenModal";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
@@ -95,6 +96,13 @@ export function AIScreen() {
   // never feels canned. State persists in Supabase (own-only RLS).
   const streak = useStreak();
   const [milestone, setMilestone] = useState<MilestoneEvent | null>(null);
+  // Mental-health self-screen modal (Day 13). Open from the Noor
+  // empty state or via a "Take a check-in" quick reply. After the
+  // student completes a screen, we push a system notice into the
+  // chat with their score so Noor can respond contextually on the
+  // next message. Crisis-flagged results route through Day 8's
+  // force-switch flow (already in place via wellbeing.ts CRISIS_MODE).
+  const [screenOpen, setScreenOpen] = useState(false);
 
   // Bas Udros tutor: when AIScreen unmounts (user navigates to a
   // different screen, signs out, etc.) close the active session so
@@ -486,6 +494,40 @@ export function AIScreen() {
 
   return (
     <div className="relative flex flex-col h-[calc(100dvh-64px)] md:h-[calc(100dvh-56px)]" dir={dir}>
+      {/* Mental-health self-screen modal (Day 13). Mounts at top so
+          its own fixed-position layer doesn't fight with the chat
+          tree. After a result is saved we (a) flip persona to Noor
+          if it isn't already, and (b) push a single system notice
+          into the chat with the score so Noor's next reply has
+          context. We don't auto-send a message — the student decides
+          when / whether to share more. */}
+      {screenOpen && (
+        <MentalHealthScreenModal
+          initialLang={lang === "ar" ? "ar" : "en"}
+          onClose={() => setScreenOpen(false)}
+          onResultSaved={(r) => {
+            // Always switch to Noor — this is mental-health territory,
+            // any follow-up should go through her flow.
+            if (persona !== "noor") setPersona("noor");
+            // Drop a system notice with the result. Severity is in
+            // English to match prompt routing; the AI handles
+            // localization in its reply.
+            const summary = r.flaggedSelfHarm
+              ? `Took ${r.screen} · score ${r.score} · severity ${r.severity} · self-harm flag set`
+              : `Took ${r.screen} · score ${r.score} · severity ${r.severity}`;
+            setMessages((m) => [
+              ...m,
+              {
+                id: `mh-${Date.now()}`,
+                role: "system",
+                persona: "noor",
+                body: summary,
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+          }}
+        />
+      )}
       {/* Header — persona toggle is always visible now so users can
           manually override the auto-switch, and the chat never feels
           like it's locked to one mode. */}
@@ -536,6 +578,7 @@ export function AIScreen() {
           <EmptyChatState
             persona={persona}
             onQuick={(text) => sendWith(text, null)}
+            onOpenScreen={() => setScreenOpen(true)}
           />
         ) : (
           <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
@@ -658,7 +701,7 @@ export function AIScreen() {
  *  text color) so "Quiz me on math" looks visually different from
  *  the generic "Build me a 5-day plan" — the personalised ones are
  *  meant to be the eye's first stop. */
-function EmptyChatState({ persona, onQuick }: { persona: AIPersona; onQuick: (text: string) => void }) {
+function EmptyChatState({ persona, onQuick, onOpenScreen }: { persona: AIPersona; onQuick: (text: string) => void; onOpenScreen?: () => void }) {
   const memory = useTutorMemory(persona);
   const accent = memory.recentSubject ? paletteFor(memory.recentSubject) : null;
   // The first N prompts are memory-driven; the rest are generic.
@@ -684,6 +727,28 @@ function EmptyChatState({ persona, onQuick }: { persona: AIPersona; onQuick: (te
           <p className="mt-3 text-ink/55 text-sm md:text-base">
             Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Omar)" : "AI (Noor)"}</span>. I'll switch modes if the topic calls for it.
           </p>
+        )}
+        {/* Mental health check-in card — Noor only. A standing
+            offer to take a validated PHQ-9 or GAD-7 self-screen.
+            Lives here so it's discoverable without Noor having to
+            announce it every conversation. Hidden for Omar (Day 6+
+            tutor screen has its own discovery surface). */}
+        {persona === "noor" && onOpenScreen && (
+          <div className="mt-6 max-w-md mx-auto">
+            <button
+              onClick={onOpenScreen}
+              className="w-full text-start rounded-2xl border border-[#0E8A6B]/30 hover:border-[#0E8A6B]/55 bg-[#0E8A6B]/[6%] hover:bg-[#0E8A6B]/[10%] transition px-4 py-3.5 active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-full bg-[#0E8A6B]/15 inline-flex items-center justify-center shrink-0 text-base">💚</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-ink text-[14px]">Take a 2-min check-in</div>
+                  <div className="text-[12.5px] text-ink/55 mt-0.5">Validated PHQ-9 or GAD-7 — private, not a diagnosis.</div>
+                </div>
+                <span className="text-ink/40 text-base shrink-0">→</span>
+              </div>
+            </button>
+          </div>
         )}
         <div className="mt-7 flex flex-wrap justify-center gap-2">
           {memory.prompts.map((p) => {
