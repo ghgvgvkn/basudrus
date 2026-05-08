@@ -54,8 +54,10 @@ create table if not exists public.university_resources (
     'counseling','career','library','lab','online','hotline','other'
   )),
   /** Display name. e.g. "IEEE Computer Society — PSUT Chapter".
-   *  This is what the AI says back to the student. */
-  name         text not null,
+   *  This is what the AI says back to the student. UNIQUE because
+   *  the seed insert below uses ON CONFLICT (name) DO NOTHING for
+   *  idempotency — random uuid PK can't catch dupes on re-runs. */
+  name         text not null unique,
   /** What this resource is and why a student would visit it.
    *  Short — 1-2 sentences. The AI weaves this into its reply. */
   description  text not null,
@@ -94,6 +96,16 @@ create table if not exists public.university_resources (
 create index if not exists idx_university_resources_lookup
   on public.university_resources (uni, active)
   where verified_at is not null and active = true;
+
+-- Defensively add unique(name) constraint if missing — initial migration
+-- may have been applied without it. Idempotent via DO block guard.
+do $ur_unique$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'university_resources_name_key'
+  ) then
+    alter table public.university_resources add constraint university_resources_name_key unique (name);
+  end if;
+end $ur_unique$;
 
 -- updated_at trigger so we can sort by recency.
 create or replace function public.university_resources_set_updated_at()
@@ -159,4 +171,4 @@ values
    now(),
    'Jordan public emergency services — 911 reaches police / ambulance / fire across the country.'
   )
-on conflict do nothing;
+on conflict (name) do nothing;

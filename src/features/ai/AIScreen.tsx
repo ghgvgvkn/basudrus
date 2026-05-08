@@ -116,6 +116,13 @@ export function AIScreen() {
   // on each message send so Omar's prompt switches to focus mode.
   const [studyModalOpen, setStudyModalOpen] = useState(false);
   const [studySession, setStudySession] = useState<SessionPhase | null>(null);
+  // Day 18 — last phase KIND we surfaced a system notice for, tracked
+  // in a ref so we only push the start / end notice ONCE per transition,
+  // not every time the modal re-renders. Without this, the inline arrow
+  // passed as onPhaseChange caused a runaway loop: setMessages →
+  // re-render → new arrow ref → modal's [onPhaseChange] effect re-fires
+  // → another setMessages, etc.
+  const lastSessionKindRef = useRef<string | null>(null);
 
   // Bas Udros tutor: when AIScreen unmounts (user navigates to a
   // different screen, signs out, etc.) close the active session so
@@ -572,13 +579,18 @@ export function AIScreen() {
           initialPhase={studySession ?? undefined}
           onClose={() => setStudyModalOpen(false)}
           onPhaseChange={(p) => {
-            const wasActive = studySession?.kind === "active";
-            const isActive = p?.kind === "active";
-            // Update the held session state.
+            // Compare against the LAST kind we acted on (ref-tracked),
+            // NOT the latest studySession state — closure-read state can
+            // be stale within the same render pass and the inline-arrow
+            // recreation causes the modal effect to re-fire repeatedly.
+            // The ref guarantees we only push each notice ONCE per
+            // transition.
+            const oldKind = lastSessionKindRef.current;
+            const newKind = p?.kind ?? null;
+            lastSessionKindRef.current = newKind;
             setStudySession(p);
-            // Push a "session started" system notice the first time we
-            // transition into active.
-            if (!wasActive && isActive && p?.kind === "active") {
+            // Start notice — first transition into "active".
+            if (oldKind !== "active" && newKind === "active" && p?.kind === "active") {
               setMessages((m) => [
                 ...m,
                 {
@@ -590,8 +602,8 @@ export function AIScreen() {
                 },
               ]);
             }
-            // And a "session ended" notice when summary phase shows.
-            if (p?.kind === "summary") {
+            // End notice — first transition into "summary".
+            if (oldKind !== "summary" && newKind === "summary" && p?.kind === "summary") {
               setMessages((m) => [
                 ...m,
                 {

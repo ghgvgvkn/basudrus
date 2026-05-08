@@ -63,8 +63,10 @@ create policy "mh_screen_results_self_insert"
 
 create table if not exists public.mh_therapists (
   id           uuid primary key default gen_random_uuid(),
-  /** Display name. Therapist or organization. */
-  name         text not null,
+  /** Display name. Therapist or organization. UNIQUE because seed
+   *  data uses ON CONFLICT (name) DO NOTHING for idempotency — the
+   *  random uuid PK can't catch dupes on re-runs of the migration. */
+  name         text not null unique,
   /** Type of provider. */
   kind         text not null check (kind in (
     'therapist','psychologist','psychiatrist','counseling_org','hotline','hospital','online_therapy'
@@ -105,6 +107,20 @@ create table if not exists public.mh_therapists (
 create index if not exists idx_mh_therapists_lookup
   on public.mh_therapists (active)
   where verified_at is not null and active = true;
+
+-- Add the unique(name) constraint defensively — this migration may have
+-- been applied previously WITHOUT it (initial release used `name text not
+-- null` without UNIQUE). The DO block adds the constraint only if not
+-- already present, so re-running stays idempotent. If you've ALREADY
+-- accumulated duplicate names from re-running the seed pre-fix, dedupe
+-- first manually before this constraint can apply.
+do $mh_unique$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'mh_therapists_name_key'
+  ) then
+    alter table public.mh_therapists add constraint mh_therapists_name_key unique (name);
+  end if;
+end $mh_unique$;
 
 create or replace function public.mh_therapists_set_updated_at()
 returns trigger language plpgsql as $$
@@ -211,4 +227,4 @@ values
    now(),
    'Jordan public emergency services — 911'
   )
-on conflict do nothing;
+on conflict (name) do nothing;

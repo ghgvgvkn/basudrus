@@ -32,7 +32,9 @@ export type SessionPhase =
       currentBlock: "focus" | "break";
       blockStartedAt: number;   // ms since epoch
       paused: boolean;
-      pausedAtElapsedMs: number; // total elapsed at pause moment (used to resume cleanly)
+      pausedAtElapsedMs: number; // elapsed-in-block at pause moment (block-level resume math)
+      pausedSinceMs: number | null; // when the current pause started; null if not paused
+      pausedTotalMs: number;    // accumulated total pause time across the whole session
       focusBlocksCompleted: number;
     }
   | {
@@ -131,6 +133,8 @@ export function StudySessionModal({ initialPhase, onClose, onPhaseChange }: Prop
                 blockStartedAt: Date.now(),
                 paused: false,
                 pausedAtElapsedMs: 0,
+                pausedSinceMs: null,
+                pausedTotalMs: 0,
                 focusBlocksCompleted: 0,
               });
             }}
@@ -145,26 +149,39 @@ export function StudySessionModal({ initialPhase, onClose, onPhaseChange }: Prop
                 ...phase,
                 paused: true,
                 pausedAtElapsedMs: Date.now() - phase.blockStartedAt,
+                pausedSinceMs: Date.now(),
               });
             }}
             onResume={() => {
-              if (!phase.paused) return;
+              if (!phase.paused || phase.pausedSinceMs === null) return;
               // Shift blockStartedAt forward by the pause duration so
               // the elapsed-in-block counter resumes from where we paused.
+              // ALSO accumulate the pause duration into pausedTotalMs so
+              // the session-total elapsed math correctly excludes time
+              // the student spent paused.
+              const pauseDurationMs = Date.now() - phase.pausedSinceMs;
               setPhase({
                 ...phase,
                 paused: false,
                 blockStartedAt: Date.now() - phase.pausedAtElapsedMs,
                 pausedAtElapsedMs: 0,
+                pausedSinceMs: null,
+                pausedTotalMs: phase.pausedTotalMs + pauseDurationMs,
               });
             }}
             onEnd={() => {
-              const totalMs = Date.now() - phase.startedAt;
+              // Real working time = (now - startedAt) − total pause time.
+              // If currently paused, also exclude the in-progress pause.
+              const grossMs = Date.now() - phase.startedAt;
+              const inProgressPauseMs = phase.paused && phase.pausedSinceMs !== null
+                ? Date.now() - phase.pausedSinceMs
+                : 0;
+              const workingMs = Math.max(0, grossMs - phase.pausedTotalMs - inProgressPauseMs);
               setPhase({
                 kind: "summary",
                 subject: phase.subject,
                 goal: phase.goal,
-                totalElapsedMin: Math.round(totalMs / 60_000),
+                totalElapsedMin: Math.round(workingMs / 60_000),
                 focusBlocksCompleted: phase.focusBlocksCompleted + (phase.currentBlock === "focus" ? 1 : 0),
               });
             }}
@@ -292,7 +309,14 @@ function ActivePhase({
   const remainingMs = Math.max(0, blockLenMs - elapsedInBlockMs);
   const remainingMin = Math.floor(remainingMs / 60_000);
   const remainingSec = Math.floor((remainingMs % 60_000) / 1000);
-  const totalElapsedMin = Math.floor((Date.now() - phase.startedAt) / 60_000);
+  // Total elapsed for the session excludes time spent paused. If the
+  // student paused for 30 min during a 90-min slot, "X min total"
+  // shows the actual working time, not wall-clock-since-start.
+  const inProgressPauseMs = phase.paused && phase.pausedSinceMs !== null
+    ? Date.now() - phase.pausedSinceMs
+    : 0;
+  const workingMs = Math.max(0, Date.now() - phase.startedAt - phase.pausedTotalMs - inProgressPauseMs);
+  const totalElapsedMin = Math.floor(workingMs / 60_000);
   const isFocus = phase.currentBlock === "focus";
 
   // Progress ring — 0 to 1 representing how much of the block is complete.
@@ -463,13 +487,18 @@ export interface StudySessionContext {
 
 export function getSessionContext(phase: SessionPhase | null): StudySessionContext | null {
   if (!phase || phase.kind !== "active") return null;
-  const totalElapsedMs = Date.now() - phase.startedAt;
+  // Exclude pause time from both elapsed AND remaining math so the
+  // numbers we send to Omar's prompt reflect actual working time.
+  const inProgressPauseMs = phase.paused && phase.pausedSinceMs !== null
+    ? Date.now() - phase.pausedSinceMs
+    : 0;
+  const workingMs = Math.max(0, Date.now() - phase.startedAt - phase.pausedTotalMs - inProgressPauseMs);
   const totalDurationMs = phase.totalDurationMin * 60_000;
   return {
     subject: phase.subject,
     goal: phase.goal,
-    elapsedMin: Math.floor(totalElapsedMs / 60_000),
-    remainingMin: Math.max(0, Math.floor((totalDurationMs - totalElapsedMs) / 60_000)),
+    elapsedMin: Math.floor(workingMs / 60_000),
+    remainingMin: Math.max(0, Math.floor((totalDurationMs - workingMs) / 60_000)),
     currentBlock: phase.currentBlock,
   };
 }
@@ -479,6 +508,9 @@ export function getBannerText(phase: SessionPhase | null): string | null {
   if (!phase || phase.kind !== "active") return null;
   const ctx = getSessionContext(phase);
   if (!ctx) return null;
+  if (phase.paused) {
+    return `Paused · ${ctx.subject}`;
+  }
   if (ctx.currentBlock === "break") {
     return `On break · ${ctx.subject}`;
   }
