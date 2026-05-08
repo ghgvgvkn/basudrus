@@ -147,7 +147,18 @@ export interface AIMessage {
   /** Optional structured artifact — rendered by the AIScreen. */
   artifact?: StudyPlanArtifact;
   /** Optional attachment the user sent with this message. */
-  attachment?: { name: string; kind: "image" | "pdf" | "doc"; url?: string };
+  attachment?: {
+    name: string;
+    kind: "image" | "pdf" | "doc";
+    url?: string;
+    /** When kind === "pdf": metadata extracted client-side and used
+     *  to render the smart book preview card in the user bubble. */
+    pdfMeta?: {
+      pageCount: number;
+      characterCount: number;
+      truncated: boolean;
+    };
+  };
   /** When set, renders the system message as a two-button switch
    *  suggestion ("Switch to X" / "Stay with Y") instead of the
    *  small centered chip. Used to let the user EXPLICITLY choose

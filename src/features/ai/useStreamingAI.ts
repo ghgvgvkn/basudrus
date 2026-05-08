@@ -66,6 +66,16 @@ export interface StreamingAIState {
        *  can actually see the image. */
       imageBase64?: string;
       imageMediaType?: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+      /** Optional: extracted PDF / document text attached to THIS
+       *  turn. Built client-side via extractPdf(). The API injects
+       *  it into the system prompt as a fenced "document context"
+       *  block so Bas Udros can answer questions about its content
+       *  without us having to send the file itself to Anthropic. */
+      documentContext?: string;
+      /** Optional: human-readable label for the document above
+       *  ("Calculus II — Chapter 7.pdf · 12 pages"). Surfaced in
+       *  the prompt so the AI can reference the source naturally. */
+      documentLabel?: string;
     },
   ) => Promise<{ ok: true; assistant: string } | { ok: false; reason: StreamErrorReason; message?: string }>;
   loading: boolean;
@@ -213,6 +223,11 @@ export function useStreamingAI(): StreamingAIState {
           // so total request body stays under the edge function cap.
           imageBase64:    context.imageBase64    ?? undefined,
           imageMediaType: context.imageMediaType ?? undefined,
+          // Extracted document text (PDF, .docx, .txt) attached to
+          // this turn. The API injects it as a fenced block in the
+          // system prompt so the AI can reference its content.
+          documentContext: context.documentContext ?? undefined,
+          documentLabel:   context.documentLabel   ?? undefined,
         }),
         signal: abortRef.current.signal,
       });

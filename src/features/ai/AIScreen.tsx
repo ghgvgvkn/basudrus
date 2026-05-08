@@ -152,6 +152,29 @@ export function AIScreen() {
       }
     }
 
+    // ── PDF extraction (if the file is a PDF) ──
+    // Lazy-import the extractor + pdfjs so the ~500 KB worker only
+    // ships when a student actually attaches a PDF. Keeps the
+    // initial bundle slim. Extracted text gets sent to the API as
+    // documentContext so Bas Udros has the chapter / lecture in
+    // its prompt and can answer questions grounded in the source.
+    let documentPayload: { text: string; label: string; pageCount: number; truncated: boolean } | null = null;
+    if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+      try {
+        const { extractPdf } = await import("./extractPdf");
+        const extracted = await extractPdf(file);
+        documentPayload = {
+          text: extracted.plainText,
+          label: `${extracted.filename} · ${extracted.pageCount} pages${extracted.truncated ? " (partial)" : ""}`,
+          pageCount: extracted.pageCount,
+          truncated: extracted.truncated,
+        };
+      } catch {
+        // Silent fall-through — message still goes through, the AI
+        // just won't have the document context this turn.
+      }
+    }
+
     const userMsg: AIMessage = {
       id: `u-${Date.now()}`,
       role: "user",
@@ -166,8 +189,16 @@ export function AIScreen() {
             // For images, store the compressed dataUrl so the user
             // bubble can render a thumbnail without re-reading the
             // File. Non-image attachments still just show the
-            // filename pill.
+            // filename pill — except PDFs which render a smart
+            // preview card built from documentPayload.pdfMeta.
             url: imagePayload?.dataUrl,
+            pdfMeta: documentPayload
+              ? {
+                  pageCount: documentPayload.pageCount,
+                  characterCount: documentPayload.text.length,
+                  truncated: documentPayload.truncated,
+                }
+              : undefined,
           }
         : undefined,
     };
@@ -194,6 +225,10 @@ export function AIScreen() {
       // Udros / Noor can actually see it.
       imageBase64:    imagePayload?.base64,
       imageMediaType: imagePayload?.mediaType,
+      // PDF text attached this turn — backend injects it into the
+      // system prompt as a fenced document block.
+      documentContext: documentPayload?.text,
+      documentLabel:   documentPayload?.label,
     });
 
     if (result.ok) {
@@ -688,12 +723,12 @@ function SwitchSuggestionCard({
 }
 
 function UserMessage({ msg }: { msg: AIMessage }) {
-  // For image attachments the dataUrl is the compressed JPEG we
-  // already sent to the AI — render it as a real thumbnail so the
-  // user sees what Bas Udros actually received. For non-images we
-  // keep the existing filename-pill fallback. The image is capped
-  // at 280 px wide so a tall photo doesn't dominate the chat.
+  // Three attachment kinds, three render paths:
+  //   - image: compressed dataUrl thumbnail (already sent to vision API)
+  //   - pdf with pdfMeta: smart book preview card (page count, etc.)
+  //   - everything else: existing filename pill
   const isImage = msg.attachment?.kind === "image" && !!msg.attachment.url;
+  const isPdfWithMeta = msg.attachment?.kind === "pdf" && !!msg.attachment.pdfMeta;
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] rounded-3xl rounded-br-lg bg-ink text-bg px-4 py-3">
@@ -705,7 +740,27 @@ function UserMessage({ msg }: { msg: AIMessage }) {
             className="mb-2 max-w-[280px] max-h-[280px] w-auto h-auto rounded-2xl object-contain bg-bg/5"
           />
         )}
-        {!isImage && msg.attachment && (
+        {isPdfWithMeta && msg.attachment && (
+          // Smart book preview — replaces the old filename-pill for
+          // PDFs. Shows what Bas Udros received: page count, whether
+          // we truncated, and a hint that the AI is now grounded in
+          // the document. The thinking-out-loud feel ("here's what
+          // I found in your file") replaces the silent attachment.
+          <div className="mb-2 rounded-2xl bg-bg/10 border border-bg/15 px-3.5 py-3 max-w-[320px]">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-7 h-7 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0">
+                <FileText size={14} />
+              </span>
+              <span className="text-[13px] font-medium truncate">{msg.attachment.name}</span>
+            </div>
+            <div className="text-[11.5px] text-bg/70 leading-relaxed space-y-0.5">
+              <div>📄 {msg.attachment.pdfMeta!.pageCount} {msg.attachment.pdfMeta!.pageCount === 1 ? "page" : "pages"}</div>
+              <div>📊 {Math.round(msg.attachment.pdfMeta!.characterCount / 1000)}k characters extracted{msg.attachment.pdfMeta!.truncated ? " (partial — file was longer)" : ""}</div>
+              <div className="pt-1 text-bg/55">Bas Udros has read this and can answer questions about it.</div>
+            </div>
+          </div>
+        )}
+        {!isImage && !isPdfWithMeta && msg.attachment && (
           <div className="mb-2 inline-flex items-center gap-2 h-8 px-2.5 rounded-full bg-bg/10 text-xs">
             <FileText size={12} />
             <span className="truncate max-w-[180px]">{msg.attachment.name}</span>
