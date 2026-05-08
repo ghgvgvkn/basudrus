@@ -1,29 +1,102 @@
 /**
  * CvArtifact — premium card showing a structured CV the student can
- * review and copy into Word / Google Docs / LinkedIn.
+ * review, copy into Word / Google Docs / LinkedIn, or download as a
+ * PNG image.
  *
- * Layout: serif header with the student's name + title, then
- * sections in the order most useful for entry-level Jordanian
- * applicants (education first, then projects for STEM, then
- * experience, skills, activities, certifications).
+ * Two layouts in this file:
+ *   • The on-screen CARD (this component) — interactive, has buttons,
+ *     coaching notes from Omar, the TOC chip strip.
+ *   • The PRINT LAYOUT (cvPrintLayout.tsx) — A4-aspect, no buttons,
+ *     no coaching notes, used as the html2canvas render target for
+ *     PNG export. Off-screen, mounted on demand.
  *
- * Single primary action: "Copy as plain text" — pastes a clean
- * structured CV the student can format further in their editor.
- * No "send" / no "PDF export" yet (PDF export adds a heavy
- * dependency; can ship later).
+ * Three actions on the card:
+ *   1. Download PNG  — html2canvas → PNG → triggers download.
+ *   2. Copy as plain text — clean text version for Word/LinkedIn.
+ *   3. Email me this — uses the same backend email pipeline as plans.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { CvArtifact as T } from "@/shared/types";
-import { Copy, Check, FileText, Linkedin, Github, Globe, Mail, Phone, MapPin } from "lucide-react";
+import { Copy, Check, FileText, Linkedin, Github, Globe, Mail, Phone, MapPin, Download, Loader2 } from "lucide-react";
 import { cvToPlainText } from "./parseCv";
+import { CvPrintLayout } from "./cvPrintLayout";
 
 interface Props {
   artifact: T;
 }
 
+// Stable per-render ID so the print layout DOM node is findable by
+// html2canvas without colliding with other CVs in the same chat.
+let cvCounter = 0;
+function nextCvId(): string {
+  cvCounter += 1;
+  return `bu-cv-print-${cvCounter}-${Date.now().toString(36)}`;
+}
+
 export function CvArtifact({ artifact }: Props) {
   const [copied, setCopied] = useState(false);
+  const [downloadState, setDownloadState] = useState<"idle" | "rendering" | "done" | "error">("idle");
+  const [showPrintLayout, setShowPrintLayout] = useState(false);
+  const printIdRef = useRef<string>(nextCvId());
   const isAr = artifact.lang === "ar";
+
+  /** Generate and download a PNG of the CV.
+   *
+   *  Flow:
+   *    1. Mount the off-screen <CvPrintLayout> (sets state).
+   *    2. requestAnimationFrame to ensure the DOM is paint-stable.
+   *    3. Lazy-import html2canvas-pro (~50KB) — only ships when a
+   *       student actually downloads, never bloats the initial bundle.
+   *    4. Capture the print node at 2x scale for crisp output.
+   *    5. Convert canvas → PNG data URL → download.
+   *    6. Unmount the print layout. */
+  const handleDownloadPng = async () => {
+    if (downloadState === "rendering") return;
+    setDownloadState("rendering");
+    setShowPrintLayout(true);
+    try {
+      // Two RAFs to guarantee the print node is fully laid out and
+      // painted before html2canvas reads it. One RAF for React commit,
+      // a second for the browser paint pass. Important on Safari.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      const node = document.getElementById(printIdRef.current);
+      if (!node) {
+        setDownloadState("error");
+        setShowPrintLayout(false);
+        return;
+      }
+      // Lazy import — bundle stays slim until a student actually
+      // hits this button.
+      const mod = await import("html2canvas-pro");
+      const html2canvas = (mod as { default: (el: HTMLElement, opts?: Record<string, unknown>) => Promise<HTMLCanvasElement> }).default;
+      const canvas = await html2canvas(node, {
+        scale: 2,                  // 2x for crisp output on retina
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        logging: false,
+      });
+      const dataUrl = canvas.toDataURL("image/png");
+      // Trigger download.
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `${(artifact.personal.fullName || "cv").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-cv.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setDownloadState("done");
+      setTimeout(() => setDownloadState("idle"), 2500);
+    } catch (e) {
+      console.warn("[cvArtifact] PNG download failed:", e);
+      setDownloadState("error");
+      setTimeout(() => setDownloadState("idle"), 3000);
+    } finally {
+      // Always unmount the print layout — keeping it in the DOM
+      // wastes memory if the student never re-downloads.
+      setShowPrintLayout(false);
+    }
+  };
 
   const handleCopy = async () => {
     const text = cvToPlainText(artifact);
@@ -281,22 +354,47 @@ export function CvArtifact({ artifact }: Props) {
         )}
       </div>
 
-      {/* Action footer */}
+      {/* Action footer — Download PNG is primary (the headline
+          feature: get a real downloadable CV file). Copy as plain
+          text stays as the secondary option for editing in
+          Word/Docs/LinkedIn. */}
       <div className="px-4 md:px-5 py-3 border-t border-ink/8 flex flex-wrap items-center gap-2 bg-ink/[2%]">
         <button
           type="button"
+          onClick={handleDownloadPng}
+          disabled={downloadState === "rendering"}
+          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-ink text-bg text-[12.5px] font-medium hover:bg-ink/85 transition active:scale-95 disabled:opacity-60 disabled:cursor-default"
+        >
+          {downloadState === "rendering" && <Loader2 size={13} className="animate-spin" />}
+          {downloadState === "idle" && <Download size={13} />}
+          {downloadState === "done" && <Check size={13} />}
+          {downloadState === "error" && <Download size={13} />}
+          {downloadState === "idle" && (isAr ? "تنزيل كصورة" : "Download as image")}
+          {downloadState === "rendering" && (isAr ? "جاري التحضير…" : "Preparing…")}
+          {downloadState === "done" && (isAr ? "تم التنزيل" : "Downloaded")}
+          {downloadState === "error" && (isAr ? "حاول مجدداً" : "Try again")}
+        </button>
+        <button
+          type="button"
           onClick={handleCopy}
-          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-ink text-bg text-[12.5px] font-medium hover:bg-ink/85 transition active:scale-95"
+          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-ink/15 text-ink/80 hover:bg-ink/5 hover:text-ink text-[12.5px] font-medium transition active:scale-95"
         >
           {copied ? <Check size={13} /> : <Copy size={13} />}
           {copied
             ? (isAr ? "تم النسخ" : "Copied")
-            : (isAr ? "نسخ كنص" : "Copy as plain text")}
+            : (isAr ? "نسخ كنص" : "Copy as text")}
         </button>
-        <span className="text-[11px] text-ink/45">
-          {isAr ? "الصق في Word / Google Docs / LinkedIn" : "Paste into Word / Google Docs / LinkedIn"}
+        <span className="text-[11px] text-ink/45 whitespace-nowrap">
+          {isAr ? "PNG · Word · LinkedIn" : "PNG · Word · LinkedIn"}
         </span>
       </div>
+
+      {/* Off-screen print layout — mounted only during the download
+          flow. Position fixed at -99999px keeps it invisible while
+          html2canvas can still capture it. */}
+      {showPrintLayout && (
+        <CvPrintLayout artifact={artifact} id={printIdRef.current} />
+      )}
 
       {/* Coaching note from Omar */}
       {artifact.coachingNote && (
