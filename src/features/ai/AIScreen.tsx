@@ -168,23 +168,60 @@ export function AIScreen() {
 
     const subject = inferSubject(body, activePersona);
 
+    // ── File classification (image vs PDF) using mime + extension ──
+    // We can't trust file.type alone — it's empty for some browser
+    // drag-drop sources and "application/octet-stream" for others
+    // (notably some Android keyboards). Use both: mime first, then
+    // file extension as fallback. HEIC is detected separately so we
+    // can surface a specific friendly error (browsers can't decode
+    // HEIC; the user needs to convert or take a screenshot instead).
+    const fileLower = file ? file.name.toLowerCase() : "";
+    const looksLikeImage = !!file && (
+      file.type.startsWith("image/")
+      || /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(fileLower)
+    );
+    const looksLikeHeic = !!file && (
+      file.type === "image/heic" || file.type === "image/heif"
+      || /\.(heic|heif)$/i.test(fileLower)
+    );
+    const looksLikePdf = !!file && (
+      file.type === "application/pdf"
+      || /\.pdf$/i.test(fileLower)
+    );
+
     // ── Image compression (if the file is an image) ──
     // We compress on the client to a JPEG ≤700 KB so the request
     // body stays small AND the user sees the same thumbnail
-    // (dataUrl) we send to the AI. Failure is silent — we drop the
-    // image, keep the text message, and let the AI respond to text
-    // alone rather than blocking the send.
+    // (dataUrl) we send to the AI.
+    //
+    // CRITICAL: failures are no longer silent. Previously, a HEIC
+    // file from iPhone would fail decode (Chrome/Firefox/Edge can't
+    // render HEIC), compressImage threw, we swallowed the error,
+    // and the message went through with NO image data — the AI
+    // would say "I don't see any image" and the student would
+    // (correctly!) think the upload was broken. Now we track the
+    // failure reason and surface it as a system notice in the chat.
     let imagePayload: { base64: string; mediaType: "image/jpeg"; dataUrl: string } | null = null;
-    if (file && file.type.startsWith("image/")) {
-      try {
-        const compressed = await compressImage(file);
-        imagePayload = {
-          base64: compressed.base64,
-          mediaType: compressed.mediaType,
-          dataUrl: compressed.dataUrl,
-        };
-      } catch {
-        // Silent fall-through — text still goes through.
+    let imageFailReason: string | null = null;
+    if (file && looksLikeImage) {
+      // Reject HEIC up-front with a specific message — most browsers
+      // can't decode it, so even attempting compression wastes time.
+      if (looksLikeHeic) {
+        imageFailReason = "HEIC isn't supported by most browsers. Take a screenshot of the photo (long-press → screenshot), or change your iPhone's camera setting to JPEG (Settings → Camera → Formats → Most Compatible).";
+      } else {
+        try {
+          const compressed = await compressImage(file);
+          imagePayload = {
+            base64: compressed.base64,
+            mediaType: compressed.mediaType,
+            dataUrl: compressed.dataUrl,
+          };
+        } catch (e) {
+          // Common causes: unsupported codec, corrupted file, OOM on
+          // low-end phones. Show the user something they can act on.
+          if (import.meta.env.DEV) console.warn("[upload] compress failed:", e);
+          imageFailReason = "Couldn't read this image — please try a JPEG or PNG (under 5 MB), or send a screenshot instead.";
+        }
       }
     }
 
@@ -194,21 +231,42 @@ export function AIScreen() {
     // initial bundle slim. Extracted text gets sent to the API as
     // documentContext so Bas Udros has the chapter / lecture in
     // its prompt and can answer questions grounded in the source.
+    //
+    // Same fix applied here: failures are surfaced, not silent. A
+    // password-protected PDF or a scanned-only PDF (no embedded text)
+    // would previously go through with no extracted content; the AI
+    // would respond as if there were no file. Now the student sees
+    // exactly why.
     let documentPayload: { text: string; label: string; pageCount: number; truncated: boolean } | null = null;
-    if (file && (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+    let documentFailReason: string | null = null;
+    if (file && looksLikePdf) {
       try {
         const { extractPdf } = await import("./extractPdf");
         const extracted = await extractPdf(file);
-        documentPayload = {
-          text: extracted.plainText,
-          label: `${extracted.filename} · ${extracted.pageCount} pages${extracted.truncated ? " (partial)" : ""}`,
-          pageCount: extracted.pageCount,
-          truncated: extracted.truncated,
-        };
-      } catch {
-        // Silent fall-through — message still goes through, the AI
-        // just won't have the document context this turn.
+        if (!extracted.plainText || extracted.plainText.trim().length < 5) {
+          // Empty extraction = the PDF is image-only (scanned). We
+          // can't OCR client-side; tell the user.
+          documentFailReason = "This PDF looks like a scan — there's no selectable text. Send a screenshot of the page instead so I can read it as an image.";
+        } else {
+          documentPayload = {
+            text: extracted.plainText,
+            label: `${extracted.filename} · ${extracted.pageCount} pages${extracted.truncated ? " (partial)" : ""}`,
+            pageCount: extracted.pageCount,
+            truncated: extracted.truncated,
+          };
+        }
+      } catch (e) {
+        if (import.meta.env.DEV) console.warn("[upload] pdf extract failed:", e);
+        documentFailReason = "Couldn't read this PDF — it might be password-protected. Try unlocking it first, or send a screenshot of the page.";
       }
+    }
+
+    // Catch-all for anything not in the supported types. The composer
+    // only accepts image/*, application/pdf, .doc/.docx/.txt, but the
+    // .doc/.docx/.txt path doesn't actually have client-side
+    // extraction yet — surface that so the student isn't confused.
+    if (file && !looksLikeImage && !looksLikePdf) {
+      documentFailReason = `${file.name} isn't a supported file type yet. Use a PDF, JPEG, PNG, or paste the text directly.`;
     }
 
     const userMsg: AIMessage = {
@@ -238,11 +296,11 @@ export function AIScreen() {
           }
         : undefined,
     };
-    // Push the user message immediately. If this turn was a forced
-    // crisis switch, also push a small system notice right after it
-    // so the student sees WHY their math question is suddenly going
-    // to Noor — the hand-off is made explicit. Renders as a centered
-    // pill via SystemNotice (low-volume, not a full bubble).
+    // Push the user message immediately. Then any system notices
+    // for: (a) crisis force-switch bridge, (b) upload failures the
+    // student needs to know about (HEIC rejected, scanned PDF, etc.).
+    // Failure notices render as a centered pill via SystemNotice.
+    const uploadFailMsg = imageFailReason || documentFailReason;
     setMessages((m) => {
       const next = [...m, userMsg];
       if (isForceCrisis) {
@@ -254,10 +312,27 @@ export function AIScreen() {
           createdAt: new Date().toISOString(),
         });
       }
+      if (uploadFailMsg) {
+        next.push({
+          id: `upload-fail-${Date.now()}`,
+          role: "system",
+          persona: activePersona,
+          body: uploadFailMsg,
+          createdAt: new Date().toISOString(),
+        });
+      }
       return next;
     });
     setDraft("");
     setAttachment(null);
+
+    // If the student attached a file but it didn't process AND they
+    // didn't type anything — abort the send. There's no point asking
+    // the AI a blank question with no file context. The system
+    // notice already told them why.
+    if (uploadFailMsg && !body.trim()) {
+      return;
+    }
 
     // Build the chat history for the API — include only user/assistant
     // turns (system notices and any prior file metadata are scrubbed).

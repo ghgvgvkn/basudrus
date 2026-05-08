@@ -97,7 +97,15 @@ function canvasToCompressedDataUrl(canvas: HTMLCanvasElement): string {
  *  Throws on decode failure so the caller can surface a friendly
  *  message ("That image couldn't be read — try another one"). */
 export async function compressImage(file: File): Promise<CompressedImage> {
-  if (!file.type.startsWith("image/")) {
+  // Accept files by mime OR by extension. Some sources (drag-drops
+  // from certain apps, some Android keyboards, files renamed
+  // manually) report an empty mime type or "application/octet-stream"
+  // even for valid images. Trust the extension as a fallback so we
+  // don't reject perfectly good PNGs over a missing Content-Type.
+  const isImage =
+    file.type.startsWith("image/")
+    || /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(file.name);
+  if (!isImage) {
     throw new Error("Not an image file.");
   }
   const img = await fileToImageElement(file);
