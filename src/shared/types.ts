@@ -156,6 +156,12 @@ export interface AIMessage {
     suggested: AIPersona;
     current: AIPersona;
   };
+  /** Tappable quick-reply chips extracted from a `<<<OPTIONS>>>` block
+   *  in the AI's response. Rendered below the AI bubble; tapping a
+   *  chip sends that exact text as the student's next message. The
+   *  AI emits this block whenever it asks a question that has 3–5
+   *  reasonable typical answers, so students don't have to type. */
+  quickReplies?: string[];
 }
 
 export interface StudyPlanArtifact {

@@ -36,6 +36,7 @@ import { StudyPlanArtifact } from "./studyPlanArtifact";
 import { TutorMessageBody } from "./TutorMessageBody";
 import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import { compressImage } from "./compressImage";
+import { parseQuickReplies } from "./parseQuickReplies";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus,
@@ -191,11 +192,19 @@ export function AIScreen() {
     });
 
     if (result.ok) {
+      // Strip the <<<OPTIONS>>> block out of the visible body and
+      // promote the parsed options to msg.quickReplies — the bubble
+      // renders them as tappable chips below the message instead of
+      // making the student read the marker syntax. Both Bas Udros
+      // and Noor are instructed (via system prompt) to emit this
+      // block whenever they ask a question with 3-5 typical answers.
+      const parsed = parseQuickReplies(result.assistant);
       const aiMsg: AIMessage = {
         id: `a-${Date.now()}`,
         role: "ai",
         persona: activePersona,
-        body: result.assistant,
+        body: parsed.body,
+        quickReplies: parsed.quickReplies.length > 0 ? parsed.quickReplies : undefined,
         subject,
         createdAt: new Date().toISOString(),
       };
@@ -310,6 +319,12 @@ export function AIScreen() {
                 onDismissSuggestion={(id) =>
                   setMessages((arr) => arr.filter((x) => x.id !== id))
                 }
+                onQuickReply={(text) => {
+                  // Same path as typing + sending. The `null` second
+                  // arg is the file slot — quick replies never carry
+                  // an attachment.
+                  void sendWith(text, null);
+                }}
               />
             ))}
             {/* Streaming live preview: render the partial response as
@@ -323,7 +338,14 @@ export function AIScreen() {
                   id: "streaming",
                   role: "ai",
                   persona,
-                  body: ai.partial,
+                  // Strip the <<<OPTIONS>>>...<<<END_OPTIONS>>> markers
+                  // from the live preview so students never see the raw
+                  // tags flash on screen mid-stream. parseQuickReplies
+                  // returns the original text unchanged when the block
+                  // hasn't closed yet (the AI is still emitting), so
+                  // the streaming feel is unaffected — only the visual
+                  // flash is hidden once the closer arrives.
+                  body: parseQuickReplies(ai.partial).body,
                   createdAt: new Date().toISOString(),
                 }}
               />
@@ -337,6 +359,19 @@ export function AIScreen() {
           the "open chat by default" behaviour from the earlier design. */}
       <div className="border-t border-ink/8 bg-bg">
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-3">
+          {/* Quick-action pills — always-visible global shortcuts so
+              tired students can fire common follow-ups with one tap.
+              Different set per persona. Only shown after the chat has
+              actually started (at least one user message) so they
+              don't crowd the empty state, which has its own prompt
+              pills. The buttons just call sendWith() with predefined
+              text — same code path as typing it manually. */}
+          {messages.some((m) => m.role === "user") && !isThinking && (
+            <QuickActions
+              persona={persona}
+              onTap={(text) => { void sendWith(text, null); }}
+            />
+          )}
           {attachment && (
             <div className="mb-2 inline-flex items-center gap-2 h-9 px-3 rounded-full bg-ink/5 border border-ink/10 text-sm">
               <FileText size={14} className="text-ink/60" />
@@ -451,6 +486,48 @@ function PersonaToggle({ value, onChange }: { value: AIPersona; onChange: (p: AI
   );
 }
 
+/** Quick-action pills shown above the composer once a chat is in
+ *  progress. These are global one-tap shortcuts ("Quiz me", "Make it
+ *  simpler", "Give me a similar problem") — different set per
+ *  persona. Tap = sends that text as the next message. They don't
+ *  replace the AI's per-message <<<OPTIONS>>> chips (those are
+ *  contextual to the AI's last question) — they complement them as
+ *  always-available follow-ups. */
+const OMAR_QUICK_ACTIONS = [
+  "Quiz me on this",
+  "Make it simpler",
+  "Give me a similar problem",
+  "Summarize what we covered",
+];
+const NOOR_QUICK_ACTIONS = [
+  "Just listen, no advice",
+  "Give me a grounding exercise",
+  "Help me see this differently",
+  "What can I do right now?",
+];
+
+function QuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: string) => void }) {
+  const actions = persona === "omar" ? OMAR_QUICK_ACTIONS : NOOR_QUICK_ACTIONS;
+  return (
+    // Horizontally scrollable on mobile so 4 buttons fit on a phone
+    // without wrapping the row taller than necessary. On desktop they
+    // wrap naturally. `-mx` cancels the parent padding so the scroll
+    // edges hit the screen edge for a more natural touch feel.
+    <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto scrollbar-thin pb-1">
+      {actions.map((label) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onTap(label)}
+          className="shrink-0 text-[12.5px] h-8 px-3 rounded-full border border-ink/12 bg-bg text-ink/70 hover:bg-ink/5 hover:text-ink transition active:scale-95 whitespace-nowrap"
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function QuotaChip() {
   const { subscription } = useApp();
   if (subscription.tier === "pro") {
@@ -503,11 +580,14 @@ function ComposerRow({
 }
 
 function MessageRow({
-  msg, onSwitchPersona, onDismissSuggestion,
+  msg, onSwitchPersona, onDismissSuggestion, onQuickReply,
 }: {
   msg: AIMessage;
   onSwitchPersona?: (p: AIPersona) => void;
   onDismissSuggestion?: (msgId: string) => void;
+  /** Tap handler for quick-reply chips below an AI message. Sends
+   *  the chip's text as the student's next message. */
+  onQuickReply?: (text: string) => void;
 }) {
   if (msg.role === "user") return <UserMessage msg={msg} />;
   if (msg.role === "system") {
@@ -527,7 +607,7 @@ function MessageRow({
     }
     return <SystemNotice msg={msg} />;
   }
-  return <AIMessageView msg={msg} />;
+  return <AIMessageView msg={msg} onQuickReply={onQuickReply} />;
 }
 
 /** Small centered pill used for auto-switch notices and similar
@@ -622,7 +702,7 @@ function UserMessage({ msg }: { msg: AIMessage }) {
   );
 }
 
-function AIMessageView({ msg }: { msg: AIMessage }) {
+function AIMessageView({ msg, onQuickReply }: { msg: AIMessage; onQuickReply?: (text: string) => void }) {
   const subject: AISubject = msg.subject ?? "general";
   const fallback = fallbackGradient(msg.id, msg.persona);
   // 3D artifact comes from a dynamic-imported module (messageBg3d) so
@@ -699,6 +779,28 @@ function AIMessageView({ msg }: { msg: AIMessage }) {
           </div>
         </div>
         {msg.artifact && <StudyPlanArtifact artifact={msg.artifact} />}
+        {/* Quick-reply chips — extracted from the AI's <<<OPTIONS>>>
+            block. Tappable shortcuts so students don't have to type.
+            Rendered below the bubble so they don't compete visually
+            with the AI's prose. Color-keyed to the persona. */}
+        {msg.quickReplies && msg.quickReplies.length > 0 && onQuickReply && (
+          <div className="mt-3 flex flex-wrap gap-2 px-1">
+            {msg.quickReplies.map((reply, i) => (
+              <button
+                key={`${msg.id}-qr-${i}`}
+                type="button"
+                onClick={() => onQuickReply(reply)}
+                className={`text-[13px] px-3.5 h-9 rounded-full border transition active:scale-95 hover:bg-ink/5 ${
+                  msg.persona === "omar"
+                    ? "border-[#5B4BF5]/30 text-[#5B4BF5] bg-[#5B4BF5]/5"
+                    : "border-[#0E8A6B]/30 text-[#0E8A6B] bg-[#0E8A6B]/5"
+                }`}
+              >
+                {reply}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
