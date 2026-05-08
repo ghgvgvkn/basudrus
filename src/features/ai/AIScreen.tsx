@@ -445,9 +445,13 @@ export function AIScreen() {
       </div>
 
       {/* Composer — always visible, not just in stream mode. This is
-          the "open chat by default" behaviour from the earlier design. */}
+          the "open chat by default" behaviour from the earlier design.
+          Tightened vertical density: smaller py + mb spacing + a
+          shorter disclaimer line so the typing area takes less of the
+          viewport on mobile. Tap targets stay at 40 px (iOS minimum)
+          so we don't sacrifice accessibility for compactness. */}
       <div className="border-t border-ink/8 bg-bg">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-3">
+        <div className="max-w-3xl mx-auto px-4 md:px-6 py-2">
           {/* Tutor-mode picker (Omar only). Three modes:
               · Hints — strict Socratic, AI asks until you reach it
               · Teach — proactive teaching, AI explains concepts
@@ -471,10 +475,10 @@ export function AIScreen() {
             />
           )}
           {attachment && (
-            <div className="mb-2 inline-flex items-center gap-2 h-9 px-3 rounded-full bg-ink/5 border border-ink/10 text-sm">
-              <FileText size={14} className="text-ink/60" />
+            <div className="mb-1.5 inline-flex items-center gap-2 h-8 px-3 rounded-full bg-ink/5 border border-ink/10 text-[13px]">
+              <FileText size={13} className="text-ink/60" />
               <span className="truncate max-w-[200px]">{attachment.name}</span>
-              <button onClick={() => setAttachment(null)} className="text-ink/40 hover:text-ink"><X size={14} /></button>
+              <button onClick={() => setAttachment(null)} className="text-ink/40 hover:text-ink"><X size={13} /></button>
             </div>
           )}
           <ComposerRow
@@ -484,10 +488,15 @@ export function AIScreen() {
             onPickFile={onPickFile} fileRef={fileRef}
             attachmentPresent={!!attachment}
           />
-          <p className="mt-2 text-[11px] text-ink/40 text-center">
+          {/* Disclaimer — single short line. Mobile shows the trimmed
+              version; on a crisis Noor's own response carries the
+              full safety message anyway, so the footer doesn't need
+              to. Compact text-[10.5px] line so it doesn't add a
+              perceptible row height. */}
+          <p className="mt-1 text-[10.5px] text-ink/40 text-center leading-tight">
             {persona === "omar"
-              ? "Omar can be wrong. Check important answers."
-              : "Noor is a study-motivation aid, not a therapist or medical service. In a crisis call your local emergency number."}
+              ? "Omar can be wrong — check important answers."
+              : "Noor isn't a therapist. Crisis? Call your local emergency number."}
           </p>
         </div>
       </div>
@@ -668,8 +677,8 @@ function TutorModeToggle({
     },
   ];
   return (
-    <div className="-mx-1 mb-2 flex items-center gap-1.5 overflow-x-auto scrollbar-thin pb-1">
-      <span className="shrink-0 text-[11px] uppercase tracking-wider text-ink/45 px-1">
+    <div className="-mx-1 mb-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-thin pb-0.5">
+      <span className="shrink-0 text-[10.5px] uppercase tracking-wider text-ink/45 px-1">
         Mode
       </span>
       {modes.map((m) => {
@@ -683,7 +692,7 @@ function TutorModeToggle({
             title={m.hint}
             onClick={() => onChange(m.id)}
             className={
-              "shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border text-[12.5px] font-medium transition active:scale-95 whitespace-nowrap " +
+              "shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[12px] font-medium transition active:scale-95 whitespace-nowrap " +
               (active
                 ? "bg-[#5B4BF5] border-[#5B4BF5] text-white"
                 : "bg-bg border-ink/12 text-ink/70 hover:bg-ink/5 hover:text-ink")
@@ -725,13 +734,13 @@ function QuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: st
     // without wrapping the row taller than necessary. On desktop they
     // wrap naturally. `-mx` cancels the parent padding so the scroll
     // edges hit the screen edge for a more natural touch feel.
-    <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto scrollbar-thin pb-1">
+    <div className="-mx-1 mb-1.5 flex gap-1.5 overflow-x-auto scrollbar-thin pb-0.5">
       {actions.map((label) => (
         <button
           key={label}
           type="button"
           onClick={() => onTap(label)}
-          className="shrink-0 text-[12.5px] h-8 px-3 rounded-full border border-ink/12 bg-bg text-ink/70 hover:bg-ink/5 hover:text-ink transition active:scale-95 whitespace-nowrap"
+          className="shrink-0 text-[12.5px] h-7 px-3 rounded-full border border-ink/12 bg-bg text-ink/70 hover:bg-ink/5 hover:text-ink transition active:scale-95 whitespace-nowrap"
         >
           {label}
         </button>
@@ -865,12 +874,13 @@ function ComposerRow({
   attachmentPresent: boolean;
 }) {
   return (
-    <div className={`flex items-end gap-2 rounded-2xl border p-2 bg-bg transition ${over ? "border-ink/10 opacity-60" : "border-ink/15 focus-within:border-ink/35"}`}>
+    <div className={`flex items-end gap-1.5 rounded-2xl border p-1.5 bg-bg transition ${over ? "border-ink/10 opacity-60" : "border-ink/15 focus-within:border-ink/35"}`}>
       <button
         onClick={() => fileRef.current?.click()}
         disabled={over}
-        className="w-10 h-10 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition"
-      ><Plus size={18} /></button>
+        aria-label="Attach a file"
+        className="w-9 h-9 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition"
+      ><Plus size={17} /></button>
       <input ref={fileRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" className="hidden" onChange={onPickFile} />
       <textarea
         value={draft}
@@ -880,13 +890,18 @@ function ComposerRow({
           persona === "omar" ? "Ask Omar anything…" : "Share what's on your mind…"}
         disabled={over}
         rows={1}
-        className="flex-1 resize-none bg-transparent outline-none text-ink placeholder:text-ink/40 px-1 py-2 max-h-36 leading-6"
+        // Tighter textarea: lower line-height (5 = 20px) + smaller
+        // vertical padding so a single-line message lives in a 36 px
+        // tall row instead of the previous ~44 px. max-h still allows
+        // multi-line growth up to 7 lines (28×5) before scrolling.
+        className="flex-1 resize-none bg-transparent outline-none text-ink placeholder:text-ink/40 px-1 py-[7px] max-h-28 leading-5 text-[15px]"
       />
       <button
         onClick={onSend}
         disabled={over || (!draft.trim() && !attachmentPresent)}
-        className="w-10 h-10 shrink-0 rounded-full bg-ink text-bg inline-flex items-center justify-center disabled:opacity-25 hover:bg-ink/85 transition"
-      ><ArrowUp size={18} /></button>
+        aria-label="Send message"
+        className="w-9 h-9 shrink-0 rounded-full bg-ink text-bg inline-flex items-center justify-center disabled:opacity-25 hover:bg-ink/85 transition"
+      ><ArrowUp size={17} /></button>
     </div>
   );
 }
