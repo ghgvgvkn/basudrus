@@ -213,9 +213,10 @@ Jordan is a high-context, high-power-distance culture.
 ═══════════════════════════════════════════
 DATABASE GROUND TRUTH — PROFESSORS + PAST PAPERS
 ═══════════════════════════════════════════
-Bas Udrus maintains two community-contributed tables that you can use as GROUND TRUTH:
+Bas Udrus maintains three community-contributed tables that you can use as GROUND TRUTH:
 - "professors" — verified profiles of professors at Jordanian universities (teaching style, exam pattern, common topics, student tips).
 - "past_papers" — actual exam papers contributed by students, with course, year, type, and (when transcribed) the actual text of the questions.
+- "university_resources" — VERIFIED local resources you can recommend by name: student clubs (IEEE / ACM chapters), study circles, help desks, professor office hours, university counseling services, career centers, library locations, hotlines. Every row was hand-verified by the operator. ONLY rows with verified_at set are surfaced. NEVER invent or recommend a resource that isn't in this block — if a student needs something we don't have, say so honestly and suggest a generic next step (talk to your professor, university Instagram for clubs, etc.) instead of fabricating.
 
 Before each turn, the API pre-fetches matching rows for the student's university + subject and injects them into your context as a "DATABASE CONTEXT" block (see further down). When that block is present:
 
@@ -1227,16 +1228,32 @@ interface PastPaperRow {
   verified: boolean;
 }
 
+/** A verified local resource (club, help desk, hotline, etc.) that
+ *  Bas Udros can recommend by name. Only rows with verified_at set
+ *  are surfaced to students — never fabricate a club or service. */
+interface UniResourceRow {
+  uni: string | null;     // null = applies to all Jordanian unis
+  kind: string;
+  name: string;
+  description: string;
+  subjects: string[];
+  signals: string[];
+  when_text: string | null;
+  where_text: string | null;
+  contact: string | null;
+  url: string | null;
+}
+
 /** Best-effort fetch of professor + past-paper rows that match the
- *  student's university + subject. Uses ILIKE on subject because
- *  the `subject` field is free-form ("Data Structures", "ds", "CS 211").
- *  Returns empty arrays on any failure. */
+ *  student's university + subject + verified local resources. Uses
+ *  ILIKE on subject because the `subject` field is free-form ("Data
+ *  Structures", "ds", "CS 211"). Returns empty arrays on any failure. */
 async function fetchGroundTruth(
   authHeader: string | null,
   uni: string,
   subject: string,
-): Promise<{ professors: ProfessorRow[]; pastPapers: PastPaperRow[] }> {
-  const empty = { professors: [] as ProfessorRow[], pastPapers: [] as PastPaperRow[] };
+): Promise<{ professors: ProfessorRow[]; pastPapers: PastPaperRow[]; resources: UniResourceRow[] }> {
+  const empty = { professors: [] as ProfessorRow[], pastPapers: [] as PastPaperRow[], resources: [] as UniResourceRow[] };
   if (!authHeader || !SUPABASE_URL || !SUPABASE_ANON_KEY) return empty;
   if (!uni) return empty;
 
@@ -1294,16 +1311,40 @@ async function fetchGroundTruth(
     } catch { /* swallow */ }
   }
 
-  return { professors, pastPapers };
+  // 3. Local resources: rows where (uni matches OR uni is NULL — apply
+  // to all unis), only verified + active. We pull with a generous cap
+  // (24) and let the AI pick which ones to surface based on the
+  // student's current need; we do NOT pre-filter by subject here
+  // because resources like "office hours" or "career center" apply
+  // across subjects and the student's need may not match the current
+  // subject (e.g. they're studying CS but stressed about life).
+  let resources: UniResourceRow[] = [];
+  try {
+    const resRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/university_resources`
+      + `?or=(uni.eq.${encUni},uni.is.null)`
+      + `&active=eq.true`
+      + `&verified_at=not.is.null`
+      + `&select=uni,kind,name,description,subjects,signals,when_text,where_text,contact,url`
+      + `&limit=24`,
+      { headers },
+    );
+    if (resRes.ok) {
+      resources = ((await resRes.json()) as UniResourceRow[]) ?? [];
+    }
+  } catch { /* swallow */ }
+
+  return { professors, pastPapers, resources };
 }
 
 /** Format the fetched rows into a compact, model-friendly context block.
- *  Returns "" when both arrays are empty so we don't waste tokens. */
+ *  Returns "" when ALL arrays are empty so we don't waste tokens. */
 function buildDatabaseBlock(
   professors: ProfessorRow[],
   pastPapers: PastPaperRow[],
+  resources: UniResourceRow[] = [],
 ): string {
-  if (professors.length === 0 && pastPapers.length === 0) return "";
+  if (professors.length === 0 && pastPapers.length === 0 && resources.length === 0) return "";
   const lines: string[] = [
     "═══════════════════════════════════════════",
     "DATABASE CONTEXT — VERIFIED + COMMUNITY-CONTRIBUTED GROUND TRUTH",
@@ -1340,6 +1381,28 @@ function buildDatabaseBlock(
         lines.push(`    transcribed sample: ${compact}${pp.transcribed_text.length > 1200 ? " […truncated]" : ""}`);
       }
     }
+    lines.push("");
+  }
+
+  if (resources.length > 0) {
+    lines.push("LOCAL RESOURCES (verified — recommend by name when a student's situation matches):");
+    for (const r of resources) {
+      const scope = r.uni ? `[${r.uni}]` : "[all Jordan unis]";
+      const subj = (r.subjects ?? []).length ? ` · subjects: ${r.subjects.slice(0, 4).join(", ")}` : "";
+      const sig = (r.signals ?? []).length ? ` · helps with: ${r.signals.slice(0, 4).join(", ")}` : "";
+      lines.push(`- ${scope} (${r.kind}) ${r.name}${subj}${sig}`);
+      lines.push(`    what it is: ${r.description.slice(0, 280)}`);
+      if (r.when_text) lines.push(`    when: ${r.when_text.slice(0, 120)}`);
+      if (r.where_text) lines.push(`    where: ${r.where_text.slice(0, 120)}`);
+      if (r.contact) lines.push(`    contact: ${r.contact.slice(0, 160)}`);
+      if (r.url) lines.push(`    link: ${r.url.slice(0, 200)}`);
+    }
+    lines.push("");
+    lines.push("RESOURCE-SUGGESTION RULES (HARD):");
+    lines.push("- ONLY recommend resources from the list above. NEVER fabricate a club, help desk, hotline, or service that isn't listed. If the list doesn't contain a verified match for what the student needs, SAY SO HONESTLY: 'I don't have a verified local resource for that yet — but [generic best path: talk to your professor / academic advisor / try the university Instagram for student clubs]'.");
+    lines.push("- Recommend by FULL NAME, with the SPECIFIC time / place / contact info from the row. Don't paraphrase the name into something vague.");
+    lines.push("- Only suggest a resource when it's contextually relevant to what the student JUST said — don't dump a list. ONE resource per reply, max.");
+    lines.push("- Never overstate. The row is what we know; if a student asks for something the row doesn't cover (e.g. 'do they meet on weekends?'), say 'I don't know — check with [contact].'");
     lines.push("");
   }
 
@@ -1460,7 +1523,7 @@ export default async function handler(req: Request) {
     // (uni, subject) combo. Fires in parallel with the rest of the
     // prompt prep — failures are silent and degrade gracefully.
     const groundTruth = await fetchGroundTruth(authHeader, safeUni, safeSubject);
-    const databaseBlock = buildDatabaseBlock(groundTruth.professors, groundTruth.pastPapers);
+    const databaseBlock = buildDatabaseBlock(groundTruth.professors, groundTruth.pastPapers, groundTruth.resources);
 
     // ── Document context block (PDF / docx / txt) ──
     // We don't trust user-supplied text — sanitise + cap aggressively
