@@ -38,7 +38,7 @@ import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import { compressImage } from "./compressImage";
 import { parseQuickReplies } from "./parseQuickReplies";
 import { useSavedMessages } from "./useSavedMessages";
-import { useStreak, type MilestoneEvent } from "./useStreak";
+import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
@@ -358,7 +358,13 @@ export function AIScreen() {
               0 (a brand-new user on day-zero shouldn't see "0 days").
               Tappable in future iterations to open a streak modal;
               for now it's purely informational. */}
-          {streak.current > 0 && <StreakChip current={streak.current} />}
+          {streak.current > 0 && (
+            <StreakChip
+              current={streak.current}
+              longest={streak.longest}
+              milestonesReached={streak.milestonesReached}
+            />
+          )}
           <QuotaChip />
           {subscription.tier === "free" && (
             <button
@@ -693,18 +699,44 @@ function QuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: st
 /** Streak chip — small flame + day count, sits in the header next to
  *  the quota chip. Color shifts at higher tiers so a long streak
  *  feels visually distinct from a 1-day streak (small reward signal,
- *  doesn't need an animation). */
-function StreakChip({ current }: { current: number }) {
+ *  doesn't need an animation).
+ *
+ *  Tooltip surfaces the next-milestone target — light gamification
+ *  signal so the student sees "X more days to your next badge"
+ *  without needing a full modal. Longest is included too so a user
+ *  who's mid-reset (current=2, longest=47) sees that 47 isn't lost. */
+function StreakChip({
+  current, longest, milestonesReached,
+}: {
+  current: number;
+  longest: number;
+  milestonesReached: number[];
+}) {
   // Color tier: cool blue 1-2 → orange 3-6 → red-orange 7-29 → gold 30+
   const tier =
     current >= 30 ? "bg-amber-500/15 text-amber-600 border-amber-500/30"
     : current >= 7 ? "bg-orange-500/15 text-orange-600 border-orange-500/30"
     : current >= 3 ? "bg-orange-400/15 text-orange-500 border-orange-400/30"
     :                "bg-ink/5 text-ink/70 border-ink/12";
+  // Find the next un-reached milestone above current.
+  const nextMilestone = MILESTONES.find(
+    (m) => m > current && !milestonesReached.includes(m),
+  );
+  const tooltip = (() => {
+    const lines: string[] = [`${current}-day streak`];
+    if (nextMilestone) {
+      const days = nextMilestone - current;
+      lines.push(`${days} ${days === 1 ? "day" : "days"} to your next milestone (${nextMilestone}).`);
+    }
+    if (longest > current) {
+      lines.push(`Longest: ${longest} days.`);
+    }
+    return lines.join("\n");
+  })();
   return (
     <span
       className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium tabular-nums border ${tier}`}
-      title={`${current}-day streak — keep it going.`}
+      title={tooltip}
     >
       <Flame size={13} className={current >= 3 ? "fill-current" : ""} />
       {current}

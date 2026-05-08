@@ -145,9 +145,20 @@ export function useStreak(): UseStreakReturn {
   // bump. We mutate this in setState's updater for atomicity.
   const stateRef = useRef<StreakState>(EMPTY);
   stateRef.current = state;
+  // CRITICAL: gate on successful load. Two failure modes this prevents:
+  //   1. Race — user sends a message before load completes. Without
+  //      the gate we'd compute nextCurrent=1 from EMPTY state and
+  //      upsert, clobbering whatever was in the DB.
+  //   2. Load errored — bumping anyway would write current=1, which
+  //      can DESTROY a real 47-day streak if the user's network
+  //      blipped on app open. Refusing to write until we've read at
+  //      least once is the only safe behaviour.
+  // Reset to false whenever the user changes (sign-out / sign-in).
+  const loadedOkRef = useRef<boolean>(false);
 
   // Initial load.
   useEffect(() => {
+    loadedOkRef.current = false;
     if (!user || !supabase) {
       setState({ ...EMPTY, loading: false });
       return;
@@ -163,15 +174,21 @@ export function useStreak(): UseStreakReturn {
           .maybeSingle();
         if (cancelled) return;
         if (error) {
+          // Log + bail. State stays at EMPTY but loadedOkRef stays
+          // false — recordToday() will refuse to write so we don't
+          // destroy a real streak we just couldn't read this session.
           if (import.meta.env.DEV) console.warn("[useStreak] load:", error);
           setState({ ...EMPTY, loading: false });
           return;
         }
         if (!data) {
-          // No row yet — fresh user. Stays at zero until first bump.
+          // No row yet — fresh user, safe to bump.
+          loadedOkRef.current = true;
           setState({ ...EMPTY, loading: false });
           return;
         }
+        // Successful read of an existing row.
+        loadedOkRef.current = true;
         setState({
           current: data.current_streak ?? 0,
           longest: data.longest_streak ?? 0,
@@ -183,6 +200,7 @@ export function useStreak(): UseStreakReturn {
       } catch (e) {
         if (import.meta.env.DEV) console.warn("[useStreak] load threw:", e);
         if (!cancelled) setState({ ...EMPTY, loading: false });
+        // loadedOkRef stays false — see comment above.
       }
     })();
     return () => { cancelled = true; };
@@ -190,6 +208,12 @@ export function useStreak(): UseStreakReturn {
 
   const recordToday = useCallback(async (): Promise<MilestoneEvent | null> => {
     if (!user || !supabase) return null;
+    // Refuse to bump until we've successfully read at least once.
+    // Without this gate we risk clobbering a real streak on transient
+    // network or RLS errors. The next AI message after a successful
+    // load will pick up the bump — at most a one-message delay.
+    if (!loadedOkRef.current) return null;
+
     const today = utcToday();
     const cur = stateRef.current;
 
@@ -206,6 +230,11 @@ export function useStreak(): UseStreakReturn {
         nextCurrent = cur.current + 1;
       } else if (diff === 0) {
         // Should have been caught above; defensive.
+        return null;
+      } else if (diff < 0) {
+        // Clock went backwards (timezone joke or system clock reset).
+        // Refuse the bump rather than create nonsense state.
+        if (import.meta.env.DEV) console.warn("[useStreak] today < lastActive — skipping bump");
         return null;
       } else {
         // Skipped at least one day → reset.
@@ -225,8 +254,9 @@ export function useStreak(): UseStreakReturn {
     const milestoneEvent = crossedTier ? pickMilestoneCopy(crossedTier as MilestoneTier) : null;
 
     // Optimistic local update — UI flips immediately even if network
-    // is slow. The DB write follows; failure leaves the optimistic
-    // state intact and the next mount reloads from DB to converge.
+    // is slow. The DB write follows with one retry; failure leaves
+    // the optimistic state intact and the next mount reloads from DB
+    // to converge.
     setState({
       current: nextCurrent,
       longest: nextLongest,
@@ -236,23 +266,41 @@ export function useStreak(): UseStreakReturn {
       loading: false,
     });
 
-    // Persist. Upsert because the row may not exist yet.
+    // Persist with one retry on transient failure (matches the
+    // useSavedMessages pattern). We don't surface errors to the user —
+    // a quietly-failed streak bump is recoverable on next session;
+    // an error toast destroys the gamification feel.
     void (async () => {
-      try {
-        const { error } = await supabase.from("tutor_streaks").upsert(
-          {
-            user_id: user.id,
-            current_streak: nextCurrent,
-            longest_streak: nextLongest,
-            last_active_day: today,
-            total_sessions: nextTotal,
-            milestones_reached: nextMilestones,
-          },
-          { onConflict: "user_id" },
-        );
-        if (error && import.meta.env.DEV) console.warn("[useStreak] upsert:", error);
-      } catch (e) {
-        if (import.meta.env.DEV) console.warn("[useStreak] upsert threw:", e);
+      const payload = {
+        user_id: user.id,
+        current_streak: nextCurrent,
+        longest_streak: nextLongest,
+        last_active_day: today,
+        total_sessions: nextTotal,
+        milestones_reached: nextMilestones,
+      };
+      const writeOnce = async (): Promise<boolean> => {
+        try {
+          const { error } = await supabase
+            .from("tutor_streaks")
+            .upsert(payload, { onConflict: "user_id" });
+          if (error) {
+            if (import.meta.env.DEV) console.warn("[useStreak] upsert:", error);
+            return false;
+          }
+          return true;
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn("[useStreak] upsert threw:", e);
+          return false;
+        }
+      };
+      const ok = await writeOnce();
+      if (!ok) {
+        // 500 ms backoff, single retry. Beyond that we bail; the user
+        // will reconcile next mount and we don't need a 3rd attempt
+        // for a non-critical write.
+        await new Promise((r) => setTimeout(r, 500));
+        await writeOnce();
       }
     })();
 
