@@ -26,7 +26,8 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type { Profile, ScreenId, Subscription, PersonalityAnswers } from "@/shared/types";
-import { PAYMENTS_LIVE } from "@/lib/featureFlags";
+import { PAYMENTS_LIVE, isProOverrideUser } from "@/lib/featureFlags";
+import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 
 interface AppValue {
   screen: ScreenId;
@@ -161,6 +162,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   }, [subscription, persistSub]);
 
+  // ── Pro override for whitelisted testers ──
+  // Watch the auth user. When a whitelisted user signs in, force
+  // their subscription to Pro regardless of PAYMENTS_LIVE. When they
+  // sign out, drop back to free. This lets the founder test Pro UX
+  // without flipping the global payment gate.
+  //
+  // Why useEffect instead of doing it in the initial state: we don't
+  // know the user's auth.uid until after the Supabase session loads,
+  // which is async and happens after AppProvider mounts.
+  const { user: authUser } = useSupabaseSession();
+  useEffect(() => {
+    if (!authUser?.id) return;
+    if (!isProOverrideUser(authUser.id)) return;
+    // Already Pro? Nothing to do.
+    if (subscription.tier === "pro") return;
+    // Force Pro state without going through upgradeToPro (which is
+    // gated on PAYMENTS_LIVE and would no-op).
+    persistSub({
+      tier: "pro",
+      aiQuota: Infinity,
+      aiCap: Infinity,
+      resetsAt: tomorrowMidnightISO(),
+      renewsAt: new Date(Date.now() + 365 * 86400e3).toISOString(),
+      paymentLast4: "TEST",
+    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.info("[AppContext] Pro override applied for whitelisted user:", authUser.id);
+    }
+  }, [authUser?.id, subscription.tier, persistSub]);
+
   const upgradeToPro = useCallback(() => {
     // ── Kill-switch ──
     // Until a real payment processor (Paddle / Lemon Squeezy / Stripe)
@@ -168,7 +200,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // a user to Pro for free. The SubscriptionScreen also disables
     // its CTA when PAYMENTS_LIVE is false; this is defence-in-depth
     // for any other surface that calls upgradeToPro directly.
-    // To enable: set PAYMENTS_LIVE = true in src/lib/featureFlags.ts.
+    // Whitelisted testers get Pro automatically via the useEffect
+    // above — they never need to call this function.
+    // To enable for everyone: set PAYMENTS_LIVE = true in src/lib/featureFlags.ts.
     if (!PAYMENTS_LIVE) {
       if (import.meta.env.DEV) {
         console.warn("[AppContext] upgradeToPro called but PAYMENTS_LIVE is false — ignoring.");
