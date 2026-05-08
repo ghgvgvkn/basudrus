@@ -39,6 +39,7 @@ import { compressImage } from "./compressImage";
 import { parseQuickReplies } from "./parseQuickReplies";
 import { useSavedMessages } from "./useSavedMessages";
 import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
+import { paletteFor } from "./subjectPalette";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
@@ -1070,9 +1071,29 @@ function AIMessageView({
               <span className="text-white text-xs uppercase tracking-wider" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}>
                 {msg.persona === "omar" ? "Omar" : "Noor"}
               </span>
-              {msg.subject && msg.subject !== "general" && (
-                <span className="text-white/80 text-[11px] uppercase tracking-wider" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}>· {msg.subject}</span>
-              )}
+              {msg.subject && msg.subject !== "general" && (() => {
+                // Subject pill — uses the per-subject palette so a math
+                // bubble shows an indigo pill with a 📐 glyph, biology
+                // shows a green 🧬, etc. Lets the eye identify the
+                // subject without reading the label. Border glow uses
+                // the same accent at low opacity to keep contrast on
+                // the bubble's dark background.
+                const p = paletteFor(msg.subject);
+                return (
+                  <span
+                    className="ml-1 inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11px] font-medium uppercase tracking-wider border"
+                    style={{
+                      background: `${p.accent}28`,
+                      color: "#ffffff",
+                      borderColor: `${p.accent}60`,
+                      textShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                    }}
+                  >
+                    <span aria-hidden style={{ fontSize: 12 }}>{p.emoji}</span>
+                    {p.label}
+                  </span>
+                );
+              })()}
             </div>
             {/* TutorMessageBody renders **bold**, *italic*, lists,
                 headers, and code blocks (the system prompt instructs
@@ -1088,24 +1109,38 @@ function AIMessageView({
             block. Tappable shortcuts so students don't have to type.
             Rendered below the bubble so they don't compete visually
             with the AI's prose. Color-keyed to the persona. */}
-        {msg.quickReplies && msg.quickReplies.length > 0 && onQuickReply && (
-          <div className="mt-3 flex flex-wrap gap-2 px-1">
-            {msg.quickReplies.map((reply, i) => (
-              <button
-                key={`${msg.id}-qr-${i}`}
-                type="button"
-                onClick={() => onQuickReply(reply)}
-                className={`text-[13px] px-3.5 h-9 rounded-full border transition active:scale-95 hover:bg-ink/5 ${
-                  msg.persona === "omar"
-                    ? "border-[#5B4BF5]/30 text-[#5B4BF5] bg-[#5B4BF5]/5"
-                    : "border-[#0E8A6B]/30 text-[#0E8A6B] bg-[#0E8A6B]/5"
-                }`}
-              >
-                {reply}
-              </button>
-            ))}
-          </div>
-        )}
+        {msg.quickReplies && msg.quickReplies.length > 0 && onQuickReply && (() => {
+          // Quick-reply chips — color-keyed to the subject palette so
+          // a math conversation's chips are indigo, biology's are
+          // green, etc. Falls back to persona color (Omar violet,
+          // Noor teal) when subject is unset or "general", matching
+          // the previous behaviour. Inline style instead of arbitrary
+          // Tailwind values so the palette table is the single source
+          // of truth.
+          const useSubject = msg.subject && msg.subject !== "general";
+          const accent = useSubject
+            ? paletteFor(msg.subject).accent
+            : msg.persona === "omar" ? "#5B4BF5" : "#0E8A6B";
+          return (
+            <div className="mt-3 flex flex-wrap gap-2 px-1">
+              {msg.quickReplies!.map((reply, i) => (
+                <button
+                  key={`${msg.id}-qr-${i}`}
+                  type="button"
+                  onClick={() => onQuickReply(reply)}
+                  className="text-[13px] px-3.5 h-9 rounded-full border transition active:scale-95"
+                  style={{
+                    borderColor: `${accent}4D`,        // 30% alpha
+                    color: accent,
+                    background: `${accent}0D`,         // ~5% alpha
+                  }}
+                >
+                  {reply}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         {/* Bookmark — saves this AI reply to tutor_saved_messages so
             the student can revisit it later (review queues, exam
             prep). Streaming preview rows pass id="streaming" and we

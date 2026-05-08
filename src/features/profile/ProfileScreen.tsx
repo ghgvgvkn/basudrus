@@ -19,6 +19,7 @@ import { CoursesPicker } from "./CoursesPicker";
 import { useSupabaseSession, signOutEverywhere } from "@/features/auth/useSupabaseSession";
 import { PersonalityQuizScreen } from "@/features/match/PersonalityQuizScreen";
 import { useUniversities, useMajors } from "@/features/onboarding/useOnboardingCatalog";
+import { SubjectProgressGrid } from "@/features/ai/SubjectProgressGrid";
 
 // Year selector — same scale as Onboarding (1-7 covers undergrad,
 // 5-year pharmacy/eng, 6-7 year medicine/dentistry).
@@ -394,6 +395,17 @@ export function ProfileScreen() {
             </div>
           </div>
         </div>
+
+        {/* Per-subject progress grid — pulls tutor_progress rows for
+            the current user. Each subject card uses its palette
+            (math indigo, biology green, chemistry teal, etc.) so the
+            grid feels like a personal study map, not a generic table.
+            Hidden for guests (no auth = no progress to show). */}
+        {user && (
+          <section className="bu-card p-6">
+            <SubjectProgressGrid title="Subject progress" />
+          </section>
+        )}
 
         <section className="bu-card p-6">
           <h2 className="serif text-lg text-ink-1 mb-3" style={{ fontStyle: "italic" }}>Study partners</h2>
