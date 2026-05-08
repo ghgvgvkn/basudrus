@@ -41,7 +41,10 @@ import { useSavedMessages } from "./useSavedMessages";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
+  Lightbulb, BookOpen, ListChecks,
 } from "lucide-react";
+
+type TutorMode = "homework_help" | "study_mode" | "homework_helper";
 
 const OMAR_PROMPTS = [
   "Explain photosynthesis like I'm five",
@@ -64,6 +67,11 @@ export function AIScreen() {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
+  // Tutor mode for Omar: "homework_help" (strict Socratic, default),
+  // "study_mode" (proactive teaching), or "homework_helper" (guided
+  // walkthrough — student writes every line, AI confirms each step).
+  // Sent to /api/ai/tutor as `mode`. Noor doesn't use this.
+  const [tutorMode, setTutorMode] = useState<TutorMode>("homework_help");
   const streamRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -229,6 +237,9 @@ export function AIScreen() {
       // system prompt as a fenced document block.
       documentContext: documentPayload?.text,
       documentLabel:   documentPayload?.label,
+      // Tutor mode (Omar only) — homework_help / study_mode /
+      // homework_helper. Noor ignores this.
+      mode: activePersona === "omar" ? tutorMode : undefined,
     });
 
     if (result.ok) {
@@ -401,6 +412,15 @@ export function AIScreen() {
           the "open chat by default" behaviour from the earlier design. */}
       <div className="border-t border-ink/8 bg-bg">
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-3">
+          {/* Tutor-mode picker (Omar only). Three modes:
+              · Hints — strict Socratic, AI asks until you reach it
+              · Teach — proactive teaching, AI explains concepts
+              · Walkthrough — guided step-by-step, you write each line
+              Only meaningful for Omar; Noor doesn't use modes so we
+              hide this entirely on the mental-health side. */}
+          {persona === "omar" && (
+            <TutorModeToggle value={tutorMode} onChange={setTutorMode} />
+          )}
           {/* Quick-action pills — always-visible global shortcuts so
               tired students can fire common follow-ups with one tap.
               Different set per persona. Only shown after the chat has
@@ -524,6 +544,78 @@ function PersonaToggle({ value, onChange }: { value: AIPersona; onChange: (p: AI
         className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "noor" ? "text-ink" : "text-ink/55")}>
         <Heart size={14} /> Noor
       </button>
+    </div>
+  );
+}
+
+/** Tutor-mode toggle — three pills sitting above the composer. Picks
+ *  between Hints (strict Socratic — default), Teach (proactive
+ *  explanation), and Walkthrough (guided step-by-step where the
+ *  student writes every line). Sent to /api/ai/tutor as `mode`.
+ *  Only rendered for Omar — Noor doesn't use tutor modes.
+ *
+ *  Layout: scrollable on narrow phones so all three labels stay
+ *  readable; on desktop the row is short enough to fit naturally.
+ *  Active mode gets a white pill background to mirror PersonaToggle's
+ *  visual language (familiar tab affordance). */
+function TutorModeToggle({
+  value, onChange,
+}: {
+  value: TutorMode;
+  onChange: (m: TutorMode) => void;
+}) {
+  const modes: {
+    id: TutorMode;
+    label: string;
+    hint: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      id: "homework_help",
+      label: "Hints",
+      hint: "Socratic — Omar asks questions, you solve",
+      icon: <Lightbulb size={12} />,
+    },
+    {
+      id: "study_mode",
+      label: "Teach",
+      hint: "Omar explains the concept, then you practice",
+      icon: <BookOpen size={12} />,
+    },
+    {
+      id: "homework_helper",
+      label: "Walkthrough",
+      hint: "Step-by-step — you write each line, Omar confirms",
+      icon: <ListChecks size={12} />,
+    },
+  ];
+  return (
+    <div className="-mx-1 mb-2 flex items-center gap-1.5 overflow-x-auto scrollbar-thin pb-1">
+      <span className="shrink-0 text-[11px] uppercase tracking-wider text-ink/45 px-1">
+        Mode
+      </span>
+      {modes.map((m) => {
+        const active = value === m.id;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            title={m.hint}
+            onClick={() => onChange(m.id)}
+            className={
+              "shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border text-[12.5px] font-medium transition active:scale-95 whitespace-nowrap " +
+              (active
+                ? "bg-[#5B4BF5] border-[#5B4BF5] text-white"
+                : "bg-bg border-ink/12 text-ink/70 hover:bg-ink/5 hover:text-ink")
+            }
+          >
+            {m.icon}
+            {m.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

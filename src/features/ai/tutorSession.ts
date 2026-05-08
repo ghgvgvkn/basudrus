@@ -40,7 +40,20 @@ import { supabase } from "@/lib/supabase";
 // Types
 // ─────────────────────────────────────────────────────────────────
 
-export type TutorMode = "homework_help" | "study_mode";
+/** Three tutoring modes:
+ *   - homework_help: full Socratic, no direct answers (default)
+ *   - study_mode: proactive teaching, can explain fully (still won't
+ *                 do graded homework FOR them)
+ *   - homework_helper: walk-through mode for photo-of-homework. The
+ *                      AI breaks the problem into steps, asks the
+ *                      student to attempt each step first, gently
+ *                      corrects, and confirms the full solution at
+ *                      the end. The student writes every line — same
+ *                      academic-integrity stance as homework_help,
+ *                      but optimised for "I have homework to do, walk
+ *                      me through it."
+ */
+export type TutorMode = "homework_help" | "study_mode" | "homework_helper";
 
 export interface TutorMessage {
   role: "user" | "assistant";
