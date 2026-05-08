@@ -177,10 +177,38 @@ export interface AIMessage {
 
 export interface StudyPlanArtifact {
   kind: "studyPlan";
+  /** Plan title — e.g. "5-day Calc II midterm sprint". */
   title: string;
+  /** Optional ISO date of the exam this plan is for (YYYY-MM-DD).
+   *  Drives the countdown badge in the redesigned artifact card. */
+  examDate?: string;
+  /** Optional human label for what's at the END of this plan
+   *  ("Calc II Midterm", "Final Exam Week"). */
+  examLabel?: string;
+  /** Optional one-line subtitle — appears under the title.
+   *  e.g. "3 days to midterm — 9 hrs of focused study". */
+  subtitle?: string;
+  /** Total study hours summed across days, optional. */
+  totalStudyHours?: number;
   days: {
-    label: string; // e.g. "Mon Oct 14"
-    blocks: { start: string; end: string; subject: string; kind: "study" | "break" | "class" | "sleep" }[];
+    /** Display label, e.g. "Mon Oct 14". */
+    label: string;
+    /** Optional ISO date (YYYY-MM-DD) — used by the .ics export to
+     *  emit real calendar events. */
+    date?: string;
+    blocks: {
+      /** "HH:MM" 24-hour. */
+      start: string;
+      /** "HH:MM" 24-hour. */
+      end: string;
+      /** Subject key — preferably one of the AISubject values so the
+       *  card can color-code via subjectPalette. Free-form strings
+       *  are tolerated and fall back to the "general" palette. */
+      subject: string;
+      kind: "study" | "break" | "class" | "sleep" | "exam";
+      /** Optional focus for this block ("Past papers Ch 3-5"). */
+      topic?: string;
+    }[];
   }[];
 }
 

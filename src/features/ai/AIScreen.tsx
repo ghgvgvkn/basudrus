@@ -37,6 +37,7 @@ import { TutorMessageBody } from "./TutorMessageBody";
 import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import { compressImage } from "./compressImage";
 import { parseQuickReplies } from "./parseQuickReplies";
+import { parseStudyPlan } from "./parseStudyPlan";
 import { useSavedMessages } from "./useSavedMessages";
 import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
 import { paletteFor } from "./subjectPalette";
@@ -389,7 +390,11 @@ export function AIScreen() {
       // making the student read the marker syntax. Both Bas Udros
       // and Noor are instructed (via system prompt) to emit this
       // block whenever they ask a question with 3-5 typical answers.
-      const parsed = parseQuickReplies(result.assistant);
+      // Two-stage parsing: pull off any STUDY_PLAN block first (so
+      // the JSON doesn't leak into the visible body), then strip
+      // <<<OPTIONS>>> chips from what remains.
+      const planParsed = parseStudyPlan(result.assistant);
+      const parsed = parseQuickReplies(planParsed.body);
       const aiMsg: AIMessage = {
         id: `a-${Date.now()}`,
         role: "ai",
@@ -398,6 +403,11 @@ export function AIScreen() {
         quickReplies: parsed.quickReplies.length > 0 ? parsed.quickReplies : undefined,
         subject,
         createdAt: new Date().toISOString(),
+        // Attach the parsed study plan if Omar emitted one this turn.
+        // The AIMessageView component renders msg.artifact below the
+        // body via StudyPlanArtifact. Null if no plan was emitted or
+        // the JSON was malformed (parser falls back gracefully).
+        artifact: planParsed.artifact ?? undefined,
       };
       // Append the AI response, then optionally the switch-suggestion
       // card. The card lets the user EXPLICITLY decide whether to
@@ -565,7 +575,7 @@ export function AIScreen() {
                   // hasn't closed yet (the AI is still emitting), so
                   // the streaming feel is unaffected — only the visual
                   // flash is hidden once the closer arrives.
-                  body: parseQuickReplies(ai.partial).body,
+                  body: parseQuickReplies(parseStudyPlan(ai.partial).body).body,
                   createdAt: new Date().toISOString(),
                 }}
               />
