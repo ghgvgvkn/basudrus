@@ -38,10 +38,11 @@ import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import { compressImage } from "./compressImage";
 import { parseQuickReplies } from "./parseQuickReplies";
 import { useSavedMessages } from "./useSavedMessages";
+import { useStreak, type MilestoneEvent } from "./useStreak";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
-  Lightbulb, BookOpen, ListChecks,
+  Lightbulb, BookOpen, ListChecks, Flame,
 } from "lucide-react";
 
 type TutorMode = "homework_help" | "study_mode" | "homework_helper";
@@ -84,6 +85,12 @@ export function AIScreen() {
   // bookmark icon on AI bubbles. Loads once on mount via Supabase
   // (own-only RLS), updates optimistically on toggle.
   const saved = useSavedMessages();
+  // Daily streak tracker — bumps on first AI message of each UTC day,
+  // surfaces a celebration toast on milestone tiers (3, 7, 14, 30,
+  // 60, 100, 365). Variable rewards per tier so the same milestone
+  // never feels canned. State persists in Supabase (own-only RLS).
+  const streak = useStreak();
+  const [milestone, setMilestone] = useState<MilestoneEvent | null>(null);
 
   // Bas Udros tutor: when AIScreen unmounts (user navigates to a
   // different screen, signs out, etc.) close the active session so
@@ -279,6 +286,14 @@ export function AIScreen() {
         }
         return next;
       });
+      // Daily-streak bump — fire after a successful AI exchange so we
+      // only reward real engagement (not failed sends or aborted
+      // streams). Idempotent within a UTC day, so users who chat a lot
+      // don't multi-bump. If today's bump crosses an unseen milestone
+      // tier, we surface the celebration toast.
+      void streak.recordToday().then((event) => {
+        if (event) setMilestone(event);
+      });
     } else {
       // User-initiated cancel — silently drop the in-flight stream
       // without surfacing an error bubble. The streamed partial (if
@@ -339,6 +354,11 @@ export function AIScreen() {
           setPersona(p);
         }} />
         <div className="ml-auto flex items-center gap-2">
+          {/* Streak chip — flame + day count. Hidden when streak is
+              0 (a brand-new user on day-zero shouldn't see "0 days").
+              Tappable in future iterations to open a streak modal;
+              for now it's purely informational. */}
+          {streak.current > 0 && <StreakChip current={streak.current} />}
           <QuotaChip />
           {subscription.tier === "free" && (
             <button
@@ -350,6 +370,14 @@ export function AIScreen() {
           )}
         </div>
       </div>
+
+      {/* Milestone celebration — variable-reward toast that fires
+          when the user crosses a never-seen-before streak tier
+          (3, 7, 14, 30, 60, 100, 365). Auto-dismisses after 6
+          seconds; the user can also tap to dismiss early. */}
+      {milestone && (
+        <MilestoneToast event={milestone} onDismiss={() => setMilestone(null)} />
+      )}
 
       {/* Body — chat stream. The empty state is just a minimal greeting
           + quick prompts; the composer sits at the bottom like any
@@ -658,6 +686,80 @@ function QuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: st
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Streak chip — small flame + day count, sits in the header next to
+ *  the quota chip. Color shifts at higher tiers so a long streak
+ *  feels visually distinct from a 1-day streak (small reward signal,
+ *  doesn't need an animation). */
+function StreakChip({ current }: { current: number }) {
+  // Color tier: cool blue 1-2 → orange 3-6 → red-orange 7-29 → gold 30+
+  const tier =
+    current >= 30 ? "bg-amber-500/15 text-amber-600 border-amber-500/30"
+    : current >= 7 ? "bg-orange-500/15 text-orange-600 border-orange-500/30"
+    : current >= 3 ? "bg-orange-400/15 text-orange-500 border-orange-400/30"
+    :                "bg-ink/5 text-ink/70 border-ink/12";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium tabular-nums border ${tier}`}
+      title={`${current}-day streak — keep it going.`}
+    >
+      <Flame size={13} className={current >= 3 ? "fill-current" : ""} />
+      {current}
+    </span>
+  );
+}
+
+/** Milestone celebration toast — fixed-position card that drops in from
+ *  the top when the user crosses a never-seen-before streak tier. The
+ *  copy is variable per tier (see MILESTONE_COPY in useStreak.ts) so
+ *  the same milestone hit twice (after a reset) feels fresh. Auto-
+ *  dismisses after 6s; tap to dismiss early. */
+function MilestoneToast({
+  event, onDismiss,
+}: {
+  event: MilestoneEvent;
+  onDismiss: () => void;
+}) {
+  // Auto-dismiss timer. Cleared on unmount or user-tap.
+  useEffect(() => {
+    const t = window.setTimeout(onDismiss, 6000);
+    return () => window.clearTimeout(t);
+  }, [onDismiss]);
+  return (
+    // role="status" so screen readers announce the milestone but
+    // don't interrupt focus — students might be mid-typing a question.
+    <div
+      role="status"
+      aria-live="polite"
+      onClick={onDismiss}
+      className="fixed top-20 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-32px)] cursor-pointer animate-[fadeInDown_240ms_ease-out]"
+      style={{
+        // Inline keyframes via the single-style trick — keeps this
+        // self-contained instead of polluting the global stylesheet
+        // for one toast.
+        animation: "fadeInDown 240ms ease-out",
+      }}
+    >
+      <div className="rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 text-white shadow-xl px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="text-3xl leading-none shrink-0" aria-hidden>{event.emoji}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-[16px] leading-tight">{event.title}</div>
+            <div className="mt-1 text-[13.5px] leading-snug opacity-95">{event.body}</div>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+            className="shrink-0 -mt-0.5 -mr-1 w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-white/15 transition"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

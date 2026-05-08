@@ -256,3 +256,20 @@ h1, h2, h3, h4 {
   background: #0D1117;
   color: #E6EDF3;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Toast / floating-card animations. Used by the milestone
+   celebration toast in AIScreen — drops in from the top with a
+   subtle bounce. Single keyframe declaration kept here so the
+   animation is reusable from anywhere via inline `style.animation`.
+   ────────────────────────────────────────────────────────────── */
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
