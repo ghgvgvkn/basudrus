@@ -41,6 +41,7 @@ import { useSavedMessages } from "./useSavedMessages";
 import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
 import { paletteFor } from "./subjectPalette";
 import { useTutorMemory } from "./useTutorMemory";
+import { decideRouting } from "./personaRouting";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
@@ -129,23 +130,41 @@ export function AIScreen() {
     if (over) { setScreen("subscription"); return; }
     if (!consumeAIMessage()) { setScreen("subscription"); return; }
 
-    // ── Persona routing — RESPECT THE USER'S CHOICE ──
-    // Old behaviour auto-flipped the global persona when keywords
-    // suggested the other mode. That created two real bugs the user
-    // reported: (1) every "exam" mention forced you out of Noor back
-    // to Omar even after you manually picked Noor, (2) you could get
-    // "stuck" in a force-switched persona and toggling back didn't
-    // hold for the next message.
+    // ── Persona routing — three-way decision ──
+    // Three cases handled by decideRouting(message, currentPersona):
     //
-    // New behaviour: the user's chosen persona is the ONLY thing that
-    // routes the message. The keyword detector becomes a soft hint —
-    // we send the message, then if the inferred persona differs, we
-    // append a SwitchSuggestion card with two clear buttons. The user
-    // explicitly chooses to switch or stay. The PersonaToggle at the
-    // top of the screen is also always available for manual changes.
-    const activePersona = persona;
-    const inferred = inferPersona(body, persona);
-    const shouldSuggestSwitch = inferred !== persona;
+    //   1. CRISIS (force_crisis):
+    //      Message contains genuine crisis language — suicide ideation,
+    //      self-harm, "I want to die" / "بدي أموت". We FORCE-SWITCH to
+    //      Noor regardless of the user's pick. No suggestion card, no
+    //      opt-in — direct to Noor's CRISIS_MODE. The bias toward
+    //      action is correct here: the cost of missing a crisis routing
+    //      far outweighs the cost of one math question going to Noor.
+    //      We ALSO flip the global PersonaToggle so subsequent messages
+    //      keep going to Noor unless the user manually switches back.
+    //
+    //   2. SUGGEST (suggest):
+    //      Soft signal that the other persona might be a better fit.
+    //      Send THIS message to the user's chosen persona, then append
+    //      a SwitchSuggestionCard with two clear buttons. User chooses.
+    //
+    //   3. STAY (stay):
+    //      No signal — send to the chosen persona, no card.
+    //
+    // The classifier is bilingual (English + Arabic). See
+    // ./personaRouting.ts for the full pattern table.
+    const routing = decideRouting(body, persona);
+    const isForceCrisis = routing.kind === "force_crisis";
+    const activePersona: AIPersona = isForceCrisis ? "noor" : persona;
+    const shouldSuggestSwitch = routing.kind === "suggest";
+    const inferred = routing.kind === "suggest" ? routing.target : activePersona;
+
+    // Force-switch case: flip the global toggle so the conversation
+    // continues with Noor on the next turn too. The user can always
+    // manually switch back via PersonaToggle.
+    if (isForceCrisis && persona !== "noor") {
+      setPersona("noor");
+    }
 
     const subject = inferSubject(body, activePersona);
 
@@ -219,7 +238,24 @@ export function AIScreen() {
           }
         : undefined,
     };
-    setMessages((m) => [...m, userMsg]);
+    // Push the user message immediately. If this turn was a forced
+    // crisis switch, also push a small system notice right after it
+    // so the student sees WHY their math question is suddenly going
+    // to Noor — the hand-off is made explicit. Renders as a centered
+    // pill via SystemNotice (low-volume, not a full bubble).
+    setMessages((m) => {
+      const next = [...m, userMsg];
+      if (isForceCrisis) {
+        next.push({
+          id: `crisis-bridge-${Date.now()}`,
+          role: "system",
+          persona: "noor",
+          body: "Noticed something heavy in this — Noor is taking this one. Omar will be right here when you're ready.",
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return next;
+    });
     setDraft("");
     setAttachment(null);
 
@@ -578,40 +614,9 @@ function EmptyChatState({ persona, onQuick }: { persona: AIPersona; onQuick: (te
   );
 }
 
-// ───────────────────────── persona inference ─────────────────────────
-
-const NOOR_KEYWORDS = [
-  "anxious", "anxiety", "stressed", "stress", "overwhelm",
-  "depressed", "depression", "sad", "lonely", "burnout", "burned out",
-  "can't focus", "cant focus", "can't sleep", "cant sleep",
-  "panic", "scared", "afraid", "worried", "hopeless",
-  "tired", "exhausted", "drained", "motivation", "unmotivated",
-  "confidence", "self-esteem", "self esteem",
-  "relationship", "family", "breakup", "grief", "loss",
-  "how do i cope", "i feel", "feeling",
-];
-const OMAR_KEYWORDS = [
-  "solve", "prove", "calculate", "integrate", "derivative", "equation",
-  "explain", "why does", "how does", "what is",
-  "debug", "code", "syntax", "error", "compile", "function",
-  "grammar", "translate", "conjugate",
-  "plan", "schedule", "study", "exam", "midterm", "final",
-  "homework", "assignment", "quiz", "practice",
-  "formula", "theorem", "chapter",
-];
-
-/** Suggest a persona based on the message. Falls back to the current
- *  persona if nothing triggers — avoids flipping on ambiguous prose. */
-function inferPersona(message: string, current: AIPersona): AIPersona {
-  const text = message.toLowerCase();
-  const hasNoor = NOOR_KEYWORDS.some(k => text.includes(k));
-  const hasOmar = OMAR_KEYWORDS.some(k => text.includes(k));
-  // Both or neither → keep the current persona, user didn't give us
-  // a clear signal.
-  if (hasNoor && !hasOmar) return "noor";
-  if (hasOmar && !hasNoor) return "omar";
-  return current;
-}
+// Persona inference + crisis classification moved to ./personaRouting
+// (bilingual EN+AR keyword tables + force-switch on crisis language).
+// AIScreen now calls decideRouting() for a single three-way decision.
 
 
 // ───────────────────────── stream pieces ─────────────────────────
