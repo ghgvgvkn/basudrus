@@ -36,6 +36,7 @@ function nextCvId(): string {
 export function CvArtifact({ artifact }: Props) {
   const [copied, setCopied] = useState(false);
   const [downloadState, setDownloadState] = useState<"idle" | "rendering" | "done" | "error">("idle");
+  const [pdfState, setPdfState] = useState<"idle" | "rendering" | "done" | "error">("idle");
   const [showPrintLayout, setShowPrintLayout] = useState(false);
   const printIdRef = useRef<string>(nextCvId());
   const isAr = artifact.lang === "ar";
@@ -94,6 +95,77 @@ export function CvArtifact({ artifact }: Props) {
     } finally {
       // Always unmount the print layout — keeping it in the DOM
       // wastes memory if the student never re-downloads.
+      setShowPrintLayout(false);
+    }
+  };
+
+  /** Generate and download a PDF of the CV.
+   *
+   *  Same off-screen capture pipeline as PNG, but the canvas is
+   *  embedded into a jsPDF document at A4 dimensions. PDF is the
+   *  industry-standard format employers expect for CV submissions,
+   *  so this is the recommended download path.
+   *
+   *  Both libraries (html2canvas-pro + jspdf) are lazy-loaded —
+   *  initial bundle stays slim until a student actually downloads. */
+  const handleDownloadPdf = async () => {
+    if (pdfState === "rendering") return;
+    setPdfState("rendering");
+    setShowPrintLayout(true);
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      const node = document.getElementById(printIdRef.current);
+      if (!node) {
+        setPdfState("error");
+        setShowPrintLayout(false);
+        return;
+      }
+      // Lazy-load BOTH libraries. They land as separate chunks so
+      // the first one (html2canvas) caches cleanly even if a student
+      // only downloads PDFs.
+      const [h2cMod, jsPdfMod] = await Promise.all([
+        import("html2canvas-pro"),
+        import("jspdf"),
+      ]);
+      const html2canvas = (h2cMod as { default: (el: HTMLElement, opts?: Record<string, unknown>) => Promise<HTMLCanvasElement> }).default;
+      const { jsPDF } = jsPdfMod as unknown as { jsPDF: new (opts?: Record<string, unknown>) => {
+        addImage: (data: string, fmt: string, x: number, y: number, w: number, h: number) => void;
+        save: (filename: string) => void;
+        internal: { pageSize: { getWidth(): number; getHeight(): number } };
+      }};
+      const canvas = await html2canvas(node, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        logging: false,
+      });
+      // A4 portrait — 210mm × 297mm. We embed the captured image at
+      // page width and let height follow proportionally. If the CV is
+      // taller than one page, jsPDF will silently clip — but our
+      // print layout is sized for ~one A4 page so we're typically OK.
+      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      // Compute height from the canvas aspect to keep proportions.
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      // Embed at top-left. If imgHeight exceeds A4, cap to page —
+      // the small margin loss is preferable to a multi-page split
+      // mid-document for v1.
+      const renderHeight = Math.min(imgHeight, pageHeight);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.92); // jpeg keeps PDF size sane
+      pdf.addImage(dataUrl, "JPEG", 0, 0, imgWidth, renderHeight);
+      const filename = `${(artifact.personal.fullName || "cv").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-cv.pdf`;
+      pdf.save(filename);
+      setPdfState("done");
+      setTimeout(() => setPdfState("idle"), 2500);
+    } catch (e) {
+      console.warn("[cvArtifact] PDF download failed:", e);
+      setPdfState("error");
+      setTimeout(() => setPdfState("idle"), 3000);
+    } finally {
       setShowPrintLayout(false);
     }
   };
@@ -354,25 +426,39 @@ export function CvArtifact({ artifact }: Props) {
         )}
       </div>
 
-      {/* Action footer — Download PNG is primary (the headline
-          feature: get a real downloadable CV file). Copy as plain
-          text stays as the secondary option for editing in
-          Word/Docs/LinkedIn. */}
+      {/* Action footer — three actions, PDF first (industry standard
+          for CV submissions), then PNG (good for messaging / mobile),
+          then plain text (for further editing in Word / Docs / LinkedIn). */}
       <div className="px-4 md:px-5 py-3 border-t border-ink/8 flex flex-wrap items-center gap-2 bg-ink/[2%]">
         <button
           type="button"
-          onClick={handleDownloadPng}
-          disabled={downloadState === "rendering"}
+          onClick={handleDownloadPdf}
+          disabled={pdfState === "rendering" || downloadState === "rendering"}
           className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full bg-ink text-bg text-[12.5px] font-medium hover:bg-ink/85 transition active:scale-95 disabled:opacity-60 disabled:cursor-default"
+        >
+          {pdfState === "rendering" && <Loader2 size={13} className="animate-spin" />}
+          {pdfState === "idle" && <Download size={13} />}
+          {pdfState === "done" && <Check size={13} />}
+          {pdfState === "error" && <Download size={13} />}
+          {pdfState === "idle" && (isAr ? "تنزيل PDF" : "Download PDF")}
+          {pdfState === "rendering" && (isAr ? "جاري التحضير…" : "Preparing…")}
+          {pdfState === "done" && (isAr ? "تم التنزيل" : "Downloaded")}
+          {pdfState === "error" && (isAr ? "حاول مجدداً" : "Try again")}
+        </button>
+        <button
+          type="button"
+          onClick={handleDownloadPng}
+          disabled={downloadState === "rendering" || pdfState === "rendering"}
+          className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-ink/15 text-ink/80 hover:bg-ink/5 hover:text-ink text-[12.5px] font-medium transition active:scale-95 disabled:opacity-60 disabled:cursor-default"
         >
           {downloadState === "rendering" && <Loader2 size={13} className="animate-spin" />}
           {downloadState === "idle" && <Download size={13} />}
           {downloadState === "done" && <Check size={13} />}
           {downloadState === "error" && <Download size={13} />}
-          {downloadState === "idle" && (isAr ? "تنزيل كصورة" : "Download as image")}
-          {downloadState === "rendering" && (isAr ? "جاري التحضير…" : "Preparing…")}
-          {downloadState === "done" && (isAr ? "تم التنزيل" : "Downloaded")}
-          {downloadState === "error" && (isAr ? "حاول مجدداً" : "Try again")}
+          {downloadState === "idle" && (isAr ? "PNG" : "PNG")}
+          {downloadState === "rendering" && (isAr ? "جاري…" : "…")}
+          {downloadState === "done" && (isAr ? "تم" : "Done")}
+          {downloadState === "error" && (isAr ? "حاول مجدداً" : "Retry")}
         </button>
         <button
           type="button"
@@ -382,10 +468,10 @@ export function CvArtifact({ artifact }: Props) {
           {copied ? <Check size={13} /> : <Copy size={13} />}
           {copied
             ? (isAr ? "تم النسخ" : "Copied")
-            : (isAr ? "نسخ كنص" : "Copy as text")}
+            : (isAr ? "نسخ كنص" : "Copy text")}
         </button>
-        <span className="text-[11px] text-ink/45 whitespace-nowrap">
-          {isAr ? "PNG · Word · LinkedIn" : "PNG · Word · LinkedIn"}
+        <span className="text-[11px] text-ink/45 whitespace-nowrap ms-auto">
+          {isAr ? "PDF للمواقع · PNG للمحادثات" : "PDF for jobs · PNG for chat"}
         </span>
       </div>
 

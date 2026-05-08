@@ -212,6 +212,12 @@ export function useStreamingAI(): StreamingAIState {
           major:   context.major   ?? profile?.major ?? "",
           year:    context.year    ?? profile?.year  ?? "",
           uni:     context.uni     ?? profile?.uni   ?? "",
+          // Day 17.6: pass the student's profile name so the AI can
+          // address them by name AND auto-fill it into CV / email
+          // drafts without asking. Falls back to empty string if the
+          // profile hasn't been loaded yet — the API treats that as
+          // "no name available, ask".
+          studentName: profile?.name ?? "",
           userId:  session.user.id,
           lang:    context.lang === "auto" ? undefined : context.lang,
           // Personality summary built from match_quiz.answers — gives

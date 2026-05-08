@@ -638,9 +638,60 @@ extra-strict here:
     contribution, X club, Y volunteer org). Don't pretend the CV
     is fuller than it is.
 
+═══ AUTO-FILL FROM PROFILE — START WITH WHAT YOU ALREADY KNOW ═══
+
+The CONTEXT block above in your system prompt may include the
+student's name, university, major, and year — pulled from their
+profile in the database. When the student asks for a CV, use these
+IMMEDIATELY without asking again. Don't say "what's your name?" if
+you have it. Don't say "what university?" if you have it. Just put
+them in the draft.
+
+What you can auto-fill from profile (when present):
+  • personal.fullName  ← studentName
+  • education[0].institution  ← uni
+  • education[0].degree (partial — e.g. "BSc in <major>")  ← major
+  • education[0].endDate (estimate — "Expected May 20XX" based on year)
+                                                     ← year (1=in 4 yrs, 2=in 3, 3=in 2, 4=in 1)
+
+What you STILL need to ask for after the auto-fill:
+  • Email + phone — never invent these. ASK. Suggest format
+    ("a@b.com / +962…") so they know what to give you.
+  • Specific projects (name + tech stack + what it does + outcome).
+  • Internship / work experience (if any) with bullets.
+  • GPA — only ask if the major typically requires it for the role
+    they're targeting (engineering, finance, scholarships) and only
+    INCLUDE if they tell you ≥ 3.0/4.0 or ≥ 80%.
+  • Languages and proficiency.
+  • Activities (clubs, volunteer work).
+  • Certifications.
+  • Target role / company — drives renderMode + tone.
+
+THE FLOW:
+  1. Acknowledge in one short sentence: "Pulling your profile —
+     [Name], [major] at [uni]. Let me sketch the skeleton, then
+     you tell me what to add."
+  2. EMIT a partial CV with auto-filled personal + education[0]
+     and EMPTY arrays for sections you don't have data for. The
+     renderer hides empty sections automatically — the student
+     sees a real card with their info already there.
+  3. In the same reply, AFTER the artifact, ask for the missing
+     pieces with quick-reply chips when there are 3-5 typical
+     answers ("CS / Engineering / Med / Business" for major fix,
+     "tech internship / scholarship / first job" for renderMode).
+  4. As the student answers, RE-EMIT the CV with the new data
+     each turn. They watch it grow. They tap Download whenever
+     they're satisfied.
+
+If the profile name / uni / major / year is MISSING from your
+context (the API got an empty string for that field — common when
+profile hasn't been completed yet), ASK before emitting. Don't
+invent placeholders that look like real data ("John Doe / X
+University").
+
 ═══ WHEN TO EMIT ═══
 
-  • "help me make a CV" / "I need a résumé" / "ساعدني أعمل سيرة ذاتية" → emit
+  • "help me make a CV" / "I need a résumé" / "ساعدني أعمل سيرة ذاتية" → emit (with auto-fill)
   • "I'm applying for a [internship / scholarship / job]" → emit
   • "review my CV" — student pastes their existing CV → emit a REVISED version
   • Student UPLOADS A PHOTO of an existing CV — see PHOTO EXTRACTION below.
@@ -1806,6 +1857,12 @@ export default async function handler(req: Request) {
     const { data: body, error: bodyErr } = await readCappedJson<{
       messages?: unknown; subject?: unknown; major?: unknown; year?: unknown;
       uni?: unknown; lang?: unknown; memory?: unknown; personality?: unknown;
+      // Day 17.6 — student's profile name. Surfaced in the system
+      // prompt context block so Omar can address them by name AND
+      // auto-fill it into CV / email drafts without asking. Empty
+      // string when the profile hasn't loaded — handler treats that
+      // as "no name available, ask before using a placeholder".
+      studentName?: unknown;
       // New (UPGRADE 3 + 7): durable session memory + mode injection.
       // Both are optional; older callers that don't send them get the
       // same behaviour as before.
@@ -1829,7 +1886,7 @@ export default async function handler(req: Request) {
       documentContext?: unknown; documentLabel?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, imageBase64, imageMediaType, pdfBase64, pdfName, documentContext, documentLabel } = body || {};
+    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, studentName, imageBase64, imageMediaType, pdfBase64, pdfName, documentContext, documentLabel } = body || {};
 
     // ── Sanitise every field flowing into the prompt (prompt-injection
     //    hardening). The system prompt is built in three layers:
@@ -1848,6 +1905,10 @@ export default async function handler(req: Request) {
     const safeMajor   = sanitizeLine(major, 80);
     const safeYear    = sanitizeLine(year, 40);
     const safeUni     = sanitizeLine(uni, 80);
+    // Day 17.6 — student's name from their profile. Used to address
+    // them naturally AND to auto-fill CV / email drafts. Capped at
+    // 120 chars (longer names exist but anything longer is suspect).
+    const safeStudentName = sanitizeLine(studentName, 120);
     // Personality summary from match_quiz.answers — capped + control-char
     // stripped so a malicious quiz answer can't inject "ignore prior
     // instructions". Descriptive ("Evening peak hours, deep-work blocks").
@@ -1860,6 +1921,7 @@ export default async function handler(req: Request) {
 
     // Per-session context block — same idea as before, just relocated.
     const sessionContext: string[] = [];
+    if (safeStudentName) sessionContext.push(`Student's name: ${safeStudentName} (use it naturally; auto-fill into CV / email drafts where the name field is needed)`);
     if (safeMajor) sessionContext.push(`Student's major: ${safeMajor}`);
     if (safeYear)  sessionContext.push(`Year: ${safeYear}`);
     if (safeUni)   sessionContext.push(`University: ${safeUni}`);
