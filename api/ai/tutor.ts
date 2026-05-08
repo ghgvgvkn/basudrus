@@ -17,9 +17,12 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 
 // Rate limit config (easy to adjust later)
 const LIMITS = { daily: 30, hourly: 15, minute: 3 };
-// Payload cap — 64KB is plenty for messages + up to 40k chars of file context
-// that the client-side readAsText path sends. Blocks cost-amplification POSTs.
-const MAX_BODY_BYTES = 128 * 1024;
+// Payload cap. 1.5 MB accommodates multimodal turns where the user
+// attaches a JPEG image (compressed client-side to ≤700 KB before
+// base64 encoding inflates it ~33%). Pure-text turns are tiny (a
+// few KB), so this cap only matters for image uploads. The rate
+// limiter still controls overall cost regardless of body size.
+const MAX_BODY_BYTES = 1536 * 1024;
 
 // ───────────────────────────────────────────────────────────────────
 // SYSTEM PROMPT — UPGRADE 1
@@ -1217,9 +1220,15 @@ export default async function handler(req: Request) {
       // Both are optional; older callers that don't send them get the
       // same behaviour as before.
       mode?: unknown; tutorMemory?: unknown;
+      // Multimodal: when the student attaches an image (compressed
+      // client-side via compressImage()), these carry the JPEG bytes
+      // and the MIME type. The handler replaces the LAST user message
+      // with an Anthropic multimodal content block so the model can
+      // actually see the image.
+      imageBase64?: unknown; imageMediaType?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory } = body || {};
+    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, imageBase64, imageMediaType } = body || {};
 
     // ── Sanitise every field flowing into the prompt (prompt-injection
     //    hardening). The system prompt is built in three layers:
@@ -1291,6 +1300,70 @@ export default async function handler(req: Request) {
       });
     }
 
+    // ── Multimodal turn — when the student attaches an image ──
+    // We replace the last user message's `content: string` with
+    // Anthropic's multimodal content blocks: [image, text]. This is
+    // the only way Haiku 4.5 actually sees the photo. Validation:
+    //   - imageBase64 must be a string (not an object / array)
+    //   - imageMediaType must be one of the four Anthropic accepts
+    //   - base64 length capped at ~1 MB raw to defend the upstream
+    //     against pathological payloads even though MAX_BODY_BYTES
+    //     already enforces total request size.
+    const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
+    type AllowedMedia = typeof ALLOWED_MEDIA[number];
+    const hasImage =
+      typeof imageBase64 === "string" &&
+      imageBase64.length > 100 &&
+      imageBase64.length < 1_400_000 &&
+      typeof imageMediaType === "string" &&
+      (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType);
+
+    // Anthropic accepts a `content` field that is either a string or
+    // an array of typed blocks. We only switch the LAST message into
+    // block form; older history stays as plain text (we don't store
+    // historical images — they live only on the turn they're sent).
+    type ContentBlock =
+      | { type: "text"; text: string }
+      | { type: "image"; source: { type: "base64"; media_type: AllowedMedia; data: string } };
+    type AnthropicMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
+
+    const finalMessages: AnthropicMessage[] = apiMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    if (hasImage) {
+      // Find the last user message (which should be the latest turn).
+      let idx = finalMessages.length - 1;
+      while (idx >= 0 && finalMessages[idx].role !== "user") idx -= 1;
+      if (idx >= 0) {
+        const existingText = typeof finalMessages[idx].content === "string"
+          ? (finalMessages[idx].content as string)
+          : "";
+        finalMessages[idx] = {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: imageMediaType as AllowedMedia,
+                data: imageBase64 as string,
+              },
+            },
+            {
+              // If the user typed nothing alongside the image, prompt
+              // Bas Udros to engage with the image directly via the
+              // Socratic ladder rather than going silent.
+              type: "text",
+              text: existingText.trim().length > 0
+                ? existingText
+                : "I'm sharing this image with you — please look at it carefully and help me work through whatever it shows, using the Socratic method.",
+            },
+          ],
+        };
+      }
+    }
+
     // ── Anthropic call with two-layer resilience ──
     // Layer 1 (transient retries): on 429 / 502 / 503 / 504, wait 2s
     //   and retry once before giving up.
@@ -1329,7 +1402,7 @@ export default async function handler(req: Request) {
         model: "claude-haiku-4-5-20251001", // Haiku 4.5 — fast & affordable
         max_tokens: 2048,
         system: systemPrompt,
-        messages: apiMessages,
+        messages: finalMessages,
         stream: true,
         ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
       }),

@@ -59,6 +59,13 @@ export interface StreamingAIState {
        *  'homework_help' (full Socratic). UI doesn't expose this yet
        *  — the field is wired in advance for a future toggle. */
       mode?: TutorMode;
+      /** Optional: image attached to THIS turn (e.g. a homework photo).
+       *  Compressed client-side via compressImage() — caller passes
+       *  the base64 string + media type. The API replaces the last
+       *  user message's content with a multimodal block so the AI
+       *  can actually see the image. */
+      imageBase64?: string;
+      imageMediaType?: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
     },
   ) => Promise<{ ok: true; assistant: string } | { ok: false; reason: StreamErrorReason; message?: string }>;
   loading: boolean;
@@ -199,6 +206,13 @@ export function useStreamingAI(): StreamingAIState {
           // unknown fields, so this is safe to send to both.
           tutorMemory: tutorMemory ?? undefined,
           mode: context.mode ?? "homework_help",
+          // Image attached to this turn — base64 string + media type.
+          // The API replaces the last user message's content with a
+          // multimodal Anthropic block so the model can actually see
+          // the image. Client compresses to JPEG ≤700 KB before send,
+          // so total request body stays under the edge function cap.
+          imageBase64:    context.imageBase64    ?? undefined,
+          imageMediaType: context.imageMediaType ?? undefined,
         }),
         signal: abortRef.current.signal,
       });

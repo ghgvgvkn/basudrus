@@ -35,6 +35,7 @@ import { fallbackGradient, inferSubject } from "./messageBg";
 import { StudyPlanArtifact } from "./studyPlanArtifact";
 import { TutorMessageBody } from "./TutorMessageBody";
 import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
+import { compressImage } from "./compressImage";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus,
@@ -124,6 +125,27 @@ export function AIScreen() {
     const shouldSuggestSwitch = inferred !== persona;
 
     const subject = inferSubject(body, activePersona);
+
+    // ── Image compression (if the file is an image) ──
+    // We compress on the client to a JPEG ≤700 KB so the request
+    // body stays small AND the user sees the same thumbnail
+    // (dataUrl) we send to the AI. Failure is silent — we drop the
+    // image, keep the text message, and let the AI respond to text
+    // alone rather than blocking the send.
+    let imagePayload: { base64: string; mediaType: "image/jpeg"; dataUrl: string } | null = null;
+    if (file && file.type.startsWith("image/")) {
+      try {
+        const compressed = await compressImage(file);
+        imagePayload = {
+          base64: compressed.base64,
+          mediaType: compressed.mediaType,
+          dataUrl: compressed.dataUrl,
+        };
+      } catch {
+        // Silent fall-through — text still goes through.
+      }
+    }
+
     const userMsg: AIMessage = {
       id: `u-${Date.now()}`,
       role: "user",
@@ -131,7 +153,17 @@ export function AIScreen() {
       body: body || (file ? `Sent ${file.name}` : ""),
       subject,
       createdAt: new Date().toISOString(),
-      attachment: file ? { name: file.name, kind: fileKind(file.name) } : undefined,
+      attachment: file
+        ? {
+            name: file.name,
+            kind: fileKind(file.name),
+            // For images, store the compressed dataUrl so the user
+            // bubble can render a thumbnail without re-reading the
+            // File. Non-image attachments still just show the
+            // filename pill.
+            url: imagePayload?.dataUrl,
+          }
+        : undefined,
     };
     setMessages((m) => [...m, userMsg]);
     setDraft("");
@@ -151,6 +183,11 @@ export function AIScreen() {
       uni:   profile?.uni   ?? undefined,
       major: profile?.major ?? undefined,
       year:  profile?.year  ?? undefined,
+      // Image attached this turn — backend swaps the last user
+      // message into a multimodal Anthropic content block so Bas
+      // Udros / Noor can actually see it.
+      imageBase64:    imagePayload?.base64,
+      imageMediaType: imagePayload?.mediaType,
     });
 
     if (result.ok) {
@@ -554,16 +591,32 @@ function SwitchSuggestionCard({
 }
 
 function UserMessage({ msg }: { msg: AIMessage }) {
+  // For image attachments the dataUrl is the compressed JPEG we
+  // already sent to the AI — render it as a real thumbnail so the
+  // user sees what Bas Udros actually received. For non-images we
+  // keep the existing filename-pill fallback. The image is capped
+  // at 280 px wide so a tall photo doesn't dominate the chat.
+  const isImage = msg.attachment?.kind === "image" && !!msg.attachment.url;
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] rounded-3xl rounded-br-lg bg-ink text-bg px-4 py-3">
-        {msg.attachment && (
+        {isImage && msg.attachment?.url && (
+          <img
+            src={msg.attachment.url}
+            alt={msg.attachment.name || "Attached image"}
+            loading="lazy"
+            className="mb-2 max-w-[280px] max-h-[280px] w-auto h-auto rounded-2xl object-contain bg-bg/5"
+          />
+        )}
+        {!isImage && msg.attachment && (
           <div className="mb-2 inline-flex items-center gap-2 h-8 px-2.5 rounded-full bg-bg/10 text-xs">
             <FileText size={12} />
             <span className="truncate max-w-[180px]">{msg.attachment.name}</span>
           </div>
         )}
-        <p className="text-[15px] leading-[1.45] whitespace-pre-wrap">{msg.body}</p>
+        {msg.body && (
+          <p className="text-[15px] leading-[1.45] whitespace-pre-wrap">{msg.body}</p>
+        )}
       </div>
     </div>
   );

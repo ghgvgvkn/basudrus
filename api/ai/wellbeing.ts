@@ -16,7 +16,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 
 const LIMITS = { daily: 30, hourly: 15, minute: 3 };
-const MAX_BODY_BYTES = 64 * 1024;
+// 1.5 MB accommodates a multimodal turn (image attachment) — pure
+// text turns are tiny. Client compresses images to ≤700 KB before
+// base64 encoding so we stay comfortably under this cap.
+const MAX_BODY_BYTES = 1536 * 1024;
 
 // ───────────────────────────────────────────────────────────────────
 // ETHICS CORE — non-negotiable safeguards layered on top of the
@@ -896,9 +899,14 @@ export default async function handler(req: Request) {
       messages?: unknown; name?: unknown; mood?: unknown; mode?: unknown;
       uni?: unknown; major?: unknown; lang?: unknown; memory?: unknown;
       personality?: unknown;
+      // Multimodal: students can share screenshots / photos with Noor
+      // too (a sad note, a screenshot of a hurtful text from someone,
+      // a photo that triggered a memory). Same Anthropic image content
+      // block as the tutor.
+      imageBase64?: unknown; imageMediaType?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, name, mood, mode, uni, major, lang, memory, personality } = body || {};
+    const { messages, name, mood, mode, uni, major, lang, memory, personality, imageBase64, imageMediaType } = body || {};
 
     // Every field that flows into the system prompt is sanitized for
     // newlines/control chars + length-capped to defeat prompt-injection
@@ -973,6 +981,62 @@ export default async function handler(req: Request) {
         : "",
     ].filter(Boolean).join("\n\n");
 
+    // ── Multimodal turn (image attached) ──
+    // Same shape as tutor.ts. When the student shares an image with
+    // Noor, replace the last user message with Anthropic's
+    // [image, text] content blocks so Noor can see it. Validation
+    // mirrors tutor.ts so the rules are identical across endpoints.
+    const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
+    type AllowedMedia = typeof ALLOWED_MEDIA[number];
+    const hasImage =
+      typeof imageBase64 === "string" &&
+      imageBase64.length > 100 &&
+      imageBase64.length < 1_400_000 &&
+      typeof imageMediaType === "string" &&
+      (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType);
+
+    type ContentBlock =
+      | { type: "text"; text: string }
+      | { type: "image"; source: { type: "base64"; media_type: AllowedMedia; data: string } };
+    type AnthropicMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
+
+    const finalMessages: AnthropicMessage[] = apiMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    if (hasImage) {
+      let idx = finalMessages.length - 1;
+      while (idx >= 0 && finalMessages[idx].role !== "user") idx -= 1;
+      if (idx >= 0) {
+        const existingText = typeof finalMessages[idx].content === "string"
+          ? (finalMessages[idx].content as string)
+          : "";
+        finalMessages[idx] = {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: imageMediaType as AllowedMedia,
+                data: imageBase64 as string,
+              },
+            },
+            {
+              type: "text",
+              // If they shared the image with no caption, prompt Noor
+              // to acknowledge the image gently rather than going
+              // silent. Noor reads the image AND the emotion behind
+              // sharing it without asking.
+              text: existingText.trim().length > 0
+                ? existingText
+                : "I'm sharing this with you. Please look at it and respond with care — sometimes what's in the image is what I can't put into words yet.",
+            },
+          ],
+        };
+      }
+    }
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -985,7 +1049,7 @@ export default async function handler(req: Request) {
         model: "claude-haiku-4-5-20251001", // Haiku 4.5 — fast & affordable
         max_tokens: 1500,
         system: systemPrompt,
-        messages: apiMessages,
+        messages: finalMessages,
         stream: true,
       }),
     });
