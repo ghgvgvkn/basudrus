@@ -259,18 +259,22 @@ export function AIScreen() {
         if (import.meta.env.DEV) console.warn("[upload] pdf extract failed:", e);
         // Typed errors from extractPdf give us PRECISE failure causes
         // so the student isn't mis-told their unprotected PDF is
-        // password-locked. We import lazily to avoid circular imports.
+        // password-locked. We INCLUDE the underlying technical detail
+        // (error name + first ~120 chars of message) on every failure
+        // — production too, not just DEV. The cost of a slightly less
+        // polished message is worth knowing exactly why a student's
+        // upload is failing when they report "it doesn't work."
         const errName = e instanceof Error ? e.name : "";
+        const errMsg = e instanceof Error ? (e.message || "").slice(0, 120) : "";
+        const technical = errName || errMsg ? `\n\n[Technical: ${errName}${errMsg ? ` — ${errMsg}` : ""}]` : "";
         if (errName === "PdfPasswordError") {
-          documentFailReason = "This PDF is password-protected. Unlock it first (in Acrobat / Preview), or send a screenshot of the page.";
+          documentFailReason = `This PDF is password-protected. Unlock it first (in Acrobat / Preview), or send a screenshot of the page.${technical}`;
         } else if (errName === "PdfWorkerError") {
-          documentFailReason = "Couldn't start the PDF reader on this device. Try refreshing the page, or send a screenshot of the page instead.";
+          documentFailReason = `Couldn't start the PDF reader on this device. Try refreshing the page, or send a screenshot of the page instead.${technical}`;
         } else {
           // Generic — corrupted, unsupported feature, or pdfjs hit
-          // something it doesn't handle. Includes the underlying
-          // error message in DEV builds so we can diagnose.
-          const detail = (e instanceof Error && import.meta.env.DEV) ? ` (${e.message})` : "";
-          documentFailReason = `Couldn't read this PDF — it might be corrupted or use features the reader doesn't support. Try a different PDF or send a screenshot of the page.${detail}`;
+          // something it doesn't handle.
+          documentFailReason = `Couldn't read this PDF — it might be corrupted or use features the reader doesn't support. Try a different PDF or send a screenshot of the page.${technical}`;
         }
       }
     }
