@@ -37,9 +37,10 @@ import { TutorMessageBody } from "./TutorMessageBody";
 import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import { compressImage } from "./compressImage";
 import { parseQuickReplies } from "./parseQuickReplies";
+import { useSavedMessages } from "./useSavedMessages";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
-  FileText, X, Plus,
+  FileText, X, Plus, Bookmark, BookmarkCheck,
 } from "lucide-react";
 
 const OMAR_PROMPTS = [
@@ -71,6 +72,10 @@ export function AIScreen() {
   // commit to `messages` when the stream finishes.
   const ai = useStreamingAI();
   const isThinking = ai.loading;
+  // Bookmarked AI replies — drives the filled/empty state of the
+  // bookmark icon on AI bubbles. Loads once on mount via Supabase
+  // (own-only RLS), updates optimistically on toggle.
+  const saved = useSavedMessages();
 
   // Bas Udros tutor: when AIScreen unmounts (user navigates to a
   // different screen, signs out, etc.) close the active session so
@@ -325,6 +330,8 @@ export function AIScreen() {
                   // an attachment.
                   void sendWith(text, null);
                 }}
+                isSaved={saved.isSaved(m.id)}
+                onToggleSave={() => { void saved.toggle(m); }}
               />
             ))}
             {/* Streaming live preview: render the partial response as
@@ -580,7 +587,7 @@ function ComposerRow({
 }
 
 function MessageRow({
-  msg, onSwitchPersona, onDismissSuggestion, onQuickReply,
+  msg, onSwitchPersona, onDismissSuggestion, onQuickReply, isSaved, onToggleSave,
 }: {
   msg: AIMessage;
   onSwitchPersona?: (p: AIPersona) => void;
@@ -588,6 +595,9 @@ function MessageRow({
   /** Tap handler for quick-reply chips below an AI message. Sends
    *  the chip's text as the student's next message. */
   onQuickReply?: (text: string) => void;
+  /** Bookmark state + toggle. Only meaningful on AI messages. */
+  isSaved?: boolean;
+  onToggleSave?: () => void;
 }) {
   if (msg.role === "user") return <UserMessage msg={msg} />;
   if (msg.role === "system") {
@@ -607,7 +617,14 @@ function MessageRow({
     }
     return <SystemNotice msg={msg} />;
   }
-  return <AIMessageView msg={msg} onQuickReply={onQuickReply} />;
+  return (
+    <AIMessageView
+      msg={msg}
+      onQuickReply={onQuickReply}
+      isSaved={isSaved}
+      onToggleSave={onToggleSave}
+    />
+  );
 }
 
 /** Small centered pill used for auto-switch notices and similar
@@ -702,7 +719,14 @@ function UserMessage({ msg }: { msg: AIMessage }) {
   );
 }
 
-function AIMessageView({ msg, onQuickReply }: { msg: AIMessage; onQuickReply?: (text: string) => void }) {
+function AIMessageView({
+  msg, onQuickReply, isSaved, onToggleSave,
+}: {
+  msg: AIMessage;
+  onQuickReply?: (text: string) => void;
+  isSaved?: boolean;
+  onToggleSave?: () => void;
+}) {
   const subject: AISubject = msg.subject ?? "general";
   const fallback = fallbackGradient(msg.id, msg.persona);
   // 3D artifact comes from a dynamic-imported module (messageBg3d) so
@@ -799,6 +823,31 @@ function AIMessageView({ msg, onQuickReply }: { msg: AIMessage; onQuickReply?: (
                 {reply}
               </button>
             ))}
+          </div>
+        )}
+        {/* Bookmark — saves this AI reply to tutor_saved_messages so
+            the student can revisit it later (review queues, exam
+            prep). Streaming preview rows pass id="streaming" and we
+            don't render the bookmark there because the message
+            isn't committed yet. Filled icon = saved, outline = not. */}
+        {onToggleSave && msg.id !== "streaming" && (
+          <div className="mt-2 px-1 flex justify-end">
+            <button
+              type="button"
+              onClick={onToggleSave}
+              aria-label={isSaved ? "Remove from saved" : "Save this reply"}
+              aria-pressed={!!isSaved}
+              className={`inline-flex items-center gap-1.5 text-[12px] h-7 px-2.5 rounded-full transition active:scale-95 ${
+                isSaved
+                  ? "text-ink/85 bg-ink/8"
+                  : "text-ink/45 hover:text-ink/75 hover:bg-ink/5"
+              }`}
+            >
+              {isSaved
+                ? <BookmarkCheck size={13} />
+                : <Bookmark size={13} />}
+              <span>{isSaved ? "Saved" : "Save"}</span>
+            </button>
           </div>
         )}
       </div>
