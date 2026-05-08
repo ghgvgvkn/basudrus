@@ -148,6 +148,14 @@ export interface AIMessage {
   artifact?: StudyPlanArtifact;
   /** Optional attachment the user sent with this message. */
   attachment?: { name: string; kind: "image" | "pdf" | "doc"; url?: string };
+  /** When set, renders the system message as a two-button switch
+   *  suggestion ("Switch to X" / "Stay with Y") instead of the
+   *  small centered chip. Used to let the user EXPLICITLY choose
+   *  whether to switch personas instead of forcing it on them. */
+  switchSuggestion?: {
+    suggested: AIPersona;
+    current: AIPersona;
+  };
 }
 
 export interface StudyPlanArtifact {

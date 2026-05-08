@@ -105,25 +105,23 @@ export function AIScreen() {
     if (over) { setScreen("subscription"); return; }
     if (!consumeAIMessage()) { setScreen("subscription"); return; }
 
-    // Auto-persona routing — switch endpoints if the keywords look
-    // like the other mode's territory.
+    // ── Persona routing — RESPECT THE USER'S CHOICE ──
+    // Old behaviour auto-flipped the global persona when keywords
+    // suggested the other mode. That created two real bugs the user
+    // reported: (1) every "exam" mention forced you out of Noor back
+    // to Omar even after you manually picked Noor, (2) you could get
+    // "stuck" in a force-switched persona and toggling back didn't
+    // hold for the next message.
+    //
+    // New behaviour: the user's chosen persona is the ONLY thing that
+    // routes the message. The keyword detector becomes a soft hint —
+    // we send the message, then if the inferred persona differs, we
+    // append a SwitchSuggestion card with two clear buttons. The user
+    // explicitly chooses to switch or stay. The PersonaToggle at the
+    // top of the screen is also always available for manual changes.
+    const activePersona = persona;
     const inferred = inferPersona(body, persona);
-    const isSwitching = inferred !== persona;
-    const activePersona = inferred;
-
-    const extras: AIMessage[] = [];
-    if (isSwitching) {
-      extras.push({
-        id: `sys-${Date.now()}`,
-        role: "system",
-        persona: activePersona,
-        body: activePersona === "noor"
-          ? "Switching you to Noor — this sounds like an exam-stress / motivation question."
-          : "Switching you to Omar — this sounds like a study question.",
-        createdAt: new Date().toISOString(),
-      });
-      setPersona(activePersona);
-    }
+    const shouldSuggestSwitch = inferred !== persona;
 
     const subject = inferSubject(body, activePersona);
     const userMsg: AIMessage = {
@@ -135,7 +133,7 @@ export function AIScreen() {
       createdAt: new Date().toISOString(),
       attachment: file ? { name: file.name, kind: fileKind(file.name) } : undefined,
     };
-    setMessages((m) => [...m, ...extras, userMsg]);
+    setMessages((m) => [...m, userMsg]);
     setDraft("");
     setAttachment(null);
 
@@ -164,7 +162,26 @@ export function AIScreen() {
         subject,
         createdAt: new Date().toISOString(),
       };
-      setMessages((m) => [...m, aiMsg]);
+      // Append the AI response, then optionally the switch-suggestion
+      // card. The card lets the user EXPLICITLY decide whether to
+      // switch personas — never auto-forced. PersonaToggle at the top
+      // remains always available for manual changes too.
+      setMessages((m) => {
+        const next = [...m, aiMsg];
+        if (shouldSuggestSwitch) {
+          next.push({
+            id: `sug-${Date.now()}`,
+            role: "system",
+            persona: activePersona,
+            body: inferred === "noor"
+              ? "This sounded more like an emotional / motivation question. Want to switch to Noor?"
+              : "This sounded more like a study / homework question. Want to switch to Omar?",
+            createdAt: new Date().toISOString(),
+            switchSuggestion: { suggested: inferred, current: activePersona },
+          });
+        }
+        return next;
+      });
     } else {
       // User-initiated cancel — silently drop the in-flight stream
       // without surfacing an error bubble. The streamed partial (if
@@ -248,7 +265,16 @@ export function AIScreen() {
           />
         ) : (
           <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
-            {messages.map((m) => <MessageRow key={m.id} msg={m} />)}
+            {messages.map((m) => (
+              <MessageRow
+                key={m.id}
+                msg={m}
+                onSwitchPersona={setPersona}
+                onDismissSuggestion={(id) =>
+                  setMessages((arr) => arr.filter((x) => x.id !== id))
+                }
+              />
+            ))}
             {/* Streaming live preview: render the partial response as
                 a real assistant bubble so the user sees text flow in
                 token-by-token. Once the stream finishes we commit
@@ -439,9 +465,31 @@ function ComposerRow({
   );
 }
 
-function MessageRow({ msg }: { msg: AIMessage }) {
+function MessageRow({
+  msg, onSwitchPersona, onDismissSuggestion,
+}: {
+  msg: AIMessage;
+  onSwitchPersona?: (p: AIPersona) => void;
+  onDismissSuggestion?: (msgId: string) => void;
+}) {
   if (msg.role === "user") return <UserMessage msg={msg} />;
-  if (msg.role === "system") return <SystemNotice msg={msg} />;
+  if (msg.role === "system") {
+    // Switch-suggestion cards get the explicit two-button render so
+    // the user can choose without ever being force-switched.
+    if (msg.switchSuggestion) {
+      return (
+        <SwitchSuggestionCard
+          msg={msg}
+          onSwitch={(p) => {
+            onSwitchPersona?.(p);
+            onDismissSuggestion?.(msg.id);
+          }}
+          onStay={() => onDismissSuggestion?.(msg.id)}
+        />
+      );
+    }
+    return <SystemNotice msg={msg} />;
+  }
   return <AIMessageView msg={msg} />;
 }
 
@@ -458,6 +506,48 @@ function SystemNotice({ msg }: { msg: AIMessage }) {
       >
         {icon}
         <span>{msg.body}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Two-button card that lets the user explicitly choose whether to
+ *  switch personas. Replaces the old auto-force-switch. The user can
+ *  also keep using the PersonaToggle at the top — this card is just
+ *  a polite contextual prompt, not the only way to switch. */
+function SwitchSuggestionCard({
+  msg, onSwitch, onStay,
+}: {
+  msg: AIMessage;
+  onSwitch: (p: AIPersona) => void;
+  onStay: () => void;
+}) {
+  const sug = msg.switchSuggestion!;
+  const suggestedColor = sug.suggested === "omar" ? "#5B4BF5" : "#0E8A6B";
+  const suggestedLabel = sug.suggested === "omar" ? "Omar" : "Noor";
+  const currentLabel = sug.current === "omar" ? "Omar" : "Noor";
+  const SuggestedIcon = sug.suggested === "omar" ? Brain : Heart;
+  return (
+    <div className="flex justify-center">
+      <div className="max-w-md w-full rounded-2xl bg-ink/5 border border-ink/10 px-4 py-3">
+        <div className="text-[13px] text-ink/75 mb-3 leading-relaxed">{msg.body}</div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onSwitch(sug.suggested)}
+            className="flex-1 h-9 rounded-full text-[13px] font-medium inline-flex items-center justify-center gap-1.5 text-white transition hover:opacity-90"
+            style={{ background: suggestedColor }}
+          >
+            <SuggestedIcon size={13} /> Switch to {suggestedLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onStay}
+            className="flex-1 h-9 rounded-full text-[13px] font-medium bg-bg border border-ink/15 text-ink/75 hover:bg-ink/5 transition"
+          >
+            Stay with {currentLabel}
+          </button>
+        </div>
       </div>
     </div>
   );
