@@ -9,8 +9,74 @@
 //   - checkRateLimit: FAIL-CLOSED rate limiter (prior version fails open if
 //     the RPC is unreachable — that lets unauth / env-misconfigured clients
 //     burn Anthropic budget).
+//   - getUserIdFromToken / isProUser: server-side Pro tier detection so
+//     the founder + tester accounts bypass rate limits (the client-only
+//     PRO_OVERRIDE wasn't enforcing on the API surface — bug).
 //
 // All helpers are pure / stateless so they work in Vercel Edge runtime.
+
+// ──────────────────────────────────────────────────────────────────────────
+// Pro tier detection (server-side mirror of src/lib/featureFlags.ts)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * User IDs that auto-receive Pro tier server-side, bypassing rate limits.
+ * MUST stay in sync with PRO_OVERRIDE_USER_IDS in src/lib/featureFlags.ts —
+ * the client uses that file for UI gating, the server uses this set for
+ * rate-limit bypass. Same five users, two enforcement points.
+ */
+const PRO_OVERRIDE_USER_IDS: ReadonlySet<string> = new Set([
+  // Ahmed Al Dulaimi — founder. All known signup emails.
+  "23a1bd67-2113-40c1-be19-e14aaecfc381", // ahmedfahad9000@gmail.com (PSUT)
+  "8e9400ed-359d-4b25-9a88-c5c5d9efe236", // basudrusjo@gmail.com (PSUT)
+  "551230d5-fe14-4f74-afb0-756db837fcd2", // a7medaldulaimi@icloud.com
+  "5ccb365b-4376-4513-928f-8551d86a6f08", // ahmedfahad9000@gmail.c (test signup)
+  "8547f447-ee4f-46ac-8fb7-6b2484c56801", // ahmedfahad9@ytjtk.ghhkj (test signup)
+]);
+
+/**
+ * Validate a Bearer token against Supabase /auth/v1/user and return the
+ * authenticated user's ID. Required for Pro tier checks because we can't
+ * trust an unsigned JWT — an attacker could craft a token with a Pro
+ * user's ID in the payload and bypass rate limits. Calling /auth/v1/user
+ * makes Supabase verify the signature server-side.
+ *
+ * Returns null on missing token, malformed header, network error, or
+ * any non-2xx response. Caller must handle null gracefully.
+ */
+export async function getUserIdFromToken(
+  authHeader: string | null,
+  supabaseUrl: string,
+  supabaseAnonKey: string,
+): Promise<string | null> {
+  if (!authHeader) return null;
+  const m = authHeader.match(/^Bearer\s+(\S+)$/);
+  if (!m) return null;
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+  try {
+    const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: authHeader,
+      },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { id?: string };
+    return typeof data.id === "string" && data.id.length > 0 ? data.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Server-side check for Pro access. Today only the override list — when
+ * PAYMENTS_LIVE goes true and real subscriptions are in the DB, this
+ * function should also query the subscriptions table.
+ */
+export function isProUser(userId: string | null): boolean {
+  if (!userId) return false;
+  return PRO_OVERRIDE_USER_IDS.has(userId);
+}
 
 export type Role = "user" | "assistant";
 

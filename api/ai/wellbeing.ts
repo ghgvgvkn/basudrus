@@ -9,6 +9,8 @@ import {
   sanitizeLine,
   sanitizeMessages,
   sanitizeMemory,
+  getUserIdFromToken,
+  isProUser,
 } from "../_lib/ai-guard";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -1698,24 +1700,30 @@ export default async function handler(req: Request) {
 
   try {
     // Rate limit — fails CLOSED on missing auth / env / RPC error so the
-    // endpoint cannot be farmed for free Anthropic calls.
+    // endpoint cannot be farmed for free Anthropic calls. Pro users
+    // (override list today, paid subs later) skip the rate limit;
+    // their JWT is verified server-side via Supabase so the bypass
+    // can't be spoofed.
     const authHeader = req.headers.get("authorization");
-    const rateCheck = await checkRateLimit({
-      supabaseUrl: SUPABASE_URL,
-      supabaseAnonKey: SUPABASE_ANON_KEY,
-      authHeader,
-      endpoint: "wellbeing",
-      daily: LIMITS.daily,
-      hourly: LIMITS.hourly,
-      minute: LIMITS.minute,
-    });
-    if (!rateCheck.allowed) {
-      return rateLimitResponse(rateCheck, sHeaders, {
-        cooldown: "Take a moment before your next message",
-        minute_limit: "Take a deep breath. I'll be here when you're ready.",
-        hourly_limit: "You've been talking a lot — that's good. Take a short break and come back soon.",
-        daily_limit: "You've reached today's limit. I'll be here tomorrow. Remember: you're not alone.",
+    const userId = await getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY);
+    if (!isProUser(userId)) {
+      const rateCheck = await checkRateLimit({
+        supabaseUrl: SUPABASE_URL,
+        supabaseAnonKey: SUPABASE_ANON_KEY,
+        authHeader,
+        endpoint: "wellbeing",
+        daily: LIMITS.daily,
+        hourly: LIMITS.hourly,
+        minute: LIMITS.minute,
       });
+      if (!rateCheck.allowed) {
+        return rateLimitResponse(rateCheck, sHeaders, {
+          cooldown: "Take a moment before your next message",
+          minute_limit: "Take a deep breath. I'll be here when you're ready.",
+          hourly_limit: "You've been talking a lot — that's good. Take a short break and come back soon.",
+          daily_limit: "You've reached today's limit. I'll be here tomorrow. Remember: you're not alone.",
+        });
+      }
     }
 
     // readCappedJson enforces MAX_BODY_BYTES even when Content-Length is
