@@ -26,47 +26,40 @@
  *   - Errors throw; the caller swallows or surfaces a toast.
  */
 
-import * as pdfjsLib from "pdfjs-dist";
+// IMPORTANT: we import pdfjs's LEGACY build (transpiled to broader
+// ES targets) instead of the modern build. Real bug a student hit:
+// the modern build's minified main-thread code crashed with
+// "undefined is not a function (near '...n of e...')" on a normal
+// PDF — a known incompatibility between the modern build's iterable
+// protocols and certain bundler/worker pipeline combinations. The
+// legacy build is shipped specifically for this reason and parses
+// the same documents with no behavioural difference for our use case.
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
-// pdfjs needs a worker. Two viable Vite imports:
-//   (a) `?url`    → string URL pdfjs uses to construct its own Worker.
-//   (b) `?worker` → Worker constructor; we instantiate directly and
-//                   pass the port to pdfjs via `workerPort`.
-//
-// Path (b) is more reliable for production module workers — the
-// previous (a)-only setup silently failed for some students on what
-// looked like normal PDFs because the URL-based worker construction
-// hit edge cases (CSP nuances, redirects, missing module type),
-// after which pdfjs fell back to its internal "fake worker" which
-// throws on otherwise-valid PDFs.
-//
-// Setup runs lazily on first extraction so module load never blocks
-// and we can fall through gracefully on environments where neither
-// import works (very old browsers, ad-blockers that nuke workers).
+// Worker setup. We use the URL-import form + Vite's `worker.format:
+// "es"` (set in vite.config.ts) so pdfjs receives an ES module worker
+// — the only kind it talks to natively. Setup runs lazily on first
+// extraction so module load never blocks and we can fall through
+// gracefully on environments without worker support.
 
 let workerInitPromise: Promise<void> | null = null;
 
 async function ensureWorker(): Promise<void> {
   if (workerInitPromise) return workerInitPromise;
   workerInitPromise = (async () => {
-    // Try the Worker-constructor path first.
     try {
-      const mod = await import("pdfjs-dist/build/pdf.worker.min.mjs?worker");
-      const WorkerCtor = (mod as { default: new () => Worker }).default;
-      pdfjsLib.GlobalWorkerOptions.workerPort = new WorkerCtor();
-      return;
-    } catch {
-      // Fall through to the URL path.
-    }
-    // URL path — older / non-module-worker fallback.
-    try {
-      const mod = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+      // Legacy build's worker file. Vite emits this as an ES module
+      // (per vite.config.ts → worker.format: "es"), which pdfjs
+      // accepts directly via workerSrc.
+      const mod = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url");
       const url = (mod as { default: string }).default;
       pdfjsLib.GlobalWorkerOptions.workerSrc = url;
-    } catch {
-      // Both paths failed — pdfjs will surface a clear error when
-      // getDocument() is called; the caller will show "couldn't
-      // initialize PDF reader".
+    } catch (e) {
+      // Worker URL import failed — this means our build is broken or
+      // network blocked the asset. pdfjs will surface a "Setting up
+      // fake worker failed" error on getDocument(); the caller
+      // classifies that as PdfWorkerError.
+      if (import.meta.env.DEV) console.warn("[extractPdf] worker init failed:", e);
     }
   })();
   return workerInitPromise;

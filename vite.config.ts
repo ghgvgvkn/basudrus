@@ -24,4 +24,15 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: true,
   },
+  // Worker bundling format. pdfjs v5's worker needs to communicate
+  // with the main thread using structured-clone iterables (Maps,
+  // typed arrays inside generator-like protocols). The default Vite
+  // "iife" output produces a CLASSIC worker that wraps the code
+  // differently — pdfjs's minified main-thread code then throws
+  // "undefined is not a function (near '...n of e...')" because the
+  // worker delivers data shapes pdfjs can't iterate over. Forcing
+  // "es" emits a real module worker that pdfjs talks to natively.
+  worker: {
+    format: "es",
+  },
 });
