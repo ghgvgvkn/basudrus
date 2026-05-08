@@ -148,7 +148,7 @@ export interface AIMessage {
    *  artifact union expands as we add more types (study plans,
    *  professor emails, CVs, etc.). The renderer dispatches on
    *  artifact.kind. */
-  artifact?: StudyPlanArtifact | ProfessorEmailArtifact;
+  artifact?: StudyPlanArtifact | ProfessorEmailArtifact | RelationshipMessageArtifact;
   /** Optional attachment the user sent with this message. */
   attachment?: {
     name: string;
@@ -246,6 +246,44 @@ export interface ProfessorEmailArtifact {
    *  rejects. Rendered below the card in subdued text, NOT inside
    *  the email body the student copies. */
   coachingNote?: string;
+}
+
+/** Day 16 — drafted message Noor helps the student send to someone
+ *  in their life (partner, friend, family). NOT real-time mediation.
+ *  Student copies / sends themselves. Strong safeguards apply on the
+ *  prompt side: Noor refuses to draft when abuse signals, manipulation
+ *  intent, or out-of-scope requests are detected. */
+export interface RelationshipMessageArtifact {
+  kind: "relationshipMessage";
+  /** Recipient — first name or descriptor ("Mom", "Yousef",
+   *  "my best friend Layla"). */
+  recipient: string;
+  /** Channel — drives the icon + label, NOT auto-send. The student
+   *  always copies and pastes themselves. */
+  channel: "whatsapp" | "imessage" | "instagram_dm" | "in_person" | "email" | "other";
+  /** Type of message. Determines the drafting style + which
+   *  safeguards / coaching notes apply. */
+  messageType: "general" | "boundary_setting" | "goodbye" | "family_conversation" | "apology" | "checkin";
+  /** The drafted message body. For "in_person" channel this is a
+   *  conversation OUTLINE / talking points, not a single message. */
+  body: string;
+  /** Tone tier — warm (light, friendly), direct (clear, plain),
+   *  firm (boundary-style, non-negotiable), compassionate (heavy
+   *  topic, soft delivery). */
+  tone: "warm" | "direct" | "firm" | "compassionate";
+  /** Language — drives copy direction (LTR/RTL) + localized labels. */
+  lang: "en" | "ar";
+  /** Coaching note from Noor — when to send, what to expect, what
+   *  to do if reaction is bad. Lives BELOW the card so it doesn't
+   *  get copied accidentally. */
+  coachingNote?: string;
+  /** Optional explicit RISK note — used for high-stakes types
+   *  (goodbye, boundary_setting). Surfaced prominently in the card
+   *  so the student sees the risk before sending. */
+  riskNote?: string;
+  /** Optional 24-hour soft delay suggestion — Noor sets this for
+   *  high-emotion drafts so the student is reminded to sleep on it. */
+  suggestSleepOnIt?: boolean;
 }
 
 /** One conversation in the AI history drawer. */

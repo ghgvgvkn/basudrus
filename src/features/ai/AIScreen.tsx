@@ -34,12 +34,14 @@ import type { AIMessage, AIPersona, AISubject } from "@/shared/types";
 import { fallbackGradient, inferSubject } from "./messageBg";
 import { StudyPlanArtifact } from "./studyPlanArtifact";
 import { ProfessorEmailArtifact } from "./professorEmailArtifact";
+import { RelationshipMessageArtifact } from "./relationshipMessageArtifact";
 import { TutorMessageBody } from "./TutorMessageBody";
 import { useStreamingAI, type ChatMsg } from "./useStreamingAI";
 import { compressImage } from "./compressImage";
 import { parseQuickReplies } from "./parseQuickReplies";
 import { parseStudyPlan } from "./parseStudyPlan";
 import { parseProfessorEmail } from "./parseProfessorEmail";
+import { parseRelationshipMessage } from "./parseRelationshipMessage";
 import { useSavedMessages } from "./useSavedMessages";
 import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
 import { paletteFor } from "./subjectPalette";
@@ -400,15 +402,16 @@ export function AIScreen() {
       // making the student read the marker syntax. Both Bas Udros
       // and Noor are instructed (via system prompt) to emit this
       // block whenever they ask a question with 3-5 typical answers.
-      // Three-stage parsing: pull off any STUDY_PLAN or
-      // PROFESSOR_EMAIL block first (so the JSON doesn't leak into
-      // the visible body), then strip <<<OPTIONS>>> chips from what
-      // remains. Plan and email artifacts are mutually exclusive on
-      // the same turn — if Omar somehow emitted both, the plan wins
-      // (it's the more "load-bearing" output).
+      // Four-stage parsing: pull off STUDY_PLAN, then PROFESSOR_EMAIL,
+      // then RELATIONSHIP_MESSAGE blocks first (so the JSON doesn't
+      // leak into the visible body), then strip <<<OPTIONS>>> chips
+      // from what remains. Artifacts are typically mutually exclusive
+      // on a single turn; precedence if multiple appear: plan > email
+      // > relationship message. (Most "load-bearing" output wins.)
       const planParsed = parseStudyPlan(result.assistant);
       const emailParsed = parseProfessorEmail(planParsed.body);
-      const parsed = parseQuickReplies(emailParsed.body);
+      const relMsgParsed = parseRelationshipMessage(emailParsed.body);
+      const parsed = parseQuickReplies(relMsgParsed.body);
       const aiMsg: AIMessage = {
         id: `a-${Date.now()}`,
         role: "ai",
@@ -417,9 +420,15 @@ export function AIScreen() {
         quickReplies: parsed.quickReplies.length > 0 ? parsed.quickReplies : undefined,
         subject,
         createdAt: new Date().toISOString(),
-        // Attach whichever artifact Omar emitted this turn. Plan
-        // takes priority when both are present (rare).
-        artifact: planParsed.artifact ?? emailParsed.artifact ?? undefined,
+        // Attach whichever artifact was emitted this turn. Precedence:
+        // plan > email > relationship message. (Mutually exclusive
+        // in practice; precedence only matters if the AI somehow
+        // emitted multiple, which the prompts forbid.)
+        artifact:
+          planParsed.artifact
+          ?? emailParsed.artifact
+          ?? relMsgParsed.artifact
+          ?? undefined,
       };
       // Append the AI response, then optionally the switch-suggestion
       // card. The card lets the user EXPLICITLY decide whether to
@@ -622,7 +631,7 @@ export function AIScreen() {
                   // hasn't closed yet (the AI is still emitting), so
                   // the streaming feel is unaffected — only the visual
                   // flash is hidden once the closer arrives.
-                  body: parseQuickReplies(parseProfessorEmail(parseStudyPlan(ai.partial).body).body).body,
+                  body: parseQuickReplies(parseRelationshipMessage(parseProfessorEmail(parseStudyPlan(ai.partial).body).body).body).body,
                   createdAt: new Date().toISOString(),
                 }}
               />
@@ -1382,6 +1391,9 @@ function AIMessageView({
         )}
         {msg.artifact && msg.artifact.kind === "professorEmail" && (
           <ProfessorEmailArtifact artifact={msg.artifact} />
+        )}
+        {msg.artifact && msg.artifact.kind === "relationshipMessage" && (
+          <RelationshipMessageArtifact artifact={msg.artifact} />
         )}
         {/* Quick-reply chips — extracted from the AI's <<<OPTIONS>>>
             block. Tappable shortcuts so students don't have to type.
