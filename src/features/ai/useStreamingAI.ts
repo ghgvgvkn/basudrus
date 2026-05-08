@@ -66,15 +66,23 @@ export interface StreamingAIState {
        *  can actually see the image. */
       imageBase64?: string;
       imageMediaType?: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-      /** Optional: extracted PDF / document text attached to THIS
-       *  turn. Built client-side via extractPdf(). The API injects
-       *  it into the system prompt as a fenced "document context"
-       *  block so Bas Udros can answer questions about its content
-       *  without us having to send the file itself to Anthropic. */
+      /** Optional: PDF attached to THIS turn, base64-encoded. Sent
+       *  directly to Anthropic as a `document` content block — Claude
+       *  reads the PDF natively (text + figures + scans via OCR), no
+       *  client-side extraction needed. Replaces the previous pdfjs
+       *  text-extraction path which had compatibility issues on iOS
+       *  Safari with module workers. */
+      pdfBase64?: string;
+      /** Original filename for display ("midterm-2024.pdf"). */
+      pdfName?: string;
+      /** Optional: extracted plain-text document content (.txt, .doc,
+       *  etc — non-PDF formats). Injected into the system prompt as
+       *  a fenced block. Empty when the upload was a PDF (use
+       *  pdfBase64 instead). */
       documentContext?: string;
       /** Optional: human-readable label for the document above
-       *  ("Calculus II — Chapter 7.pdf · 12 pages"). Surfaced in
-       *  the prompt so the AI can reference the source naturally. */
+       *  ("Lecture notes.txt"). Surfaced in the prompt so the AI
+       *  can reference the source naturally. */
       documentLabel?: string;
     },
   ) => Promise<{ ok: true; assistant: string } | { ok: false; reason: StreamErrorReason; message?: string }>;
@@ -223,9 +231,15 @@ export function useStreamingAI(): StreamingAIState {
           // so total request body stays under the edge function cap.
           imageBase64:    context.imageBase64    ?? undefined,
           imageMediaType: context.imageMediaType ?? undefined,
-          // Extracted document text (PDF, .docx, .txt) attached to
-          // this turn. The API injects it as a fenced block in the
-          // system prompt so the AI can reference its content.
+          // PDF attached to this turn — base64-encoded. Sent directly
+          // to Anthropic as a `document` content block (no client-side
+          // extraction). Claude reads the PDF natively. Capped at
+          // 1 MB raw client-side so the request fits in our 1.5 MB
+          // edge-function body limit after base64 inflation.
+          pdfBase64: context.pdfBase64 ?? undefined,
+          pdfName:   context.pdfName   ?? undefined,
+          // Plain-text document content (.txt, .doc — non-PDF).
+          // Injected as a fenced block in the system prompt.
           documentContext: context.documentContext ?? undefined,
           documentLabel:   context.documentLabel   ?? undefined,
         }),

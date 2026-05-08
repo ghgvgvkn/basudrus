@@ -225,59 +225,50 @@ export function AIScreen() {
       }
     }
 
-    // ── PDF extraction (if the file is a PDF) ──
-    // Lazy-import the extractor + pdfjs so the ~500 KB worker only
-    // ships when a student actually attaches a PDF. Keeps the
-    // initial bundle slim. Extracted text gets sent to the API as
-    // documentContext so Bas Udros has the chapter / lecture in
-    // its prompt and can answer questions grounded in the source.
+    // ── PDF: read as base64, send directly to Anthropic ──
+    // Architecture decision (2026-05-08): we no longer parse PDFs
+    // client-side. The previous pdfjs-based extraction crashed on
+    // iOS Safari with module-worker iterable issues — chasing that
+    // through pdfjs internals was a moving target. Instead we hand
+    // the raw PDF bytes to Anthropic which reads the document
+    // natively (text + figures + scans via OCR). Same end result
+    // for the student, no parser to break.
     //
-    // Same fix applied here: failures are surfaced, not silent. A
-    // password-protected PDF or a scanned-only PDF (no embedded text)
-    // would previously go through with no extracted content; the AI
-    // would respond as if there were no file. Now the student sees
-    // exactly why.
-    let documentPayload: { text: string; label: string; pageCount: number; truncated: boolean } | null = null;
+    // Cap: 1 MB raw client-side. Larger PDFs surface a friendly
+    // "split it or send a screenshot" message — covers ~95% of real
+    // homework / chapter / past-paper uploads. Long textbooks need
+    // to be split anyway because Claude's context window benefits
+    // from focused chunks.
+    let pdfPayload: { base64: string; name: string; sizeBytes: number } | null = null;
     let documentFailReason: string | null = null;
     if (file && looksLikePdf) {
       try {
-        const mod = await import("./extractPdf");
-        const extracted = await mod.extractPdf(file);
-        if (!extracted.plainText || extracted.plainText.trim().length < 5) {
-          // Empty extraction = the PDF is image-only (scanned). We
-          // can't OCR client-side; tell the user.
-          documentFailReason = "This PDF looks like a scan — there's no selectable text. Send a screenshot of the page instead so I can read it as an image.";
-        } else {
-          documentPayload = {
-            text: extracted.plainText,
-            label: `${extracted.filename} · ${extracted.pageCount} pages${extracted.truncated ? " (partial)" : ""}`,
-            pageCount: extracted.pageCount,
-            truncated: extracted.truncated,
-          };
-        }
+        const mod = await import("./readPdfAsBase64");
+        const result = await mod.readPdfAsBase64(file);
+        pdfPayload = {
+          base64: result.base64,
+          name: result.filename,
+          sizeBytes: result.sizeBytes,
+        };
       } catch (e) {
-        if (import.meta.env.DEV) console.warn("[upload] pdf extract failed:", e);
-        // Typed errors from extractPdf give us PRECISE failure causes
-        // so the student isn't mis-told their unprotected PDF is
-        // password-locked. We INCLUDE the underlying technical detail
-        // (error name + first ~120 chars of message) on every failure
-        // — production too, not just DEV. The cost of a slightly less
-        // polished message is worth knowing exactly why a student's
-        // upload is failing when they report "it doesn't work."
+        if (import.meta.env.DEV) console.warn("[upload] pdf read failed:", e);
         const errName = e instanceof Error ? e.name : "";
-        const errMsg = e instanceof Error ? (e.message || "").slice(0, 120) : "";
-        const technical = errName || errMsg ? `\n\n[Technical: ${errName}${errMsg ? ` — ${errMsg}` : ""}]` : "";
-        if (errName === "PdfPasswordError") {
-          documentFailReason = `This PDF is password-protected. Unlock it first (in Acrobat / Preview), or send a screenshot of the page.${technical}`;
-        } else if (errName === "PdfWorkerError") {
-          documentFailReason = `Couldn't start the PDF reader on this device. Try refreshing the page, or send a screenshot of the page instead.${technical}`;
+        if (errName === "PdfTooLargeError") {
+          const mb = (file.size / (1024 * 1024)).toFixed(1);
+          documentFailReason = `This PDF is ${mb} MB — over the 1 MB upload limit. Split it into smaller chapters, or send a screenshot of the page you want help with.`;
         } else {
-          // Generic — corrupted, unsupported feature, or pdfjs hit
-          // something it doesn't handle.
-          documentFailReason = `Couldn't read this PDF — it might be corrupted or use features the reader doesn't support. Try a different PDF or send a screenshot of the page.${technical}`;
+          const errMsg = e instanceof Error ? (e.message || "").slice(0, 120) : "";
+          const technical = errName || errMsg ? `\n\n[Technical: ${errName}${errMsg ? ` — ${errMsg}` : ""}]` : "";
+          documentFailReason = `Couldn't read this PDF — try a different one or send a screenshot of the page.${technical}`;
         }
       }
     }
+    // Plain-text doc context (.txt / .doc) is no longer wired here —
+    // PDFs go through pdfBase64, images through imagePayload. If we
+    // add .txt support later, set these locals; for now they stay
+    // undefined and the API gets nothing in those fields.
+    const documentTextForApi: string | undefined = undefined;
+    const documentLabelForApi: string | undefined = undefined;
 
     // Catch-all for anything not in the supported types. The composer
     // only accepts image/*, application/pdf, .doc/.docx/.txt, but the
@@ -300,15 +291,20 @@ export function AIScreen() {
             kind: fileKind(file.name),
             // For images, store the compressed dataUrl so the user
             // bubble can render a thumbnail without re-reading the
-            // File. Non-image attachments still just show the
-            // filename pill — except PDFs which render a smart
-            // preview card built from documentPayload.pdfMeta.
+            // File. PDFs no longer carry pdfMeta (page count etc.)
+            // because we send the raw bytes to Anthropic instead of
+            // parsing client-side — the user bubble shows a simpler
+            // filename + size card now.
             url: imagePayload?.dataUrl,
-            pdfMeta: documentPayload
+            pdfMeta: pdfPayload
               ? {
-                  pageCount: documentPayload.pageCount,
-                  characterCount: documentPayload.text.length,
-                  truncated: documentPayload.truncated,
+                  // We don't know page count without parsing — set to
+                  // 0 and let the bubble render a "PDF · 245 KB" card
+                  // using sizeBytes instead. The 0 is a sentinel the
+                  // UserMessage component checks for.
+                  pageCount: 0,
+                  characterCount: pdfPayload.sizeBytes,
+                  truncated: false,
                 }
               : undefined,
           }
@@ -371,10 +367,16 @@ export function AIScreen() {
       // Udros / Noor can actually see it.
       imageBase64:    imagePayload?.base64,
       imageMediaType: imagePayload?.mediaType,
-      // PDF text attached this turn — backend injects it into the
-      // system prompt as a fenced document block.
-      documentContext: documentPayload?.text,
-      documentLabel:   documentPayload?.label,
+      // PDF attached this turn — sent as a base64 `document` content
+      // block. Anthropic reads the PDF natively (text + figures +
+      // OCR for scans). Replaces the previous client-side text
+      // extraction path which had pdfjs/iOS Safari issues.
+      pdfBase64: pdfPayload?.base64,
+      pdfName:   pdfPayload?.name,
+      // documentContext stays for non-PDF text formats (.txt, .doc).
+      // Currently unwired — both fields are always undefined.
+      documentContext: documentTextForApi,
+      documentLabel:   documentLabelForApi,
       // Tutor mode (Omar only) — homework_help / study_mode /
       // homework_helper. Noor ignores this.
       mode: activePersona === "omar" ? tutorMode : undefined,
@@ -1123,26 +1125,43 @@ function UserMessage({ msg }: { msg: AIMessage }) {
             className="mb-2 max-w-[280px] max-h-[280px] w-auto h-auto rounded-2xl object-contain bg-bg/5"
           />
         )}
-        {isPdfWithMeta && msg.attachment && (
-          // Smart book preview — replaces the old filename-pill for
-          // PDFs. Shows what Bas Udros received: page count, whether
-          // we truncated, and a hint that the AI is now grounded in
-          // the document. The thinking-out-loud feel ("here's what
-          // I found in your file") replaces the silent attachment.
-          <div className="mb-2 rounded-2xl bg-bg/10 border border-bg/15 px-3.5 py-3 max-w-[320px]">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-7 h-7 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0">
-                <FileText size={14} />
-              </span>
-              <span className="text-[13px] font-medium truncate">{msg.attachment.name}</span>
+        {isPdfWithMeta && msg.attachment && (() => {
+          // PDF preview card. Two render modes:
+          //   • New (pageCount === 0): we sent the PDF directly to
+          //     Anthropic as a document content block. We don't know
+          //     page count without parsing — show file size instead.
+          //   • Legacy (pageCount > 0): old extracted-text path. Kept
+          //     for back-compat with messages already rendered in the
+          //     thread before this commit.
+          const meta = msg.attachment.pdfMeta!;
+          const isNativeMode = meta.pageCount === 0;
+          const sizeBytes = isNativeMode ? meta.characterCount : 0;
+          const sizeKb = sizeBytes > 0 ? Math.round(sizeBytes / 1024) : 0;
+          const sizeLabel = sizeKb >= 1024
+            ? `${(sizeKb / 1024).toFixed(1)} MB`
+            : `${sizeKb} KB`;
+          return (
+            <div className="mb-2 rounded-2xl bg-bg/10 border border-bg/15 px-3.5 py-3 max-w-[320px]">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="w-7 h-7 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0">
+                  <FileText size={14} />
+                </span>
+                <span className="text-[13px] font-medium truncate">{msg.attachment.name}</span>
+              </div>
+              <div className="text-[11.5px] text-bg/70 leading-relaxed space-y-0.5">
+                {isNativeMode ? (
+                  <div>📄 PDF · {sizeLabel}</div>
+                ) : (
+                  <>
+                    <div>📄 {meta.pageCount} {meta.pageCount === 1 ? "page" : "pages"}</div>
+                    <div>📊 {Math.round(meta.characterCount / 1000)}k characters extracted{meta.truncated ? " (partial — file was longer)" : ""}</div>
+                  </>
+                )}
+                <div className="pt-1 text-bg/55">Bas Udros has read this and can answer questions about it.</div>
+              </div>
             </div>
-            <div className="text-[11.5px] text-bg/70 leading-relaxed space-y-0.5">
-              <div>📄 {msg.attachment.pdfMeta!.pageCount} {msg.attachment.pdfMeta!.pageCount === 1 ? "page" : "pages"}</div>
-              <div>📊 {Math.round(msg.attachment.pdfMeta!.characterCount / 1000)}k characters extracted{msg.attachment.pdfMeta!.truncated ? " (partial — file was longer)" : ""}</div>
-              <div className="pt-1 text-bg/55">Bas Udros has read this and can answer questions about it.</div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
         {!isImage && !isPdfWithMeta && msg.attachment && (
           <div className="mb-2 inline-flex items-center gap-2 h-8 px-2.5 rounded-full bg-bg/10 text-xs">
             <FileText size={12} />

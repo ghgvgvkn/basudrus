@@ -1304,15 +1304,20 @@ export default async function handler(req: Request) {
       // with an Anthropic multimodal content block so the model can
       // actually see the image.
       imageBase64?: unknown; imageMediaType?: unknown;
-      // Document context: extracted text from a PDF / .docx / .txt
-      // file attached to THIS turn. Capped client-side at 60 KB.
-      // Surfaced in the system prompt as a fenced block so the AI
-      // can reference its content without us pushing the file itself
-      // to Anthropic.
+      // PDF: full base64 of the file. Sent as an Anthropic `document`
+      // content block on the last user message — Claude reads the
+      // PDF natively (text + figures + scans via OCR) instead of us
+      // extracting text client-side. Capped at ~1.4 MB string length
+      // (~1 MB raw) so it fits inside MAX_BODY_BYTES alongside
+      // history + system prompt.
+      pdfBase64?: unknown; pdfName?: unknown;
+      // Plain-text document context: only used for non-PDF formats
+      // (.txt, .doc) where extraction still makes sense client-side.
+      // Injected as a fenced block in the system prompt.
       documentContext?: unknown; documentLabel?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, imageBase64, imageMediaType, documentContext, documentLabel } = body || {};
+    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, imageBase64, imageMediaType, pdfBase64, pdfName, documentContext, documentLabel } = body || {};
 
     // ── Sanitise every field flowing into the prompt (prompt-injection
     //    hardening). The system prompt is built in three layers:
@@ -1436,20 +1441,32 @@ If the student asks a question that goes beyond what's in the document, answer u
       typeof imageMediaType === "string" &&
       (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType);
 
+    // PDF-as-document: Anthropic supports a `document` content block
+    // that takes a base64-encoded PDF directly. Claude reads it
+    // natively (text + figures + scans via OCR), so we never need
+    // client-side PDF parsing. Accept it on the same multimodal
+    // last-user-message as images. Same length cap as images so we
+    // stay under the edge-function body limit.
+    const hasPdf =
+      typeof pdfBase64 === "string" &&
+      pdfBase64.length > 100 &&
+      pdfBase64.length < 1_400_000;
+
     // Anthropic accepts a `content` field that is either a string or
     // an array of typed blocks. We only switch the LAST message into
     // block form; older history stays as plain text (we don't store
-    // historical images — they live only on the turn they're sent).
+    // historical images / docs — they live only on the turn sent).
     type ContentBlock =
       | { type: "text"; text: string }
-      | { type: "image"; source: { type: "base64"; media_type: AllowedMedia; data: string } };
+      | { type: "image"; source: { type: "base64"; media_type: AllowedMedia; data: string } }
+      | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
     type AnthropicMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
 
     const finalMessages: AnthropicMessage[] = apiMessages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
-    if (hasImage) {
+    if (hasImage || hasPdf) {
       // Find the last user message (which should be the latest turn).
       let idx = finalMessages.length - 1;
       while (idx >= 0 && finalMessages[idx].role !== "user") idx -= 1;
@@ -1457,28 +1474,39 @@ If the student asks a question that goes beyond what's in the document, answer u
         const existingText = typeof finalMessages[idx].content === "string"
           ? (finalMessages[idx].content as string)
           : "";
-        finalMessages[idx] = {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: imageMediaType as AllowedMedia,
-                data: imageBase64 as string,
-              },
+        const blocks: ContentBlock[] = [];
+        if (hasPdf) {
+          // Document block — Anthropic reads the PDF directly.
+          blocks.push({
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: pdfBase64 as string,
             },
-            {
-              // If the user typed nothing alongside the image, prompt
-              // Bas Udros to engage with the image directly via the
-              // Socratic ladder rather than going silent.
-              type: "text",
-              text: existingText.trim().length > 0
-                ? existingText
-                : "I'm sharing this image with you — please look at it carefully and help me work through whatever it shows, using the Socratic method.",
+          });
+        }
+        if (hasImage) {
+          blocks.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: imageMediaType as AllowedMedia,
+              data: imageBase64 as string,
             },
-          ],
-        };
+          });
+        }
+        // If the user typed nothing alongside the attachment, prompt
+        // Bas Udros to engage with it directly via the Socratic
+        // ladder rather than going silent.
+        const fallbackText = hasPdf
+          ? `I'm sharing this PDF (${sanitizeLine(pdfName, 100) || "document.pdf"}) with you — please read it carefully and help me work through it using the Socratic method.`
+          : "I'm sharing this image with you — please look at it carefully and help me work through whatever it shows, using the Socratic method.";
+        blocks.push({
+          type: "text",
+          text: existingText.trim().length > 0 ? existingText : fallbackText,
+        });
+        finalMessages[idx] = { role: "user", content: blocks };
       }
     }
 
