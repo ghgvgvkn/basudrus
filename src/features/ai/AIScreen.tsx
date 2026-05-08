@@ -40,6 +40,7 @@ import { parseQuickReplies } from "./parseQuickReplies";
 import { useSavedMessages } from "./useSavedMessages";
 import { useStreak, MILESTONES, type MilestoneEvent } from "./useStreak";
 import { paletteFor } from "./subjectPalette";
+import { useTutorMemory } from "./useTutorMemory";
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
@@ -496,30 +497,72 @@ export function AIScreen() {
 
 // ───────────────────────── minimal empty state ─────────────────────────
 
-/** Open-chat empty state. No persona cards, no hero visuals — just a
- *  serif greeting and a few prompt pills above the persistent composer. */
+/** Open-chat empty state — personalised. Pulls a memory-driven
+ *  greeting from useTutorMemory (built from streak + tutor_progress
+ *  data) so a returning student sees "It's been 3 days, want to
+ *  revisit calculus?" instead of the generic prompt every time.
+ *  Falls back to the original generic greeting on first-time users
+ *  and during initial load.
+ *
+ *  Memory-driven prompts get a subtle subject-palette accent (ring +
+ *  text color) so "Quiz me on math" looks visually different from
+ *  the generic "Build me a 5-day plan" — the personalised ones are
+ *  meant to be the eye's first stop. */
 function EmptyChatState({ persona, onQuick }: { persona: AIPersona; onQuick: (text: string) => void }) {
-  const prompts = persona === "omar" ? OMAR_PROMPTS : NOOR_PROMPTS;
-  const greet = persona === "omar" ? "What are we learning today?" : "What's on your mind?";
+  const memory = useTutorMemory(persona);
+  const accent = memory.recentSubject ? paletteFor(memory.recentSubject) : null;
+  // The first N prompts are memory-driven; the rest are generic.
+  // We track which is which to apply different styling. memory.prompts
+  // is already prefixed with memory entries; we slice based on the
+  // simple heuristic that personalised prompts mention a subject
+  // label or "where we left off" / "warm up". Easier: anything in the
+  // generic OMAR_PROMPTS / NOOR_PROMPTS list is generic; the rest is
+  // memory-driven. Reads cleanly without exposing internals.
+  const isMemoryDriven = (p: string) =>
+    !OMAR_PROMPTS.includes(p) && !NOOR_PROMPTS.includes(p);
   return (
     <div className="h-full flex items-center justify-center">
       <div className="max-w-2xl w-full mx-auto px-6 text-center">
         <h1 className="font-serif italic text-3xl md:text-5xl text-ink leading-[1.1]">
-          {greet}
+          {memory.greeting}
         </h1>
-        <p className="mt-3 text-ink/55 text-sm md:text-base">
-          Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Omar)" : "AI (Noor)"}</span>. I'll switch modes if the topic calls for it.
-        </p>
+        {memory.subline ? (
+          <p className="mt-3 text-ink/55 text-sm md:text-base max-w-xl mx-auto leading-relaxed">
+            {memory.subline}
+          </p>
+        ) : (
+          <p className="mt-3 text-ink/55 text-sm md:text-base">
+            Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Omar)" : "AI (Noor)"}</span>. I'll switch modes if the topic calls for it.
+          </p>
+        )}
         <div className="mt-7 flex flex-wrap justify-center gap-2">
-          {prompts.map((p) => (
-            <button
-              key={p}
-              onClick={() => onQuick(p)}
-              className="h-9 px-3.5 rounded-full border border-ink/12 text-[13px] text-ink/75 hover:border-ink/35 hover:text-ink hover:bg-ink/5 transition"
-            >
-              {p}
-            </button>
-          ))}
+          {memory.prompts.map((p) => {
+            const personalised = isMemoryDriven(p);
+            // Personalised prompts get the subject palette tint so
+            // they read as the eye's first stop. Generic prompts
+            // keep the neutral border to avoid visual noise.
+            const style = personalised && accent
+              ? {
+                  borderColor: `${accent.accent}55`,
+                  color: accent.accent,
+                  background: `${accent.accent}0D`,
+                }
+              : undefined;
+            return (
+              <button
+                key={p}
+                onClick={() => onQuick(p)}
+                className={
+                  personalised && accent
+                    ? "h-9 px-3.5 rounded-full border text-[13px] hover:opacity-80 transition active:scale-95"
+                    : "h-9 px-3.5 rounded-full border border-ink/12 text-[13px] text-ink/75 hover:border-ink/35 hover:text-ink hover:bg-ink/5 transition"
+                }
+                style={style}
+              >
+                {p}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
