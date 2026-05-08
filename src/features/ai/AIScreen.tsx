@@ -241,8 +241,8 @@ export function AIScreen() {
     let documentFailReason: string | null = null;
     if (file && looksLikePdf) {
       try {
-        const { extractPdf } = await import("./extractPdf");
-        const extracted = await extractPdf(file);
+        const mod = await import("./extractPdf");
+        const extracted = await mod.extractPdf(file);
         if (!extracted.plainText || extracted.plainText.trim().length < 5) {
           // Empty extraction = the PDF is image-only (scanned). We
           // can't OCR client-side; tell the user.
@@ -257,7 +257,21 @@ export function AIScreen() {
         }
       } catch (e) {
         if (import.meta.env.DEV) console.warn("[upload] pdf extract failed:", e);
-        documentFailReason = "Couldn't read this PDF — it might be password-protected. Try unlocking it first, or send a screenshot of the page.";
+        // Typed errors from extractPdf give us PRECISE failure causes
+        // so the student isn't mis-told their unprotected PDF is
+        // password-locked. We import lazily to avoid circular imports.
+        const errName = e instanceof Error ? e.name : "";
+        if (errName === "PdfPasswordError") {
+          documentFailReason = "This PDF is password-protected. Unlock it first (in Acrobat / Preview), or send a screenshot of the page.";
+        } else if (errName === "PdfWorkerError") {
+          documentFailReason = "Couldn't start the PDF reader on this device. Try refreshing the page, or send a screenshot of the page instead.";
+        } else {
+          // Generic — corrupted, unsupported feature, or pdfjs hit
+          // something it doesn't handle. Includes the underlying
+          // error message in DEV builds so we can diagnose.
+          const detail = (e instanceof Error && import.meta.env.DEV) ? ` (${e.message})` : "";
+          documentFailReason = `Couldn't read this PDF — it might be corrupted or use features the reader doesn't support. Try a different PDF or send a screenshot of the page.${detail}`;
+        }
       }
     }
 

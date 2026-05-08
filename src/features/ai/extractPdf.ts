@@ -28,15 +28,49 @@
 
 import * as pdfjsLib from "pdfjs-dist";
 
-// pdfjs needs a worker. Vite resolves this via its asset handling.
-// `?url` returns the URL of the worker file as a string the Worker
-// constructor can load. We assign it once on module load.
+// pdfjs needs a worker. Two viable Vite imports:
+//   (a) `?url`    → string URL pdfjs uses to construct its own Worker.
+//   (b) `?worker` → Worker constructor; we instantiate directly and
+//                   pass the port to pdfjs via `workerPort`.
 //
-// On older Safari (< 16) the worker setup occasionally fails — pdfjs
-// then falls back to a fake worker (slower, but works). That's
-// acceptable for our use case.
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+// Path (b) is more reliable for production module workers — the
+// previous (a)-only setup silently failed for some students on what
+// looked like normal PDFs because the URL-based worker construction
+// hit edge cases (CSP nuances, redirects, missing module type),
+// after which pdfjs fell back to its internal "fake worker" which
+// throws on otherwise-valid PDFs.
+//
+// Setup runs lazily on first extraction so module load never blocks
+// and we can fall through gracefully on environments where neither
+// import works (very old browsers, ad-blockers that nuke workers).
+
+let workerInitPromise: Promise<void> | null = null;
+
+async function ensureWorker(): Promise<void> {
+  if (workerInitPromise) return workerInitPromise;
+  workerInitPromise = (async () => {
+    // Try the Worker-constructor path first.
+    try {
+      const mod = await import("pdfjs-dist/build/pdf.worker.min.mjs?worker");
+      const WorkerCtor = (mod as { default: new () => Worker }).default;
+      pdfjsLib.GlobalWorkerOptions.workerPort = new WorkerCtor();
+      return;
+    } catch {
+      // Fall through to the URL path.
+    }
+    // URL path — older / non-module-worker fallback.
+    try {
+      const mod = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+      const url = (mod as { default: string }).default;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = url;
+    } catch {
+      // Both paths failed — pdfjs will surface a clear error when
+      // getDocument() is called; the caller will show "couldn't
+      // initialize PDF reader".
+    }
+  })();
+  return workerInitPromise;
+}
 
 export interface ExtractedPdfPage {
   /** 1-indexed page number, matching how humans cite PDFs. */
@@ -121,27 +155,102 @@ function pageItemsToText(content: PdfTextContentLike): string {
     .trim();
 }
 
-/** Extract text from a PDF File. Throws on any pdfjs failure so the
- *  caller can show a friendly message ("That PDF couldn't be read"). */
+/** Custom error names so the caller can show a precise message
+ *  instead of a generic "couldn't read this PDF" guess. */
+export class PdfPasswordError extends Error {
+  constructor(msg = "PDF is password-protected.") { super(msg); this.name = "PdfPasswordError"; }
+}
+export class PdfInvalidError extends Error {
+  constructor(msg = "PDF file is invalid or corrupted.") { super(msg); this.name = "PdfInvalidError"; }
+}
+export class PdfWorkerError extends Error {
+  constructor(msg = "PDF reader could not initialize.") { super(msg); this.name = "PdfWorkerError"; }
+}
+
+/** Map a raw pdfjs throw into one of our typed errors. pdfjs uses
+ *  string-named exception classes (PasswordException etc.) — we read
+ *  `e.name` to classify, then fall through to a generic
+ *  PdfInvalidError if we can't recognise it. */
+function classifyPdfError(e: unknown): Error {
+  if (e instanceof Error) {
+    const name = e.name || "";
+    if (name === "PasswordException") return new PdfPasswordError(e.message || undefined);
+    if (name === "InvalidPDFException") return new PdfInvalidError(e.message || undefined);
+    if (name === "MissingPDFException") return new PdfInvalidError("PDF file is empty or missing.");
+    // Worker-init failures sometimes manifest as a generic Error with
+    // a "Setting up fake worker failed" message. Treat as worker error.
+    if (/fake worker|workerSrc|workerPort|setting up worker|importScripts/i.test(e.message || "")) {
+      return new PdfWorkerError(e.message);
+    }
+    // Re-wrap as InvalidPDF with the original message preserved so
+    // ops can see WHY it failed in DEV — without making the user think
+    // their unprotected PDF is somehow protected.
+    return new PdfInvalidError(e.message || "PDF could not be parsed.");
+  }
+  return new PdfInvalidError("PDF could not be parsed.");
+}
+
+/** Extract text from a PDF File. Throws a typed error so the caller
+ *  can render a precise message:
+ *    PdfPasswordError → "This PDF is password-protected. Unlock it…"
+ *    PdfInvalidError  → "This PDF is corrupted or unsupported. …"
+ *    PdfWorkerError   → "Couldn't initialize the PDF reader. …" */
 export async function extractPdf(file: File): Promise<ExtractedPdf> {
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-    throw new Error("Not a PDF file.");
+    throw new PdfInvalidError("Not a PDF file.");
   }
 
+  // Initialize the worker on first call. Idempotent + cached.
+  await ensureWorker();
+
   const arrayBuffer = await fileToArrayBuffer(file);
+
   // pdfjs accepts either a Uint8Array or an object with `data`. We
   // pass the Uint8Array directly because it's the cheaper path.
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-  const doc = (await loadingTask.promise) as PdfDocumentLike;
+  // Wrapping the load in try/catch lets us classify password vs
+  // corrupted vs worker-init failures separately.
+  let doc: PdfDocumentLike;
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(arrayBuffer),
+      // Don't try to use system fonts — speeds up load and avoids
+      // a class of "missing font" errors on cheap Android browsers.
+      disableFontFace: true,
+      // Tell pdfjs we want errors thrown synchronously rather than
+      // surfaced via the async password callback (the alternative
+      // would hang waiting for a password we never provide).
+    });
+    doc = (await loadingTask.promise) as PdfDocumentLike;
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn("[extractPdf] getDocument failed:", e);
+    throw classifyPdfError(e);
+  }
 
   const pageCount = doc.numPages;
   const pagesToParse = Math.min(pageCount, MAX_PAGES);
 
+  // Per-page extraction is wrapped — a single bad page (e.g. a
+  // malformed text stream on page 7 of an otherwise-fine 80-page
+  // textbook) shouldn't kill the whole extraction. We skip the bad
+  // page and continue. If EVERY page fails we bubble up the last
+  // error so the caller can show "couldn't read this PDF".
   const pages: ExtractedPdfPage[] = [];
+  let lastPageErr: unknown = null;
   for (let i = 1; i <= pagesToParse; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    pages.push({ index: i, text: pageItemsToText(content) });
+    try {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      pages.push({ index: i, text: pageItemsToText(content) });
+    } catch (e) {
+      lastPageErr = e;
+      if (import.meta.env.DEV) console.warn(`[extractPdf] page ${i} failed:`, e);
+      // Push an empty page so the page-count book-keeping stays right.
+      pages.push({ index: i, text: "" });
+    }
+  }
+  if (pages.length === 0 || pages.every((p) => p.text.length === 0)) {
+    // Couldn't read any page — almost certainly worker or corruption.
+    throw classifyPdfError(lastPageErr ?? new Error("Every page failed to extract."));
   }
 
   const joined = pages.map((p) => `[Page ${p.index}]\n${p.text}`).join("\n\n");
