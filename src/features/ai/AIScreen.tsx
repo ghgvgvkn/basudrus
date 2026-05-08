@@ -521,7 +521,14 @@ export function AIScreen() {
     }
   };
 
-  const send = () => sendWith(draft.trim(), attachment);
+  const send = () => {
+    // Drop send if AI is still streaming — matches the disabled-button
+    // state in ComposerRow. Without this, Enter-key submits would
+    // bypass the visual disabled state and get rate-limited silently
+    // (audit P1 #2).
+    if (isThinking) return;
+    void sendWith(draft.trim(), attachment);
+  };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -780,7 +787,7 @@ export function AIScreen() {
           <ComposerRow
             draft={draft} setDraft={setDraft}
             onKey={onKey} onSend={send}
-            over={over} persona={persona}
+            over={over} busy={isThinking} persona={persona}
             onPickFile={onPickFile} fileRef={fileRef}
             attachmentPresent={!!attachment}
           />
@@ -1189,11 +1196,17 @@ function QuotaChip() {
 }
 
 function ComposerRow({
-  draft, setDraft, onKey, onSend, over, persona, onPickFile, fileRef, attachmentPresent,
+  draft, setDraft, onKey, onSend, over, busy, persona, onPickFile, fileRef, attachmentPresent,
 }: {
   draft: string; setDraft: (s: string) => void;
   onKey: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
-  onSend: () => void; over: boolean; persona: AIPersona;
+  onSend: () => void;
+  over: boolean;
+  /** AI is currently streaming a response — disable send so a rapid
+   *  double-tap doesn't get silently swallowed by useStreamingAI's
+   *  loading-guard returning `reason: "rate"`. Audit P1 #2. */
+  busy: boolean;
+  persona: AIPersona;
   onPickFile: (e: ChangeEvent<HTMLInputElement>) => void;
   fileRef: React.RefObject<HTMLInputElement>;
   attachmentPresent: boolean;
@@ -1202,9 +1215,9 @@ function ComposerRow({
     <div className={`flex items-end gap-1.5 rounded-2xl border p-1.5 bg-bg transition ${over ? "border-ink/10 opacity-60" : "border-ink/15 focus-within:border-ink/35"}`}>
       <button
         onClick={() => fileRef.current?.click()}
-        disabled={over}
+        disabled={over || busy}
         aria-label="Attach a file"
-        className="w-9 h-9 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition"
+        className="w-9 h-9 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition disabled:opacity-40 disabled:cursor-default"
       ><Plus size={17} /></button>
       <input ref={fileRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" className="hidden" onChange={onPickFile} />
       <textarea
@@ -1212,6 +1225,7 @@ function ComposerRow({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKey}
         placeholder={over ? "Daily limit reached — upgrade to continue" :
+          busy ? "Still answering — hold on a sec…" :
           persona === "omar" ? "Ask Omar anything…" : "Share what's on your mind…"}
         disabled={over}
         rows={1}
@@ -1223,7 +1237,7 @@ function ComposerRow({
       />
       <button
         onClick={onSend}
-        disabled={over || (!draft.trim() && !attachmentPresent)}
+        disabled={over || busy || (!draft.trim() && !attachmentPresent)}
         aria-label="Send message"
         className="w-9 h-9 shrink-0 rounded-full bg-ink text-bg inline-flex items-center justify-center disabled:opacity-25 hover:bg-ink/85 transition"
       ><ArrowUp size={17} /></button>

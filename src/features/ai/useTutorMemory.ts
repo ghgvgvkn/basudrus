@@ -123,6 +123,15 @@ export function useTutorMemory(persona: AIPersona): TutorMemoryGreeting {
   const { rows, loading: progressLoading } = useSubjectProgress();
   const streak = useStreak();
 
+  // UTC-day signature included in the memo deps so the variant rotates
+  // when the day rolls over (audit P2 #3). Without this, a tab kept
+  // open across midnight would keep yesterday's greeting until some
+  // other dep changed. Computed inline because it's cheap.
+  const utcDayKey = (() => {
+    const d = new Date();
+    return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+  })();
+
   return useMemo<TutorMemoryGreeting>(() => {
     const isOmar = persona === "omar";
     const generic = isOmar ? OMAR_GENERIC_PROMPTS : NOOR_GENERIC_PROMPTS;
@@ -257,5 +266,5 @@ export function useTutorMemory(persona: AIPersona): TutorMemoryGreeting {
       loading: false,
       recentSubject: null,
     };
-  }, [persona, profile?.name, rows, progressLoading, streak.current, streak.lastActiveDay, streak.loading]);
+  }, [persona, profile?.name, rows, progressLoading, streak.current, streak.lastActiveDay, streak.loading, utcDayKey]);
 }

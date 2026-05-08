@@ -1836,15 +1836,16 @@ export default async function handler(req: Request) {
   }
 
   try {
-    // Rate limit — fails CLOSED on missing auth / env / RPC error.
-    // Pro users (override list today, paid subscriptions later) skip
-    // the rate limit entirely. We still validate the JWT via
-    // getUserIdFromToken — an attacker can't fake a Pro user's ID
-    // because Supabase verifies the token signature server-side.
+    // Auth + rate limit, run IN PARALLEL. Previously this was a serial
+    // round-trip pair — Pro check first, rate-limit RPC second — which
+    // doubled latency for free-tier users (the common case). Now both
+    // fire concurrently. If the user turns out to be Pro we ignore the
+    // rate-limit result and the wasted RPC; if they're free we already
+    // have the rate-limit verdict ready.
     const authHeader = req.headers.get("authorization");
-    const userId = await getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY);
-    if (!isProUser(userId)) {
-      const rateCheck = await checkRateLimit({
+    const [userId, rateCheck] = await Promise.all([
+      getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY),
+      checkRateLimit({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         authHeader,
@@ -1852,15 +1853,15 @@ export default async function handler(req: Request) {
         daily: LIMITS.daily,
         hourly: LIMITS.hourly,
         minute: LIMITS.minute,
+      }),
+    ]);
+    if (!isProUser(userId) && !rateCheck.allowed) {
+      return rateLimitResponse(rateCheck, sHeaders, {
+        cooldown: "Slow down — wait a few seconds between messages",
+        minute_limit: "You're sending messages too fast. Take a breath and try again in a minute.",
+        hourly_limit: "You've been studying hard! Take a short break and come back soon.",
+        daily_limit: "You've reached today's limit. Come back tomorrow for more help!",
       });
-      if (!rateCheck.allowed) {
-        return rateLimitResponse(rateCheck, sHeaders, {
-          cooldown: "Slow down — wait a few seconds between messages",
-          minute_limit: "You're sending messages too fast. Take a breath and try again in a minute.",
-          hourly_limit: "You've been studying hard! Take a short break and come back soon.",
-          daily_limit: "You've reached today's limit. Come back tomorrow for more help!",
-        });
-      }
     }
 
     const { data: body, error: bodyErr } = await readCappedJson<{

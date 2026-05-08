@@ -110,17 +110,36 @@ const OMAR_KEYWORDS: string[] = [
   "صيغة", "نظرية", "فصل",
 ];
 
+/** Tokenize a message into a Set of lowercase words. Works for both
+ *  Latin and Arabic via Unicode letter class \p{L}. Punctuation,
+ *  whitespace, and symbols are split-points. Apostrophes inside
+ *  words ("can't") stay intact. */
+function tokenize(message: string): Set<string> {
+  const matches = message.toLowerCase().match(/[\p{L}\p{N}'-]+/gu);
+  return new Set(matches ?? []);
+}
+
+/** Match a keyword against a message correctly:
+ *    • Single-word keywords match as WHOLE TOKENS (so "tired" doesn't
+ *      hit "retired").
+ *    • Multi-word keywords ("can't focus", "نفسيتي تعبانة") still
+ *      use substring match because tokenization can't preserve them.
+ *  Both paths are case-insensitive via tokenize() + .toLowerCase(). */
+function keywordHit(keyword: string, lowered: string, tokens: Set<string>): boolean {
+  const k = keyword.toLowerCase();
+  if (k.includes(" ")) return lowered.includes(k);
+  return tokens.has(k);
+}
+
 /** Soft persona suggestion. Returns the persona we'd nudge the user
  *  toward, or `current` if the signal is ambiguous. NEVER force-switch
  *  on this — that's reserved for crisis classification. */
 export function inferPersona(message: string, current: AIPersona): AIPersona {
   if (!message) return current;
-  const text = message.toLowerCase();
-  // Use `includes` for English (cheap), `String.prototype.includes`
-  // for Arabic too (no case-sensitivity issue with Arabic). We pre-
-  // lowercased text but Arabic chars are unaffected.
-  const hasNoor = NOOR_KEYWORDS.some((k) => text.includes(k.toLowerCase()));
-  const hasOmar = OMAR_KEYWORDS.some((k) => text.includes(k.toLowerCase()));
+  const lowered = message.toLowerCase();
+  const tokens = tokenize(lowered);
+  const hasNoor = NOOR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
+  const hasOmar = OMAR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
   if (hasNoor && !hasOmar) return "noor";
   if (hasOmar && !hasNoor) return "omar";
   return current;

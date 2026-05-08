@@ -29,13 +29,11 @@ export default async function handler(req: Request) {
   }
 
   try {
-    // Rate limit — fails CLOSED. Pro users (override list today,
-    // paid subs later) skip the rate limit; their JWT is verified
-    // server-side via Supabase so the bypass can't be spoofed.
+    // Auth + rate limit in parallel (audit P2 #1). Pro users bypass.
     const authHeader = req.headers.get("authorization");
-    const userId = await getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY);
-    if (!isProUser(userId)) {
-      const rateCheck = await checkRateLimit({
+    const [userId, rateCheck] = await Promise.all([
+      getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY),
+      checkRateLimit({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         authHeader,
@@ -43,15 +41,15 @@ export default async function handler(req: Request) {
         daily: LIMITS.daily,
         hourly: LIMITS.hourly,
         minute: LIMITS.minute,
+      }),
+    ]);
+    if (!isProUser(userId) && !rateCheck.allowed) {
+      return rateLimitResponse(rateCheck, sH, {
+        cooldown: "Slow down — wait a moment before generating another plan.",
+        minute_limit: "You're generating plans too fast. Try again in a minute.",
+        hourly_limit: "Whoa — that's a lot of plans this hour. Take a break and come back soon.",
+        daily_limit: "You've reached today's plan limit. Come back tomorrow!",
       });
-      if (!rateCheck.allowed) {
-        return rateLimitResponse(rateCheck, sH, {
-          cooldown: "Slow down — wait a moment before generating another plan.",
-          minute_limit: "You're generating plans too fast. Try again in a minute.",
-          hourly_limit: "Whoa — that's a lot of plans this hour. Take a break and come back soon.",
-          daily_limit: "You've reached today's plan limit. Come back tomorrow!",
-        });
-      }
     }
 
     const { data: body, error: bodyErr } = await readCappedJson<{

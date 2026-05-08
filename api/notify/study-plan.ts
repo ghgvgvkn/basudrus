@@ -6,17 +6,19 @@ export const config = { runtime: "edge" };
  * Pipeline:
  *   1. Verify the Supabase access token → resolves authed user's
  *      email server-side (we IGNORE any client-supplied address).
- *   2. Validate the StudyPlanArtifact body shape (cheap structural
+ *   2. Per-user rate limit (5/hour, 10/day) via the shared
+ *      check_ai_rate_limit RPC — endpoint key: "study-plan-email".
+ *   3. Validate the StudyPlanArtifact body shape (cheap structural
  *      checks; the AI generates these so we trust shape but not
  *      content for HTML rendering — every text field gets escaped).
- *   3. Render the plan to a polished HTML email.
- *   4. Send via Resend.
+ *   4. Render the plan to a polished HTML email.
+ *   5. Send via Resend.
  *
  * Auth is REQUIRED — anonymous senders would let an attacker spam
- * the email service. Per-user rate limit is 5 sends per hour
- * (matches the kind of legitimate user behavior — they re-generate
- * a plan, change something, send again — but blocks abuse).
+ * the email service.
  */
+
+import { checkRateLimit } from "../_lib/ai-guard";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
@@ -340,6 +342,24 @@ export default async function handler(req: Request): Promise<Response> {
   if (!m) return jsonResponse(401, { ok: false, reason: "unauthenticated" }, cors);
   const session = await getSessionUser(m[1]);
   if (!session) return jsonResponse(401, { ok: false, reason: "invalid_token" }, cors);
+
+  // Per-user rate limit (audit P2 #2). 10/day, 5/hour, 2/min — covers
+  // legitimate use (a student tweaking a plan and resending a few
+  // times) without letting a compromised account spam Resend until
+  // the budget burns.
+  const rateCheck = await checkRateLimit({
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: SUPABASE_ANON_KEY,
+    authHeader: req.headers.get("authorization"),
+    endpoint: "study-plan-email",
+    daily: 10,
+    hourly: 5,
+    minute: 2,
+  });
+  if (!rateCheck.allowed) {
+    const reason = rateCheck.reason || "rate_limited";
+    return jsonResponse(429, { ok: false, reason }, cors);
+  }
 
   let body: { plan?: StudyPlanArtifactInput };
   try {

@@ -29,14 +29,11 @@ export default async function handler(req: Request) {
   }
 
   try {
-    // Rate limit — fails CLOSED. Match is silent on the client (background
-    // scoring), so we return empty scores + rateLimited flag instead of an
-    // error response. Still rejects unauthenticated callers. Pro users
-    // bypass the rate limit (server-verified user ID).
+    // Auth + rate limit in parallel (audit P2 #1). Pro users bypass.
     const authHeader = req.headers.get("authorization");
-    const userId = await getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY);
-    if (!isProUser(userId)) {
-      const rateCheck = await checkRateLimit({
+    const [userId, rateCheck] = await Promise.all([
+      getUserIdFromToken(authHeader, SUPABASE_URL, SUPABASE_ANON_KEY),
+      checkRateLimit({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
         authHeader,
@@ -44,19 +41,19 @@ export default async function handler(req: Request) {
         daily: LIMITS.daily,
         hourly: LIMITS.hourly,
         minute: LIMITS.minute,
-      });
-      if (!rateCheck.allowed) {
-        // For match specifically, a degraded/rate-limited response shouldn't
-        // surface an error in the UI — background scoring is best-effort.
-        if (rateCheck.reason === "no_auth") {
-          return rateLimitResponse(rateCheck, sH, {
-            cooldown: "", minute_limit: "", hourly_limit: "", daily_limit: "",
-          });
-        }
-        return new Response(JSON.stringify({ scores: [], rateLimited: true, reason: rateCheck.reason }), {
-          status: 200, headers: { ...sH, "Content-Type": "application/json" },
+      }),
+    ]);
+    if (!isProUser(userId) && !rateCheck.allowed) {
+      // For match specifically, a degraded/rate-limited response shouldn't
+      // surface an error in the UI — background scoring is best-effort.
+      if (rateCheck.reason === "no_auth") {
+        return rateLimitResponse(rateCheck, sH, {
+          cooldown: "", minute_limit: "", hourly_limit: "", daily_limit: "",
         });
       }
+      return new Response(JSON.stringify({ scores: [], rateLimited: true, reason: rateCheck.reason }), {
+        status: 200, headers: { ...sH, "Content-Type": "application/json" },
+      });
     }
 
     const { data: body, error: bodyErr } = await readCappedJson<{
