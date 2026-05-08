@@ -148,7 +148,7 @@ export interface AIMessage {
    *  artifact union expands as we add more types (study plans,
    *  professor emails, CVs, etc.). The renderer dispatches on
    *  artifact.kind. */
-  artifact?: StudyPlanArtifact | ProfessorEmailArtifact | RelationshipMessageArtifact;
+  artifact?: StudyPlanArtifact | ProfessorEmailArtifact | RelationshipMessageArtifact | CvArtifact;
   /** Optional attachment the user sent with this message. */
   attachment?: {
     name: string;
@@ -284,6 +284,97 @@ export interface RelationshipMessageArtifact {
   /** Optional 24-hour soft delay suggestion — Noor sets this for
    *  high-emotion drafts so the student is reminded to sleep on it. */
   suggestSleepOnIt?: boolean;
+}
+
+/** Day 17 — CV / résumé Omar drafts for a student. The artifact
+ *  is structured so the renderer can format sections cleanly AND
+ *  the "copy as plain text" button produces a CV the student can
+ *  paste into Word / Google Docs / LinkedIn / job forms.
+ *
+ *  Format mode matters in Jordan — "jordanian" keeps personal info
+ *  + photo + 2 pages OK; "western" / "ats_friendly" omits photo,
+ *  keeps strict 1 page, no personal details beyond email/phone. */
+export interface CvArtifact {
+  kind: "cv";
+  /** Render mode — affects layout decisions and which sections are
+   *  emphasized.
+   *    "jordanian"     → photo OK (we don't render one), longer is
+   *                      fine, location / nationality common.
+   *    "western"       → 1 page, no photo, no DOB / marital status.
+   *    "ats_friendly"  → flat structure, simple section names,
+   *                      no fancy formatting; survives applicant
+   *                      tracking systems intact.
+   */
+  renderMode: "jordanian" | "western" | "ats_friendly";
+  /** Language. */
+  lang: "en" | "ar";
+  /** Personal info — every field optional except fullName. */
+  personal: {
+    fullName: string;
+    title?: string;          // "Computer Science Student" / "Software Engineer"
+    email?: string;
+    phone?: string;
+    location?: string;       // "Amman, Jordan"
+    linkedin?: string;
+    github?: string;
+    portfolio?: string;
+  };
+  /** Optional 2-3 line summary / objective. Skip when there's
+   *  nothing meaningful — generic summaries are filler. */
+  summary?: string;
+  /** Education entries — most important section for students. */
+  education: Array<{
+    institution: string;
+    degree: string;          // "BSc in Computer Science"
+    location?: string;
+    startDate?: string;      // "Sep 2022"
+    endDate?: string;        // "Expected May 2026" or "May 2024"
+    gpa?: string;            // Only when ≥ 3.0/4.0 or ≥ 80% — see prompt
+    relevantCoursework?: string[];
+    honors?: string[];
+  }>;
+  /** Work / internship experience. Empty array OK for first-CV. */
+  experience: Array<{
+    title: string;
+    organization: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+    /** Action-verb bullets with quantification when possible. */
+    bullets: string[];
+  }>;
+  /** Projects — critical for STEM students with no work xp. */
+  projects: Array<{
+    name: string;
+    techStack?: string[];
+    role?: string;
+    bullets: string[];
+    url?: string;
+  }>;
+  /** Skills — categorized, kept compact. */
+  skills: {
+    technical?: string[];
+    languages?: Array<{ name: string; level: string }>;  // e.g. { name: "Arabic", level: "Native" }
+    soft?: string[];
+    tools?: string[];
+  };
+  /** Activities, volunteer work, leadership. Optional. */
+  activities?: Array<{
+    role: string;
+    organization: string;
+    startDate?: string;
+    endDate?: string;
+    bullets?: string[];
+  }>;
+  /** Certifications, awards. Optional. */
+  certifications?: Array<{
+    name: string;
+    issuer?: string;
+    date?: string;
+  }>;
+  /** Coaching note from Omar — what's strong, what's weak, what
+   *  to add as the student gains experience. Lives below the card. */
+  coachingNote?: string;
 }
 
 /** One conversation in the AI history drawer. */
