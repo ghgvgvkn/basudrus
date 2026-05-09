@@ -67,6 +67,13 @@ export function MentalHealthScreenModal({
   );
   const screens = useMhScreens();
   const therapists = useTherapists();
+  // Track whether the DB save succeeded — surfaced as a subdued
+  // banner on the result page so the student knows their result is
+  // still valid even if the sync didn't go through (e.g. RLS blip,
+  // network hiccup). Default true (optimistic); flipped to false
+  // only when save() returns null. Avoids alarming students whose
+  // save was silently rejected.
+  const [saveOk, setSaveOk] = useState<boolean>(true);
 
   const handleStart = (screen: ScreenId, lang: ScreenLang) => {
     setPhase({ kind: "running", screen, lang, answers: [], index: 0 });
@@ -87,6 +94,10 @@ export function MentalHealthScreenModal({
     const severity = severityForScore(def, score);
     const flagged = isFlaggedSelfHarm(phase.screen, nextAnswers);
     // Save best-effort — failures don't block the result reveal.
+    // Save best-effort. Track success so the result page can show a
+    // gentle banner if the save failed — the student deserves to
+    // know their result didn't sync to their account, even though
+    // the result on screen is still accurate.
     void screens.save({
       screen: phase.screen,
       score,
@@ -94,6 +105,8 @@ export function MentalHealthScreenModal({
       answers: nextAnswers,
       flaggedSelfHarm: flagged,
       lang: phase.lang,
+    }).then((saved) => {
+      if (!saved) setSaveOk(false);
     });
     onResultSaved?.({ screen: phase.screen, score, severity, flaggedSelfHarm: flagged });
     if (flagged) {
@@ -141,6 +154,7 @@ export function MentalHealthScreenModal({
           phase={phase}
           therapists={therapists.forSeverity(phase.severity)}
           onClose={onClose}
+          saveOk={saveOk}
         />
       )}
     </Shell>
@@ -399,11 +413,15 @@ function CrisisPhase({
 // ─────────────────────────────────────────────────────────────────
 
 function ResultPhase({
-  phase, therapists, onClose,
+  phase, therapists, onClose, saveOk,
 }: {
   phase: Extract<Phase, { kind: "result" }>;
   therapists: Therapist[];
   onClose: () => void;
+  /** False when the DB save failed — surface a subdued banner so
+   *  the student knows the result is still real but the sync didn't
+   *  go through. Default true at component level if not provided. */
+  saveOk?: boolean;
 }) {
   const def = getScreen(phase.screen, phase.lang);
   const range = def.severityRanges.find((r) => r.severity === phase.severity);
@@ -451,6 +469,22 @@ function ResultPhase({
           {severityLabel}
         </div>
       </div>
+
+      {/* Sync failure banner — subdued, only when save() returned null.
+          The score on screen is still real; we just couldn't persist
+          it to the student's account. Honest > silent. */}
+      {saveOk === false && (
+        <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-[12.5px] text-amber-900 leading-relaxed">
+          <div className="font-semibold mb-0.5">
+            {lang === "ar" ? "نتيجتك صحيحة — لكن لم نتمكن من حفظها" : "Your result is real — we couldn't sync it"}
+          </div>
+          <div className="text-amber-900/80">
+            {lang === "ar"
+              ? "الدرجة أعلاه دقيقة. لم نستطع حفظها في حسابك (شبكة أو إذن). إذا أردت سجلاً دائماً، أعد الاختبار لاحقاً عندما يكون اتصالك مستقراً."
+              : "The score above is accurate. We just couldn't save it to your account (likely a network or permission hiccup). If you want a permanent record, retake when your connection is stable."}
+          </div>
+        </div>
+      )}
 
       {/* "Not a diagnosis" — mandatory, large */}
       <div className="mt-5 rounded-2xl bg-ink/4 border border-ink/10 p-4 md:p-5">

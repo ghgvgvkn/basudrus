@@ -584,7 +584,17 @@ export function AIScreen() {
       {studyModalOpen && (
         <StudySessionModal
           initialPhase={studySession ?? undefined}
-          onClose={() => setStudyModalOpen(false)}
+          onClose={() => {
+            // Reset to setup phase if the user is closing from the
+            // summary screen — otherwise reopening the modal would
+            // drop them back into the old summary forever (the
+            // session-ended state never gets cleared).
+            if (studySession?.kind === "summary") {
+              setStudySession(null);
+              lastSessionKindRef.current = null;
+            }
+            setStudyModalOpen(false);
+          }}
           onPhaseChange={(p) => {
             // Compare against the LAST kind we acted on (ref-tracked),
             // NOT the latest studySession state — closure-read state can
