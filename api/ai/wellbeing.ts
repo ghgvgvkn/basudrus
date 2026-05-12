@@ -1889,6 +1889,12 @@ export default async function handler(req: Request) {
         messages: finalMessages,
         stream: true,
       }),
+      // Propagate client abort signal so the upstream Anthropic fetch
+      // cancels when the browser disconnects (route change, tab close).
+      // Combined with the ReadableStream cancel() below, this stops
+      // Haiku from continuing to bill tokens for a stream nobody will
+      // read.
+      signal: req.signal,
     });
 
     if (!response.ok) {
@@ -1899,14 +1905,17 @@ export default async function handler(req: Request) {
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
+    // Capture the reader in outer scope so the cancel() handler can
+    // abort it on client disconnect (see comment on signal above).
+    const upstreamReader = response.body!.getReader();
+
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = response.body!.getReader();
         let buffer = "";
 
         try {
           while (true) {
-            const { done, value } = await reader.read();
+            const { done, value } = await upstreamReader.read();
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -1927,10 +1936,15 @@ export default async function handler(req: Request) {
             }
           }
         } catch {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          } catch { /* controller already closed by cancel() */ }
         } finally {
-          controller.close();
+          try { controller.close(); } catch { /* already closed */ }
         }
+      },
+      async cancel() {
+        try { await upstreamReader.cancel(); } catch { /* already cancelled */ }
       },
     });
 

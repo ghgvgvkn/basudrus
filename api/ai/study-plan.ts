@@ -133,6 +133,10 @@ Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯�
         messages: [{ role: "user", content: prompt }],
         stream: true,
       }),
+      // Propagate client abort — if the user navigates away mid-stream
+      // (route change, tab close), the upstream Anthropic fetch aborts
+      // and we stop billing tokens for a plan nobody will read.
+      signal: req.signal,
     });
 
     if (!response.ok) {
@@ -145,14 +149,17 @@ Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯�
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
+    // Capture reader so cancel() (called on browser disconnect) can
+    // abort it and stop the upstream Anthropic stream.
+    const upstreamReader = response.body!.getReader();
+
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = response.body!.getReader();
         let buffer = "";
 
         try {
           while (true) {
-            const { done, value } = await reader.read();
+            const { done, value } = await upstreamReader.read();
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -173,10 +180,15 @@ Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯�
             }
           }
         } catch {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          } catch { /* controller already closed by cancel() */ }
         } finally {
-          controller.close();
+          try { controller.close(); } catch { /* already closed */ }
         }
+      },
+      async cancel() {
+        try { await upstreamReader.cancel(); } catch { /* already cancelled */ }
       },
     });
 

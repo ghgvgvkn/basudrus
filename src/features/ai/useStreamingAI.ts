@@ -23,7 +23,7 @@
  *   - All persistence is best-effort: a Supabase outage NEVER blocks
  *     the streaming response or surfaces an error to the student.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSessionCached } from "@/lib/supabase";
 import { useApp } from "@/context/AppContext";
 import type { AIPersona } from "@/shared/types";
@@ -126,6 +126,23 @@ export function useStreamingAI(): StreamingAIState {
   // doesn't pay an extra round-trip to /auth/v1/user.
   const sessionRef = useRef<SessionHandle | null>(null);
   const accessTokenRef = useRef<string | null>(null);
+
+  // Abort any in-flight stream on unmount. Without this, navigating
+  // away mid-stream (e.g. user taps another tab, route changes, or
+  // they close the AI screen while the answer is still streaming)
+  // leaves the fetch + 90-second hang guard running and produces a
+  // "setState on unmounted component" warning. Combined with the
+  // server-side cancel handler (api/ai/*.ts → ReadableStream.cancel),
+  // this stops Anthropic from continuing to bill tokens for a stream
+  // the user can no longer see.
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        try { abortRef.current.abort(); } catch { /* already aborted */ }
+        abortRef.current = null;
+      }
+    };
+  }, []);
 
   /** Trigger post-session analysis on the currently active session,
    *  then clear the ref so the next send opens a fresh session. */

@@ -2181,6 +2181,12 @@ If the student asks a question that goes beyond what's in the document, answer u
         stream: true,
         ...(withTools ? { tools: [WEB_SEARCH_TOOL] } : {}),
       }),
+      // Propagate the client's abort signal so when the browser
+      // disconnects (user navigates away, route change mid-stream),
+      // the upstream Anthropic fetch aborts and stops billing tokens.
+      // The ReadableStream.cancel() handler below catches the
+      // disconnect and aborts via this same signal.
+      signal: req.signal,
     });
 
     // First attempt — with web_search if enabled.
@@ -2226,14 +2232,20 @@ If the student asks a question that goes beyond what's in the document, answer u
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
+    // Capture the reader at this scope so the ReadableStream.cancel()
+    // handler can abort it when the browser disconnects mid-stream.
+    // Without this, the start() loop reads from Anthropic until [DONE]
+    // even after the client is gone — burning Haiku tokens we'll
+    // never deliver.
+    const upstreamReader = response.body!.getReader();
+
     const stream = new ReadableStream({
       async start(controller) {
-        const reader = response.body!.getReader();
         let buffer = "";
 
         try {
           while (true) {
-            const { done, value } = await reader.read();
+            const { done, value } = await upstreamReader.read();
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -2254,10 +2266,22 @@ If the student asks a question that goes beyond what's in the document, answer u
             }
           }
         } catch {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          // Reader threw — either upstream errored or client disconnect
+          // aborted the fetch via req.signal. Either way, surface a
+          // generic error frame and let cancel()/close() clean up.
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+          } catch { /* controller already closed by cancel() */ }
         } finally {
-          controller.close();
+          try { controller.close(); } catch { /* already closed */ }
         }
+      },
+      // Called when the browser disconnects (tab close, navigation,
+      // network drop). Cancelling the upstream reader propagates back
+      // to the Anthropic fetch (via req.signal in callAnthropic) and
+      // stops token billing for a response nobody will read.
+      async cancel() {
+        try { await upstreamReader.cancel(); } catch { /* already cancelled */ }
       },
     });
 

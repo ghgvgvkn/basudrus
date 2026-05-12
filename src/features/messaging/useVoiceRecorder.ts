@@ -17,7 +17,7 @@
  *   - Mic permission is requested on each start() call; the browser
  *     remembers grant after the first time.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type VoiceRecorderError = "denied" | "unsupported" | "network" | null;
 
@@ -144,6 +144,23 @@ export function useVoiceRecorder() {
     };
     try { recRef.current.stop(); } catch { /* ignore */ }
   }, []);
+
+  // Unmount cleanup. Without this, a user who starts recording then
+  // navigates away (clicks a different chat, leaves the screen) leaves
+  // the MediaStream tracks open — the browser's mic indicator stays
+  // on, which is a privacy issue, and the 3-minute auto-stop timer
+  // fires later trying to call stop() on a defunct ref. Cleanup
+  // releases the mic immediately and clears the timer.
+  useEffect(() => {
+    return () => {
+      try {
+        if (recRef.current && recRef.current.state === "recording") {
+          recRef.current.stop();
+        }
+      } catch { /* ignore */ }
+      cleanup();
+    };
+  }, [cleanup]);
 
   return { recording, error, start, stop, cancel };
 }

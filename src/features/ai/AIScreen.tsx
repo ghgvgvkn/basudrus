@@ -116,6 +116,21 @@ export function AIScreen() {
   // on each message send so Omar's prompt switches to focus mode.
   const [studyModalOpen, setStudyModalOpen] = useState(false);
   const [studySession, setStudySession] = useState<SessionPhase | null>(null);
+  // Day 18 banner re-render tick. The in-session banner reads
+  // `getBannerText(studySession)` which calls Date.now() to compute
+  // "X min in." Without a periodic re-render, the text was frozen at
+  // session start and only refreshed when studySession state changed
+  // (phase transitions, pause/resume). Result: banner said "0 min in"
+  // for the full 25-minute focus block. We tick once every 30s while
+  // a session is active so the elapsed minute counter advances in
+  // near-real-time without burning render cycles when nothing is
+  // happening. Cleared automatically when the session ends.
+  const [, setBannerTick] = useState(0);
+  useEffect(() => {
+    if (studySession?.kind !== "active") return;
+    const id = setInterval(() => setBannerTick((t) => t + 1), 30000);
+    return () => clearInterval(id);
+  }, [studySession?.kind]);
   // Day 18 — last phase KIND we surfaced a system notice for, tracked
   // in a ref so we only push the start / end notice ONCE per transition,
   // not every time the modal re-renders. Without this, the inline arrow
