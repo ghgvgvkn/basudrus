@@ -12,8 +12,12 @@ import {
   getUserIdFromToken,
   isProUser,
 } from "../_lib/ai-guard";
+import { callGroqStream, translateGroqChunkToAnthropic, DEFAULT_GROQ_MODEL } from "../_lib/groq";
+import { searchTavily, shouldSearch, renderTavilyBlock } from "../_lib/tavily";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 
@@ -2031,6 +2035,44 @@ ${safeDoc}
 If the student asks a question that goes beyond what's in the document, answer using your training knowledge AND say so clearly: "That isn't in the document you uploaded — here's what I know about it though:".`;
     }
 
+    const apiMessages = sanitizeMessages(messages);
+    if (apiMessages.length === 0) {
+      return new Response(JSON.stringify({ error: "No valid messages in request" }), {
+        status: 400, headers: { ...sHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── Tavily web-search pre-fetch ──
+    // For queries that benefit from current data (professor names,
+    // recent events, time-sensitive lookups), pre-fetch Tavily and
+    // inject the results into the system prompt as a "RECENT WEB
+    // CONTEXT" block. This works identically across both backends
+    // (Anthropic, Groq) and avoids the complexity of mid-stream
+    // tool-use loops. shouldSearch() returns null for ordinary
+    // questions, so the call is skipped for math problems, code,
+    // emotional support, etc. — saving ~$0.005 + 1-2s latency.
+    //
+    // If TAVILY_API_KEY is unset, the block stays empty and we fall
+    // through to either Anthropic's native web_search (Anthropic
+    // path) or training knowledge only (Groq path).
+    let tavilyBlock = "";
+    const lastUserMsg = [...apiMessages].reverse().find((m) => m.role === "user");
+    const lastUserText = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : "";
+    const searchQuery = TAVILY_API_KEY ? shouldSearch(lastUserText) : null;
+    if (searchQuery) {
+      const results = await searchTavily({
+        apiKey: TAVILY_API_KEY,
+        query: searchQuery,
+        searchDepth: "basic",
+        maxResults: 4,
+        country: "jordan",
+        signal: req.signal,
+      });
+      tavilyBlock = renderTavilyBlock(searchQuery, results);
+    }
+
     // Compose the final system prompt.
     const systemPrompt = [
       CORE_PROMPT,
@@ -2042,15 +2084,9 @@ If the student asks a question that goes beyond what's in the document, answer u
       sessionContext.length > 0
         ? "═══════════════════════════════════════════\nCONTEXT FOR THIS SESSION\n═══════════════════════════════════════════\n" + sessionContext.join("\n")
         : "",
+      tavilyBlock,
       ENRICHMENT_PROMPT,
     ].filter(Boolean).join("\n\n");
-
-    const apiMessages = sanitizeMessages(messages);
-    if (apiMessages.length === 0) {
-      return new Response(JSON.stringify({ error: "No valid messages in request" }), {
-        status: 400, headers: { ...sHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     // ── Multimodal turn — when the student attaches an image ──
     // We replace the last user message's `content: string` with
@@ -2188,6 +2224,106 @@ If the student asks a question that goes beyond what's in the document, answer u
       // disconnect and aborts via this same signal.
       signal: req.signal,
     });
+
+    // ── Backend routing: Groq vs Anthropic ──
+    // Default chat path → Groq Llama 4 Maverick (fast, near-free).
+    // Anthropic stays for the things only Anthropic does well:
+    //   - vision uploads (Llama 4 Maverick via Groq is text-only here)
+    //   - native PDF document API (Anthropic's killer feature)
+    //   - active Day-18 focus sessions (we keep the higher-quality
+    //     in-session experience on Haiku for now — easy to revisit)
+    //   - pre-fetched document context (the doc body is already in
+    //     the system prompt; either backend can handle, but Anthropic
+    //     has the larger context window in practice)
+    //
+    // If GROQ_API_KEY isn't set, every request routes to Anthropic —
+    // the system degrades safely with no user-facing breakage.
+    //
+    // On Groq error (rate limit, outage, network) we fall back to
+    // Anthropic Haiku automatically so students never see "AI down".
+    const isActiveStudySession = typeof studySession === "object" && studySession !== null;
+    const useGroq = !!GROQ_API_KEY
+      && !hasImage
+      && !hasPdf
+      && !documentContext
+      && !isActiveStudySession;
+
+    if (useGroq) {
+      // Groq path — strip any multimodal blocks (they'd be no-ops on
+      // Llama 4 Maverick) and stream via the OpenAI-compatible API.
+      // On any non-OK status or network error, fall through to
+      // Anthropic Haiku.
+      const groqMessages = finalMessages.map((m) => ({
+        role: m.role,
+        content: typeof m.content === "string" ? m.content : "",
+      }));
+
+      let groqRes: Response | null = null;
+      try {
+        groqRes = await callGroqStream({
+          apiKey: GROQ_API_KEY,
+          model: process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
+          systemPrompt,
+          messages: groqMessages,
+          maxTokens: 2048,
+          signal: req.signal,
+        });
+      } catch {
+        // Network failure / aborted — null triggers fallback below.
+      }
+
+      if (groqRes && groqRes.ok) {
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+        const upstreamReader = groqRes.body!.getReader();
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            let buffer = "";
+            try {
+              while (true) {
+                const { done, value } = await upstreamReader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                  const chunk = translateGroqChunkToAnthropic(line);
+                  if (chunk) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk.text })}\n\n`));
+                  }
+                }
+              }
+            } catch {
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Stream error" })}\n\n`));
+              } catch { /* already closed */ }
+            } finally {
+              try { controller.close(); } catch { /* already closed */ }
+            }
+          },
+          async cancel() {
+            try { await upstreamReader.cancel(); } catch { /* already cancelled */ }
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            ...sHeaders,
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+          },
+        });
+      }
+      // Fall through to Anthropic — log for ops visibility.
+      if (groqRes) {
+        let snippet = "";
+        try { snippet = (await groqRes.text()).slice(0, 300); } catch { /* noop */ }
+        // eslint-disable-next-line no-console
+        console.warn(`Groq fallback to Anthropic — status ${groqRes.status}: ${snippet}`);
+      }
+    }
 
     // First attempt — with web_search if enabled.
     let response = await callAnthropic(true);
