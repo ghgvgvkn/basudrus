@@ -80,20 +80,45 @@ export function shouldSearch(userMessage: string): string | null {
   if (!userMessage || userMessage.length < 4) return null;
   const lower = userMessage.toLowerCase();
 
-  // Professor / Dr. mentions — Bas Udrus's tutor.ts already mandates
-  // this case, so we honor it here too.
+  // Professor / Dr. mentions with explicit prefix. Bas Udrus's tutor.ts
+  // mandates a web lookup for these, so we honor it.
   if (/\b(prof(essor)?|dr\.?|دكتور|د\.|أستاذ)\s+[a-z؀-ۿ]/i.test(userMessage)) {
     return userMessage;
   }
 
-  // Time-sensitive keywords. Each one independently triggers a search.
+  // Academic-context professor names without an explicit Dr./Prof prefix.
+  // Students rarely type "Dr." in casual chat — they say things like
+  // "Hamdan's syllabus" or "the class with Anees" or "is Maha giving
+  // a midterm". We trigger search when a capitalized non-dictionary
+  // word appears alongside academic context words.
+  const academicContextWords = [
+    "syllabus", "midterm", "final exam", "office hours", "section",
+    "lecture", "the class with", "course taught by", "professor of",
+    "إمتحان", "محاضرة", "سيكشن", "مادة", "كورس",
+  ];
+  const hasAcademicContext = academicContextWords.some((w) => lower.includes(w));
+  if (hasAcademicContext) {
+    // Heuristic: if there's also a capitalized name-shaped token (not
+    // at the start of the sentence, length 3+, mostly letters), search.
+    const capitalizedNamePattern = /(?<!^|\.\s|\?\s|!\s)\b[A-Z][a-zء-ي]{2,}\b/;
+    if (capitalizedNamePattern.test(userMessage)) {
+      return userMessage;
+    }
+  }
+
+  // Genuinely time-sensitive keywords that imply NEW information is
+  // needed (specific events, deadlines, current data). We removed
+  // generic time words like "today" / "tomorrow" / "now" — those
+  // mostly carry emotional weight ("I have an exam tomorrow") not
+  // a retrieval need.
   const timeKeywords = [
-    "today", "tomorrow", "this week", "this month", "this year",
-    "currently", "now", "latest", "recent", "upcoming", "next",
-    "deadline", "exam date", "registration", "scholarship",
-    "tuition fee", "tuition fees", "admission",
+    "this year", "this semester", "this month",
+    "latest", "recent", "upcoming",
+    "deadline", "exam date", "registration deadline", "drop date",
+    "scholarship", "scholarships", "tuition fee", "tuition fees",
+    "admission requirements", "application deadline",
     // Arabic equivalents
-    "اليوم", "بكرة", "هاد الأسبوع", "هاد الشهر", "هاي السنة", "حالياً", "آخر",
+    "هاد الفصل", "هاي السنة", "تسجيل", "موعد", "منحة", "منح", "بكلوريوس",
   ];
   if (timeKeywords.some((k) => lower.includes(k))) return userMessage;
 
@@ -163,7 +188,11 @@ export function renderTavilyBlock(query: string, results: TavilyResult[]): strin
     "",
     "=== RECENT WEB CONTEXT (retrieved live via Tavily) ===",
     `Query: "${query}"`,
-    "Use this when it directly answers the student's question. If it doesn't, ignore it and answer from your knowledge. Always cite the source URL inline when you quote or paraphrase a result.",
+    "REQUIRED behavior:",
+    "  - If a result below directly answers the student, USE it and CITE it. Append the source domain in parentheses after the claim: e.g. `(source: psutarchive.com)`.",
+    "  - Every claim sourced from this block MUST end with `(source: <domain>)` in the sentence using it. No exceptions.",
+    "  - If a claim can't be cited from this block or from a verified DB row, present it as a hypothesis (`I think…`, `my guess is…`), not a fact.",
+    "  - If this block doesn't answer the student's question, ignore it silently and answer from your training — but don't claim you searched for what's not here.",
     "",
   ];
   results.slice(0, 5).forEach((r, i) => {

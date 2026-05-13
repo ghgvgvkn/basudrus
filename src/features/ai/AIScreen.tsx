@@ -205,7 +205,9 @@ export function AIScreen() {
 
     // Force-switch case: flip the global toggle so the conversation
     // continues with Noor on the next turn too. The user can always
-    // manually switch back via PersonaToggle.
+    // manually switch back via PersonaToggle. The in-chat notice that
+    // surfaces this switch to the student is pushed below as a system
+    // "crisis-bridge" message — see the setMessages call further down.
     if (isForceCrisis && persona !== "noor") {
       setPersona("noor");
     }
@@ -366,7 +368,7 @@ export function AIScreen() {
           id: `crisis-bridge-${Date.now()}`,
           role: "system",
           persona: "noor",
-          body: "Noticed something heavy in this — Noor is taking this one. Omar will be right here when you're ready.",
+          body: "Switched to Noor — she handles the heavier stuff. If this was about something else, tap Omar at the top to switch back. Either is okay.",
           createdAt: new Date().toISOString(),
         });
       }
@@ -975,19 +977,40 @@ function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { per
 
 function PersonaToggle({ value, onChange }: { value: AIPersona; onChange: (p: AIPersona) => void }) {
   return (
-    <div role="tablist" className="relative inline-flex items-center h-9 p-0.5 rounded-full bg-ink/6">
-      <span
-        className="absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-full bg-bg shadow-sm transition-transform"
-        style={{ transform: value === "omar" ? "translateX(0)" : "translateX(100%)" }}
-      />
-      <button role="tab" aria-selected={value === "omar"} onClick={() => onChange("omar")}
-        className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "omar" ? "text-ink" : "text-ink/55")}>
-        <Brain size={14} /> Omar
-      </button>
-      <button role="tab" aria-selected={value === "noor"} onClick={() => onChange("noor")}
-        className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "noor" ? "text-ink" : "text-ink/55")}>
-        <Heart size={14} /> Noor
-      </button>
+    <div className="inline-flex flex-col items-center gap-1">
+      <div role="tablist" className="relative inline-flex items-center h-9 p-0.5 rounded-full bg-ink/6">
+        <span
+          className="absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-full bg-bg shadow-sm transition-transform"
+          style={{ transform: value === "omar" ? "translateX(0)" : "translateX(100%)" }}
+        />
+        <button
+          role="tab"
+          aria-selected={value === "omar"}
+          aria-label="Omar — tutor and study plans"
+          title="Omar — tutor & study plans"
+          onClick={() => onChange("omar")}
+          className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "omar" ? "text-ink" : "text-ink/55")}
+        >
+          <Brain size={14} /> Omar
+        </button>
+        <button
+          role="tab"
+          aria-selected={value === "noor"}
+          aria-label="Noor — wellbeing, mental health, relationships"
+          title="Noor — wellbeing & relationships"
+          onClick={() => onChange("noor")}
+          className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "noor" ? "text-ink" : "text-ink/55")}
+        >
+          <Heart size={14} /> Noor
+        </button>
+      </div>
+      {/* Tiny descriptor under the active tab so first-time students
+          understand what each persona is for. ChatGPT-style tabs alone
+          (just "Omar" / "Noor") were too opaque — friends defaulted to
+          Omar for everything because Noor's purpose was invisible. */}
+      <div className="text-[10.5px] text-ink/45 leading-tight tracking-tight tabular-nums">
+        {value === "omar" ? "tutor & study plans" : "wellbeing & relationships"}
+      </div>
     </div>
   );
 }

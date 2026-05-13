@@ -63,11 +63,16 @@ const OMAR_GENERIC_PROMPTS = [
   "Solve ∫ x·sin(x) dx step by step",
   "Debug my React useEffect",
 ];
+// Mix of neutral + distress entries so the empty state doesn't read
+// as "only broken students belong here." Most students opening Noor
+// for the first time are curious, vent-curious, or want to think
+// out loud — not in crisis. Leading with a neutral entry de-stigmatizes
+// the surface and invites a wider range of first messages.
 const NOOR_GENERIC_PROMPTS = [
-  "I can't focus today",
-  "I'm anxious about tomorrow's exam",
-  "Help me wind down",
-  "I feel stuck",
+  "Vent about something annoying today",
+  "Talk through a decision I'm stuck on",
+  "How do I tell my parents about my grades?",
+  "I'm anxious about an exam — help me think",
 ];
 
 /** Convert subject keys to short display names for prompt copy. */

@@ -132,8 +132,17 @@ function keywordHit(keyword: string, lowered: string, tokens: Set<string>): bool
 }
 
 /** Soft persona suggestion. Returns the persona we'd nudge the user
- *  toward, or `current` if the signal is ambiguous. NEVER force-switch
- *  on this — that's reserved for crisis classification. */
+ *  toward, or `current` if the signal is truly ambiguous (no keywords).
+ *  NEVER force-switch on this — that's reserved for crisis classification.
+ *
+ *  Dual-signal rule: when a message contains BOTH academic AND emotional
+ *  keywords (e.g. "I'm stressed about my calculus exam"), we lead with
+ *  emotion → suggest Noor. A huge share of Jordanian-student messages
+ *  carry both signals; before this rule, the keyword combination silently
+ *  returned `current`, meaning whichever persona the student happened to
+ *  be on won by accident. Emotion-first is the right default: Noor can
+ *  always bridge back to Omar after acknowledging how the student feels.
+ */
 export function inferPersona(message: string, current: AIPersona): AIPersona {
   if (!message) return current;
   const lowered = message.toLowerCase();
@@ -142,6 +151,8 @@ export function inferPersona(message: string, current: AIPersona): AIPersona {
   const hasOmar = OMAR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
   if (hasNoor && !hasOmar) return "noor";
   if (hasOmar && !hasNoor) return "omar";
+  // Dual signal (both academic + emotional): lead with emotion.
+  if (hasNoor && hasOmar) return "noor";
   return current;
 }
 
