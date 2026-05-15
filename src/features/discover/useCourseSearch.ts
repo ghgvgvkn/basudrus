@@ -1,27 +1,26 @@
 /**
  * useCourseSearch — debounced search over the canonical course catalog.
  *
- * Previously this hook queried `uni_courses` (36,733 rows) and the
- * dropdown showed the same course 109+ times — once per major × uni
- * that offered it. Students saw "Calculus I" 109 separate entries,
- * which felt like a broken dropdown.
+ * Queries `course_catalog` — the deduplicated, single-row-per-course
+ * master list. Today that's ~5,492 visible rows (all Jordanian
+ * courses, deduplicated across four cleanup passes). Future
+ * migrations grow this toward ~20,000 worldwide canonical courses
+ * without changing this hook.
  *
- * Now the search queries `course_catalog` — the deduplicated, single-
- * row-per-course master list. Today that's 5,770 rows (all Jordanian
- * courses, deduplicated from the messy uni_courses backing data).
- * Future migrations grow this toward ~20,000 worldwide canonical
- * courses without changing this hook.
+ * History note: an earlier `uni_courses` table held 36,733
+ * per-major-per-uni rows with massive duplication. It was collapsed
+ * down to 5,492 unique rows in the 2026-05-13 cleanup, then dropped
+ * entirely once nothing else read from it. The frozen backup
+ * `_backup_uni_courses_20260513` still has the original 36,733
+ * rows if anyone needs the per-major mapping back.
  *
  * Sort:
  *   - When the query is empty, return the most-offered courses first
  *     (Math/CS general-ed courses bubble up — what most students start
- *     typing). Driven by `uni_courses_count`.
+ *     typing). Driven by `uni_courses_count` (legacy name, kept for
+ *     popularity counter — it's just the merged dedup count now).
  *   - When the query is non-empty, also sort by frequency so the more
  *     common matches appear first. Tie-break alphabetically.
- *
- * The legacy `uni_courses` table is untouched — help_requests +
- * profile.subjects still match by name, so nothing breaks. We just
- * stopped READING from the noisy table.
  */
 import { useEffect, useState } from "react";
 import { supabase } from "@/shared/supabase";
@@ -29,9 +28,10 @@ import { supabase } from "@/shared/supabase";
 export interface Course {
   id: string;
   name: string;
-  /** Legacy: `major_id` from the old uni_courses contract. Always null
-   *  for canonical courses since they're not tied to a major. Kept on
-   *  the type so consumers don't have to change. */
+  /** Legacy: kept on the type so older consumers don't need to be
+   *  refactored. Always null — canonical courses aren't tied to a
+   *  specific major. The platform connects students BY COURSE, so a
+   *  per-major link isn't needed. */
   major_id: string | null;
 }
 
@@ -83,8 +83,8 @@ export function useCourseSearch(query: string) {
         const { data, error } = await req;
         if (cancelled) return;
         if (error) throw error;
-        // course_catalog has no major_id — back-pop to null so the
-        // existing Course shape callers expect stays compatible.
+        // course_catalog doesn't carry a major_id — back-populate null
+        // so the legacy Course shape callers expect stays compatible.
         setResults(((data ?? []) as Array<{ id: string; name: string }>).map(c => ({
           id: c.id, name: c.name, major_id: null,
         })));

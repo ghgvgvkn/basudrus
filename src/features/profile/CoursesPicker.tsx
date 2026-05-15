@@ -1,5 +1,5 @@
 /**
- * CoursesPicker — searchable multi-select backed by uni_courses.
+ * CoursesPicker — searchable multi-select backed by course_catalog.
  *
  * Reused on:
  *   - ProfileScreen edit form (current-semester courses)

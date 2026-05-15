@@ -239,7 +239,7 @@ function CreateRoomModal({
         </div>
 
         <div className="px-6 pb-5 space-y-4">
-          {/* Course / subject — searchable against uni_courses */}
+          {/* Course / subject — searchable against course_catalog */}
           <div>
             <label className="block text-xs text-ink-3 mb-1.5 font-medium uppercase tracking-wide">Course or topic *</label>
             {subject ? (

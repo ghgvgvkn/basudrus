@@ -282,7 +282,7 @@ export function ProfileScreen() {
                   it was redundant with this picker AND let users type
                   any string, breaking matching when "CS 301" matched
                   no canonical course name. Now there's one source of
-                  truth, populated from the `uni_courses` catalog.
+                  truth, populated from the `course_catalog` table.
 
                   Auto-save: every add/remove writes to Supabase
                   immediately so users don't need to click the main

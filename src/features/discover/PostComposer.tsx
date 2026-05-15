@@ -66,8 +66,8 @@ export function PostComposer() {
     return () => window.removeEventListener("keydown", onKey);
   }, [postComposerOpen, closePostComposer]);
 
-  // Live course search from `uni_courses` (36k+ rows in prod). Empty
-  // query returns popular first 12, typing filters via ILIKE.
+  // Live course search from `course_catalog` (~5.5K deduplicated rows).
+  // Empty query returns popular first 12, typing filters via ILIKE.
   const { results: courseMatches, loading: coursesLoading } = useCourseSearch(courseQuery);
 
   // canPost requires an authed user — RLS blocks the insert otherwise
@@ -178,7 +178,7 @@ export function PostComposer() {
                   </div>
                   <ul className="mt-2 max-h-[260px] overflow-y-auto rounded-lg border border-line divide-y divide-line">
                     {courseMatches.map((c) => {
-                      // `uni_courses.name` stores the display text which
+                      // `course_catalog.name` stores the display text which
                       // often looks like "CS 301 · Databases" — split
                       // on the first whitespace+digit run to highlight
                       // the code when present, otherwise just show

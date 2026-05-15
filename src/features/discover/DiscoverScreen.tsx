@@ -45,8 +45,8 @@ import { startConversation } from "@/features/messaging/connectActions";
 import { usePhotoGuard } from "@/features/profile/usePhotoGuard";
 import { useUniversities, useMajors, useAllMajors } from "@/features/onboarding/useOnboardingCatalog";
 
-// Hardcoded COURSES removed — course search now hits uni_courses
-// via useCourseSearch (36k+ rows, live via anon RLS).
+// Hardcoded COURSES removed — course search now hits course_catalog
+// via useCourseSearch (~5.5K unique canonical rows, public-read RLS).
 type Tab = "matches" | "history";
 type Swipe = { id: string; name: string; avatar_color: string | null; action: "skip" | "connect"; at: string };
 
@@ -810,9 +810,9 @@ function CourseCombobox({
   const [cursor, setCursor] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Live search against `uni_courses` (36k rows). Replaces the
-  // previous hardcoded 9-course list. Anon RLS policy "Anyone can
-  // read courses" lets this work without sign-in.
+  // Live search against `course_catalog` (~5.5K unique rows). The
+  // public-read RLS policy on the table lets this work without
+  // sign-in. Replaces the previous hardcoded 9-course list.
   const { results, loading } = useCourseSearch(query);
 
   // Keep query synced to external value changes (chip cleared).
