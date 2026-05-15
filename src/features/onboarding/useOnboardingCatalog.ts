@@ -131,3 +131,67 @@ export function useMajors(universityId: string | null) {
 
   return { data, loading };
 }
+
+/**
+ * useAllMajors — global major list (deduped by name, case-insensitive)
+ * across every university in the catalog. Used on the Discover filter
+ * rail so students can filter by major without first picking a uni
+ * (e.g. "show me CS students from any university").
+ *
+ * The Major shape gets a synthetic id (`global:<name>`) since the row
+ * doesn't belong to a specific university here. Callers that need the
+ * underlying university_id should use useMajors() instead.
+ *
+ * Falls back to FALLBACK_MAJORS_BY_UNI.default when supabase isn't
+ * available — same offline-safe pattern as useMajors().
+ */
+export function useAllMajors() {
+  const [data, setData] = useState<Major[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      if (!supabase) {
+        if (!cancelled) {
+          setData(FALLBACK_MAJORS_BY_UNI.default.map((name, i) => ({
+            id: `global:${i}`, university_id: "", name,
+          })));
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const { data: rows, error } = await supabase
+          .from("uni_majors")
+          .select("name")
+          .order("name");
+        if (cancelled) return;
+        if (error) throw error;
+        // Dedupe by lowercased name, preserve first-seen casing.
+        const seen = new Set<string>();
+        const unique: Major[] = [];
+        for (const r of (rows ?? []) as Array<{ name: string }>) {
+          const key = (r.name ?? "").trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          unique.push({ id: `global:${key}`, university_id: "", name: r.name.trim() });
+        }
+        setData(unique.length > 0 ? unique : FALLBACK_MAJORS_BY_UNI.default.map((name, i) => ({
+          id: `global:${i}`, university_id: "", name,
+        })));
+        setLoading(false);
+      } catch {
+        if (cancelled) return;
+        setData(FALLBACK_MAJORS_BY_UNI.default.map((name, i) => ({
+          id: `global:${i}`, university_id: "", name,
+        })));
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return { data, loading };
+}

@@ -43,7 +43,7 @@ import { useApp } from "@/context/AppContext";
 import { TopBar } from "@/components/shell/TopBar";
 import { startConversation } from "@/features/messaging/connectActions";
 import { usePhotoGuard } from "@/features/profile/usePhotoGuard";
-import { useUniversities, useMajors } from "@/features/onboarding/useOnboardingCatalog";
+import { useUniversities, useMajors, useAllMajors } from "@/features/onboarding/useOnboardingCatalog";
 
 // Hardcoded COURSES removed — course search now hits uni_courses
 // via useCourseSearch (36k+ rows, live via anon RLS).
@@ -65,8 +65,18 @@ export function DiscoverScreen() {
   const { user, loading: authLoading } = useSupabaseSession();
   const [tab, setTab] = useState<Tab>("matches");
   const [courseCode, setCourseCode] = useState<string | null>(null);
+  // Match-signal filters all start OFF. Previously `similarPace`
+  // defaulted to true, which silently filtered the feed on first
+  // visit — users reported "I just opened Discover and there's
+  // nothing here" because the toggle was pre-applied. Default state
+  // = no filter, no surprise.
+  //
+  // These four toggles are also no-ops today in useDiscoverFeed (the
+  // hook only honors courseFilter / uniFilter / majorFilter). They're
+  // marked "coming soon" in the UI below so users don't think they're
+  // broken — same pattern we used in Settings.
   const [filters, setFilters] = useState<Record<string, boolean>>({
-    sameCourse: false, similarPace: true, onCampus: false, sameYear: false,
+    sameCourse: false, similarPace: false, onCampus: false, sameYear: false,
   });
   const [uniFilter, setUniFilter] = useState<string>("");
   const [majorFilter, setMajorFilter] = useState<string>("");
@@ -598,15 +608,35 @@ function FilterRail({
   major: string;
   setMajor: (v: string) => void;
 }) {
+  // setFilters is plumbed but unused while match-signals are disabled.
+  // Keeping the prop so the wire-up will be trivial once useDiscoverFeed
+  // starts honoring them — avoids a follow-up plumbing pass.
+  void setFilters;
   // Real universities from Supabase. We store the display name in
   // `uni` (matches profiles.uni column for the equality filter).
   const { data: universities, loading: unisLoading } = useUniversities();
-  // To filter majors by university we need the picked uni's id —
-  // resolve it from the display name. If not picked yet, majors
-  // load is skipped (passing null) and the dropdown stays empty.
+  // Two parallel data sources for the Major dropdown:
+  //   1. When a uni is picked, useMajors(uniId) gives the majors at
+  //      that specific university (typed by Supabase as university_id).
+  //   2. When NO uni is picked, useAllMajors() gives a global deduped
+  //      list across every university so the student can filter by
+  //      e.g. "Computer Science" without first having to pick PSUT.
+  //
+  // Before this, the Major select was disabled until a university
+  // was picked — friction that students hit repeatedly ("why can't
+  // I just find all CS students?"). Now they're independent: pick
+  // either, both, or neither.
   const pickedUni = universities.find(u => u.name === uni);
-  const { data: majorsForUni, loading: majorsLoading } = useMajors(pickedUni?.id ?? null);
+  const { data: majorsForUni, loading: majorsForUniLoading } = useMajors(pickedUni?.id ?? null);
+  const { data: allMajors, loading: allMajorsLoading } = useAllMajors();
+  const majorOptions = uni ? majorsForUni : allMajors;
+  const majorsLoading = uni ? majorsForUniLoading : allMajorsLoading;
 
+  // Match-signal filters (Same course, Similar pace, On campus, Same
+  // year) are state-only today — useDiscoverFeed doesn't honor them.
+  // They're labeled "Coming soon" and disabled in the UI rather than
+  // hidden, so students see what's on the roadmap without being able
+  // to enable a no-op toggle.
   return (
     <div className="bu-card p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -620,10 +650,17 @@ function FilterRail({
           <select
             value={uni}
             onChange={(e) => {
-              setUni(e.target.value);
-              // Clear the major when uni changes — old major is
-              // probably not under the new university.
-              setMajor("");
+              const next = e.target.value;
+              setUni(next);
+              // If the currently-picked major isn't in the new uni's
+              // major list, clear it. We keep it when it IS — e.g.
+              // student went from "any uni + Computer Science" to
+              // "PSUT + Computer Science" — that combination still
+              // makes sense.
+              if (next && major) {
+                const stillValid = majorsForUni.some(m => m.name === major);
+                if (!stillValid) setMajor("");
+              }
             }}
             disabled={unisLoading}
             className="w-full h-10 px-3 rounded-lg border border-line bg-surface-1 text-sm text-ink-1 focus:border-accent outline-none disabled:opacity-50"
@@ -641,15 +678,15 @@ function FilterRail({
           <select
             value={major}
             onChange={(e) => setMajor(e.target.value)}
-            disabled={!uni || majorsLoading}
+            disabled={majorsLoading}
             className="w-full h-10 px-3 rounded-lg border border-line bg-surface-1 text-sm text-ink-1 focus:border-accent outline-none disabled:opacity-50"
           >
             <option value="">
-              {!uni ? "Pick a university first" :
-               majorsLoading ? "Loading majors…" :
-               majorsForUni.length === 0 ? "No majors found" : "Any major"}
+              {majorsLoading ? "Loading majors…" :
+               majorOptions.length === 0 ? "No majors found" :
+               uni ? "Any major at this uni" : "Any major"}
             </option>
-            {majorsForUni.map(m => (
+            {majorOptions.map(m => (
               <option key={m.id} value={m.name}>{m.name}</option>
             ))}
           </select>
@@ -657,20 +694,26 @@ function FilterRail({
       </div>
 
       <div className="pt-4 border-t border-line">
-        <div className="text-xs text-ink-3 mb-3 font-medium uppercase tracking-wide">Match signals</div>
-        <div className="space-y-4 text-sm">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-ink-3 font-medium uppercase tracking-wide">Match signals</span>
+          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-ink-1/5 text-ink-3">
+            Coming soon
+          </span>
+        </div>
+        <div className="space-y-4 text-sm opacity-50">
           {Object.keys(filters).map(k => (
             <FilterRow
               key={k}
               label={filterLabel(k)}
               on={filters[k]}
-              onToggle={() => setFilters({ ...filters, [k]: !filters[k] })}
+              onToggle={() => { /* disabled until useDiscoverFeed honors these */ }}
+              disabled
             />
           ))}
         </div>
       </div>
       <div className="mt-5 pt-5 border-t border-line text-xs text-ink-3">
-        Filters apply live — pick a university to narrow the feed.
+        University and major work today. Match-signal filters are on the roadmap.
       </div>
     </div>
   );
@@ -685,16 +728,18 @@ function filterLabel(k: string) {
   }[k] ?? k;
 }
 
-function FilterRow({ label, on, onToggle }: { label: string; on: boolean; onToggle: () => void }) {
+function FilterRow({ label, on, onToggle, disabled = false }: { label: string; on: boolean; onToggle: () => void; disabled?: boolean }) {
   return (
-    <label className="flex items-center justify-between cursor-pointer">
+    <label className={`flex items-center justify-between ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
       <span className="text-ink-1">{label}</span>
       <button
         type="button"
         role="switch"
         aria-checked={on}
+        aria-disabled={disabled}
+        disabled={disabled}
         onClick={onToggle}
-        className={`w-9 h-5 rounded-full transition-colors relative ${on ? "bg-accent" : "bg-surface-3"}`}
+        className={`w-9 h-5 rounded-full transition-colors relative ${on ? "bg-accent" : "bg-surface-3"} ${disabled ? "cursor-not-allowed" : ""}`}
       >
         <span className={`absolute top-0.5 ${on ? "start-[18px]" : "start-0.5"} h-4 w-4 rounded-full bg-white transition-all`} />
       </button>
