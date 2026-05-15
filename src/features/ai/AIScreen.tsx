@@ -852,22 +852,16 @@ export function AIScreen() {
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
         onSelectSession={async (item: SessionListItem) => {
-          // Resume in place: pull the session's full messages, swap
-          // them into the chat view, switch to Omar (tutor_sessions
-          // are tutor-side only), and push a small system notice so
-          // the student knows what just happened. The user can then
-          // continue chatting — useStreamingAI sees the full history
-          // via the `history` param on the next send, so the AI has
-          // perfect context even though internally it starts a new
-          // session row (a per-tutor row, by subject — that's the
-          // existing model). Future polish: append to the original
-          // session row instead, but the conversation is uninterrupted
-          // from the student's POV either way.
+          // Resume in place: pull the session's full messages from
+          // whichever table the session lives in (tutor_sessions for
+          // Omar, wellbeing_sessions for Noor), swap them into the
+          // chat view, switch the global persona toggle to match,
+          // and push a system notice so the student understands what
+          // happened. The next message they send will go to the
+          // matching API endpoint with full history attached.
           setHistoryOpen(false);
-          const full = await fetchSessionById(item.id);
+          const full = await fetchSessionById(item.id, item.persona);
           if (!full) {
-            // Permission denied, deleted, or network hiccup. Show a
-            // soft notice rather than failing silently.
             setMessages((prev) => [
               ...prev,
               {
@@ -880,24 +874,27 @@ export function AIScreen() {
             ]);
             return;
           }
-          // Switch to Omar (tutor_sessions are tutor-only).
-          if (persona !== "omar") setPersona("omar");
-          // Convert TutorMessage[] → AIMessage[]. We give each
-          // message a stable-ish id derived from its timestamp + role
-          // so React keys are unique across the array.
+          // Switch persona to match what the resumed conversation
+          // belongs to. Without this, sending the next message
+          // would route to the wrong endpoint and the AI would
+          // respond as the wrong character.
+          if (persona !== full.persona) setPersona(full.persona);
           const resumed: typeof messages = full.messages.map((m, i) => ({
-            id: `resumed-${full.id}-${i}-${m.ts}`,
+            id: `resumed-${full.persona}-${full.id}-${i}-${m.ts}`,
             role: m.role === "assistant" ? "ai" : "user",
-            persona: "omar",
+            persona: full.persona,
             body: m.content,
             createdAt: m.ts,
           }));
-          const subjectLabel = full.subject || "this chat";
+          const personaName = full.persona === "noor" ? "Noor" : "Omar";
+          const subjectLabel = full.persona === "noor"
+            ? "what you were working through"
+            : (full.subject || "this chat");
           resumed.push({
             id: `sys-resumed-${Date.now()}`,
             role: "system",
-            persona: "omar",
-            body: `Resumed your past chat about ${subjectLabel}. Keep going where you left off — Omar can see the full thread above.`,
+            persona: full.persona,
+            body: `Resumed your past chat with ${personaName} about ${subjectLabel}. Keep going where you left off — ${personaName} can see the full thread above.`,
             createdAt: new Date().toISOString(),
           });
           setMessages(resumed);

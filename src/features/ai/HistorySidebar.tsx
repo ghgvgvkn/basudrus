@@ -27,7 +27,7 @@
 import { useState } from "react";
 import {
   X, MessageSquare, FileText, Brain, ChevronRight,
-  Settings, LogOut, Trash2, Sparkles,
+  Settings, LogOut, Trash2, Sparkles, Heart,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useAIHistory, type SessionListItem, type StudyPlanListItem } from "./useAIHistory";
@@ -209,7 +209,7 @@ function DateGroup({
   label: string;
   items: SessionListItem[];
   onSelect: (item: SessionListItem) => void;
-  onDelete: (id: string) => Promise<boolean>;
+  onDelete: (id: string, persona: SessionListItem["persona"]) => Promise<boolean>;
 }) {
   if (items.length === 0) return null;
   return (
@@ -217,7 +217,7 @@ function DateGroup({
       <div className="px-2 mb-1 text-[10.5px] uppercase tracking-wider text-ink/40 font-semibold">{label}</div>
       <div className="space-y-0.5">
         {items.map((item) => (
-          <SessionRow key={item.id} item={item} onSelect={onSelect} onDelete={onDelete} />
+          <SessionRow key={`${item.persona}-${item.id}`} item={item} onSelect={onSelect} onDelete={onDelete} />
         ))}
       </div>
     </div>
@@ -229,16 +229,17 @@ function SessionRow({
 }: {
   item: SessionListItem;
   onSelect: (item: SessionListItem) => void;
-  onDelete: (id: string) => Promise<boolean>;
+  onDelete: (id: string, persona: SessionListItem["persona"]) => Promise<boolean>;
 }) {
   const [confirming, setConfirming] = useState(false);
-  // Display title: prefer session_summary if present, fall back to
-  // most-recent topic or subject name. Trim aggressively for the
-  // narrow sidebar.
-  const title = item.session_summary?.trim()
-    || item.topics_covered?.[0]
-    || item.subject
-    || "Untitled chat";
+  // Display title comes pre-baked from useAIHistory.
+  const title = item.title || "Untitled chat";
+  // Persona styling — Omar is blue-violet (brain), Noor is rose
+  // (heart). The badge is a small icon chip rather than a colored
+  // dot so it's identifiable at a glance even for color-blind users.
+  const isNoor = item.persona === "noor";
+  const PersonaIcon = isNoor ? Heart : Brain;
+  const accent = isNoor ? "#C23F6C" : "#5B4BF5";
   return (
     <div className="group relative rounded-lg hover:bg-ink/5 transition">
       <button
@@ -246,16 +247,27 @@ function SessionRow({
         onClick={() => onSelect(item)}
         className="w-full text-left px-2 py-2 rounded-lg"
       >
-        <div className="text-[13px] text-ink leading-snug line-clamp-2 pr-7">{title}</div>
-        <div className="mt-0.5 text-[10.5px] text-ink/45 inline-flex items-center gap-1.5">
-          <span className="capitalize">{item.subject}</span>
-          {item.message_count > 0 && <><span>·</span><span>{item.message_count} msgs</span></>}
+        <div className="flex items-start gap-2 pr-7">
+          <div
+            className="w-5 h-5 mt-0.5 shrink-0 rounded-full inline-flex items-center justify-center"
+            style={{ background: `${accent}14` }}
+            aria-label={isNoor ? "Noor chat" : "Omar chat"}
+          >
+            <PersonaIcon size={10} style={{ color: accent }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] text-ink leading-snug line-clamp-2">{title}</div>
+            <div className="mt-0.5 text-[10.5px] text-ink/45 inline-flex items-center gap-1.5">
+              <span className="capitalize">{isNoor ? "Noor" : item.subject}</span>
+              {item.message_count > 0 && <><span>·</span><span>{item.message_count} msgs</span></>}
+            </div>
+          </div>
         </div>
       </button>
       {confirming ? (
         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-1">
           <button
-            onClick={async (e) => { e.stopPropagation(); await onDelete(item.id); }}
+            onClick={async (e) => { e.stopPropagation(); await onDelete(item.id, item.persona); }}
             className="h-6 px-2 rounded-full bg-[#C23F6C] text-white text-[10.5px] font-semibold"
           >Delete</button>
           <button

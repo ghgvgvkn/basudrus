@@ -36,6 +36,12 @@ import {
   type TutorMode,
   type TutorMessage,
 } from "./tutorSession";
+import {
+  startOrResumeWellbeingSession,
+  appendWellbeingMessages,
+  type WellbeingSessionHandle,
+  type WellbeingMessage,
+} from "./wellbeingSession";
 
 export interface ChatMsg {
   role: "user" | "assistant";
@@ -125,6 +131,11 @@ export function useStreamingAI(): StreamingAIState {
   // rapid sends. The cached access token is reused so each send
   // doesn't pay an extra round-trip to /auth/v1/user.
   const sessionRef = useRef<SessionHandle | null>(null);
+  // Wellbeing session handle — kept in a parallel ref so persona
+  // switching doesn't wipe each other's session state. Tutor and
+  // wellbeing each persist to their own table; this ref holds the
+  // active Noor session id during a Noor conversation.
+  const wellbeingSessionRef = useRef<WellbeingSessionHandle | null>(null);
   const accessTokenRef = useRef<string | null>(null);
 
   // Abort any in-flight stream on unmount. Without this, navigating
@@ -225,6 +236,24 @@ export function useStreamingAI(): StreamingAIState {
           }
         }
         tutorMemory = sessionRef.current?.memoryContext ?? null;
+      }
+
+      // ── Noor session bookkeeping ──
+      // Wellbeing sessions persist into wellbeing_sessions (parallel
+      // table to tutor_sessions). Resume window is the same 30 min
+      // window — multi-turn conversations stay in one row. Failure
+      // is silent: streaming continues with no persistence.
+      if (endpoint === "/api/ai/wellbeing") {
+        if (!wellbeingSessionRef.current) {
+          try {
+            wellbeingSessionRef.current = await startOrResumeWellbeingSession(
+              session.user.id,
+              "general",
+            );
+          } catch {
+            wellbeingSessionRef.current = null;
+          }
+        }
       }
 
       const apiMsgs = [...history, { role: "user" as const, content: body }];
@@ -350,10 +379,11 @@ export function useStreamingAI(): StreamingAIState {
       setPartial("");
       abortRef.current = null;
 
-      // UPGRADE 3: persist this user/assistant pair to tutor_sessions
-      // in real time. Best-effort — failure is silent and never blocks
-      // the chat. Only runs for the tutor endpoint, since the wellbeing
-      // endpoint has its own (Noor) state if/when that's wired later.
+      // Persist this user/assistant pair into the correct session
+      // table for this persona. Best-effort — failure is silent and
+      // never blocks the chat. Tutor turns flow into tutor_sessions
+      // for memory + progress; Noor turns flow into wellbeing_sessions
+      // so they show up in the unified History sidebar.
       const handle = sessionRef.current;
       if (handle?.sessionId && endpoint === "/api/ai/tutor") {
         const nowIso = new Date().toISOString();
@@ -362,6 +392,15 @@ export function useStreamingAI(): StreamingAIState {
           { role: "assistant", content: assistant, ts: new Date().toISOString() },
         ];
         void appendMessages(handle.sessionId, newMsgs);
+      }
+      const wbHandle = wellbeingSessionRef.current;
+      if (wbHandle?.sessionId && endpoint === "/api/ai/wellbeing") {
+        const nowIso = new Date().toISOString();
+        const newWbMsgs: WellbeingMessage[] = [
+          { role: "user", content: body, ts: nowIso },
+          { role: "assistant", content: assistant, ts: new Date().toISOString() },
+        ];
+        void appendWellbeingMessages(wbHandle.sessionId, newWbMsgs);
       }
 
       return { ok: true, assistant } as const;
