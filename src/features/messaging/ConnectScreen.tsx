@@ -185,23 +185,31 @@ export function ConnectScreen() {
   // (race during sign-out), an empty list is the correct render.
   const liveThreads: Thread[] = useMemo(() => {
     if (!user) return [];
-    const dmThreads: Thread[] = connections.map<Thread>((c) => ({
-      id: `dm:${c.partner_id}`,
-      kind: "dm",
-      partner: {
-        id: c.partner_id,
-        name: c.partner?.name ?? "Someone",
-        avatar_color: c.partner?.avatar_color ?? "#5B4BF5",
-        last_seen_at: c.partner?.last_seen_at ?? null,
-        photo_mode: c.partner?.photo_mode,
-        photo_url: c.partner?.photo_url,
-      },
-      // Message preview + timestamp will come from useRealMessages
-      // in the next pass. Placeholder is honest about that.
-      last: "(tap to open chat)",
-      at: "",
-      unread: 0,
-    }));
+    // Connections come pre-sorted by recency from useRealConnections.
+    // We just project them into Thread shape and inject the last-
+    // message preview (already trimmed + capped at 80 chars by the
+    // hook). Empty preview → friendly "(tap to start chatting)" so
+    // brand-new connections don't look broken.
+    const dmThreads: Thread[] = connections.map<Thread>((c) => {
+      const preview = c.last_message_preview
+        ? (c.last_message_from_me ? `You: ${c.last_message_preview}` : c.last_message_preview)
+        : "(tap to start chatting)";
+      return {
+        id: `dm:${c.partner_id}`,
+        kind: "dm",
+        partner: {
+          id: c.partner_id,
+          name: c.partner?.name ?? "Someone",
+          avatar_color: c.partner?.avatar_color ?? "#5B4BF5",
+          last_seen_at: c.partner?.last_seen_at ?? null,
+          photo_mode: c.partner?.photo_mode,
+          photo_url: c.partner?.photo_url,
+        },
+        last: preview,
+        at: c.last_message_at ?? "",
+        unread: 0,
+      };
+    });
     const roomThreads: Thread[] = userRooms.map<Thread>((r) => ({
       id: `room:${r.id}`,
       kind: "room",

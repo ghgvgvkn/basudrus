@@ -102,7 +102,18 @@ export function ProfileScreen() {
     subjects?: string[];
   });
   if (!profile) return null;
-  const isGuest = !user || authMethod === "guest" || authMethod === "none";
+  // A real Supabase user is the source of truth — if Supabase has a
+  // session, we are signed in, period. The legacy `authMethod`
+  // localStorage tracker was a holdover from the demo (when there was
+  // no real auth and "guest" / "none" were the only states). It used
+  // to gate this banner alongside `!user`, but the Supabase sign-in
+  // flow doesn't reach into AppContext to update `bu:auth`, so the
+  // banner kept showing for actually-signed-in users. Fix: trust the
+  // live Supabase user object only. `authMethod` is still kept around
+  // for other UI hints elsewhere.
+  const isGuest = !user;
+  // Silence the unused-variable lint without changing public context API.
+  void authMethod;
 
   const save = async () => {
     setSaving(true);
