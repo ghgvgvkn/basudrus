@@ -14,6 +14,7 @@
  *      profile_subscriptions rows in Supabase.
  */
 import { useApp } from "@/context/AppContext";
+import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { ScreenHeader } from "@/components/shell/ScreenHeader";
 import { Check, Infinity as InfinityIcon, Sparkles, Zap, Clock } from "lucide-react";
 import { PAYMENTS_LIVE } from "@/lib/featureFlags";
@@ -109,7 +110,7 @@ function ShowUpgrade({
 
         {PAYMENTS_LIVE ? (
           <p className="mt-8 text-center text-ink/50 text-xs">
-            Billed monthly. Cancel anytime. Student pricing for .edu.eg emails.
+            Billed monthly. Cancel anytime. Student pricing for .edu.jo emails.
           </p>
         ) : (
           <p className="mt-8 text-center text-ink/55 text-xs max-w-md mx-auto">
@@ -183,7 +184,14 @@ function ManagePro({
   onCancel: () => void;
   onBack: () => void;
 }) {
+  const { user } = useSupabaseSession();
   const renews = sub.renewsAt ? new Date(sub.renewsAt).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : "—";
+  // Billing email — use the real session email, fall back to a
+  // Jordan-locale placeholder ONLY if there's no session at all
+  // (which shouldn't happen on this screen — Pro requires sign-in).
+  // The previous placeholder said "you@uni.edu.eg" which advertised
+  // Egypt to Jordanian students and looked like a copy/paste bug.
+  const billingEmail = user?.email || "Add an email to your profile";
 
   return (
     <div className="min-h-full">
@@ -203,12 +211,18 @@ function ManagePro({
           <Row label="Plan" value="Pro — JD 3.99 / month" />
           <Row label="Renews on" value={renews} />
           <Row label="Payment method" value={`Visa ·· ${sub.paymentLast4 ?? "0000"}`} />
-          <Row label="Billing email" value="you@uni.edu.eg" />
+          <Row label="Billing email" value={billingEmail} />
         </div>
 
         <div className="mt-6 flex flex-col gap-3">
-          <button className="h-12 rounded-full border border-ink/15 text-ink font-medium hover:bg-ink/5 transition">
+          <button
+            disabled
+            aria-disabled="true"
+            title="Update payment method — coming soon"
+            className="h-12 rounded-full border border-ink/15 text-ink/40 font-medium cursor-not-allowed inline-flex items-center justify-center gap-2"
+          >
             Update payment method
+            <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-ink/8">Soon</span>
           </button>
           <button
             onClick={onCancel}

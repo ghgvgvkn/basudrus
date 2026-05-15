@@ -644,7 +644,17 @@ function MsgBubble({ m }: { m: Msg }) {
   if (m.kind === "text") {
     return (
       <div className={m.mine ? "flex justify-end" : "flex"}>
-        <div className={`max-w-[76%] px-4 py-2 rounded-2xl text-sm ${m.mine ? "bg-accent text-white" : "bg-surface-2 text-ink-1"}`}>
+        {/* `dir="auto"` lets the browser pick LTR vs RTL based on the
+            first strong-directional character in the body. Without it,
+            Arabic messages inside an LTR bubble rendered left-aligned
+            with punctuation flipped — a known iMessage / WhatsApp
+            gotcha that students in Arabic flagged repeatedly. The
+            tutor message renderer already does this correctly; we're
+            mirroring the pattern here. */}
+        <div
+          dir="auto"
+          className={`max-w-[76%] px-4 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${m.mine ? "bg-accent text-white" : "bg-surface-2 text-ink-1"}`}
+        >
           {m.body}
         </div>
       </div>

@@ -82,21 +82,37 @@ export function useRealConnections() {
       // the thread list still works, just without recency order.
       const lastByPartner = new Map<string, { at: string; preview: string; fromMe: boolean }>();
       try {
+        // The messages column is `text`, not `content` — the original
+        // version of this hook selected `content` which silently
+        // returned null for every row, so every DM preview rendered
+        // as "(tap to start chatting)" even when the conversation had
+        // hundreds of messages. Schema check: src/lib/supabase.ts:116.
+        // Also pull message_type so voice/file/image messages can show
+        // a sensible non-text preview ("🎤 Voice", "📎 File") instead
+        // of an empty string.
         const { data: msgs } = await supabase
           .from("messages")
-          .select("sender_id, receiver_id, content, created_at")
+          .select("sender_id, receiver_id, text, message_type, created_at")
           .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
           .order("created_at", { ascending: false })
           .limit(500);
         for (const m of (msgs ?? []) as Array<{
           sender_id: string;
           receiver_id: string;
-          content: string | null;
+          text: string | null;
+          message_type: "text" | "voice" | "image" | "file" | null;
           created_at: string;
         }>) {
           const partnerId = m.sender_id === user.id ? m.receiver_id : m.sender_id;
           if (!partnerId || lastByPartner.has(partnerId)) continue;
-          const preview = (m.content || "").trim().replace(/\s+/g, " ").slice(0, 80);
+          let preview = (m.text || "").trim().replace(/\s+/g, " ").slice(0, 80);
+          if (!preview) {
+            // Empty text + a known media type → render a friendly
+            // emoji label so the list doesn't look broken.
+            if (m.message_type === "voice") preview = "🎤 Voice message";
+            else if (m.message_type === "image") preview = "📷 Image";
+            else if (m.message_type === "file") preview = "📎 File";
+          }
           lastByPartner.set(partnerId, {
             at: m.created_at,
             preview,

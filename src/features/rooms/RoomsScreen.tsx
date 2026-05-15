@@ -15,7 +15,7 @@
  * so signed-out viewers get a sign-in nudge.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, MessageSquare, Search, X } from "lucide-react";
+import { Plus, MessageSquare, Search, X } from "lucide-react";
 import { TopBar } from "@/components/shell/TopBar";
 import { useApp } from "@/context/AppContext";
 import { useRealRooms, type RoomFeedItem } from "./useRealRooms";
@@ -619,12 +619,13 @@ function RoomDetail({ room, isHost, onBack: _onBack, onToggleJoin }: {
           >
             {joined ? "Leave" : (room.filled >= room.spots ? "Full" : "Join")}
           </button>
-          {isHost && (
-            <>
-              <button className="h-12 w-12 rounded-full border border-line text-ink-2 grid place-items-center" aria-label="Edit"><Pencil className="h-4 w-4" /></button>
-              <button className="h-12 w-12 rounded-full border border-line text-ink-2 grid place-items-center" aria-label="Delete"><Trash2 className="h-4 w-4" /></button>
-            </>
-          )}
+          {/* Host edit/delete buttons are hidden until they're wired
+              to the real RPC + confirm flow. The placeholder versions
+              that used to live here had no onClick handlers — tapping
+              them did literally nothing, which read as a broken app.
+              Better to hide affordances we can't honor yet. Real
+              edit/delete is on the roadmap; this comment is the
+              breadcrumb for when it ships. */}
         </div>
 
         <p className="text-[11px] text-ink-3 text-center">

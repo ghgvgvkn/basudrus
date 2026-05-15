@@ -269,7 +269,14 @@ export function OnboardingScreen() {
   const goTo = (s: Step) => setStep(s);
 
   return (
-    <div className="min-h-screen bg-bg text-ink flex flex-col">
+    // `min-h-dvh` (dynamic viewport height) instead of `min-h-screen`
+    // so the iOS Safari address bar doesn't push the Continue / Skip
+    // buttons below the visible area. With min-h-screen the bottom
+    // toolbar landed off-screen during onboarding and users had to
+    // scroll a swipe-translated container to reach it — often blamed
+    // on "the app being broken." dvh tracks the live viewport,
+    // address bar in or out.
+    <div className="min-h-dvh bg-bg text-ink flex flex-col">
       {/* progress row */}
       <div className="flex items-center justify-center gap-2 pt-8">
         {[0, 1, 2, 3, 4].map((i) => (
