@@ -12,6 +12,7 @@ import {
   getUserIdFromToken,
   isProUser,
 } from "../_lib/ai-guard";
+import { fetchStudentMemory, renderMemoryBlock } from "../_lib/student-memory";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -1816,6 +1817,18 @@ export default async function handler(req: Request) {
     //   2. Active TONE_MODE block (NORMAL / DISTRESS / CRISIS / ABUSE)
     //   3. Existing rich Noor prompt (preserved verbatim)
     //   4. Per-session context
+    // Pull the student's persistent memory facts (best-effort, RLS-
+    // scoped). Read in parallel with everything else so it doesn't
+    // add latency to the chat.
+    const memoryRows = await fetchStudentMemory({
+      supabaseUrl: SUPABASE_URL,
+      supabaseAnonKey: SUPABASE_ANON_KEY,
+      authHeader,
+      limit: 12,
+      signal: req.signal,
+    });
+    const memoryBlock = renderMemoryBlock(memoryRows);
+
     const toneModeBlock = buildToneModeBlock(severity);
     const systemPrompt = [
       ETHICS_CORE,
@@ -1826,6 +1839,7 @@ export default async function handler(req: Request) {
       RELATIONSHIPS_CORE,
       toneModeBlock,
       SYSTEM_PROMPT,
+      memoryBlock,
       contextParts.length > 0
         ? "═══════════════════════════════════════════\nCONTEXT FOR THIS SESSION\n═══════════════════════════════════════════\n" + contextParts.join("\n")
         : "",

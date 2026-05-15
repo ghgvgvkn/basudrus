@@ -54,8 +54,10 @@ import { StudySessionModal, getSessionContext, getBannerText, type SessionPhase 
 import {
   Infinity as InfinityIcon, ArrowUp, Sparkles, Brain, Heart,
   FileText, X, Plus, Bookmark, BookmarkCheck,
-  Lightbulb, BookOpen, ListChecks, Flame,
+  Lightbulb, BookOpen, ListChecks, Flame, Menu,
 } from "lucide-react";
+import { HistorySidebar } from "./HistorySidebar";
+import type { SessionListItem, StudyPlanListItem } from "./useAIHistory";
 
 type TutorMode = "homework_help" | "study_mode" | "homework_helper";
 
@@ -116,6 +118,11 @@ export function AIScreen() {
   // on each message send so Omar's prompt switches to focus mode.
   const [studyModalOpen, setStudyModalOpen] = useState(false);
   const [studySession, setStudySession] = useState<SessionPhase | null>(null);
+  // History sidebar — slides in from the left, shows past chats, plans,
+  // and the memory entry. Closed by default; opened via the hamburger
+  // icon in the header. Mobile-first drawer; on desktop it's the same
+  // drawer at a sensible max-width.
+  const [historyOpen, setHistoryOpen] = useState(false);
   // Day 18 banner re-render tick. The in-session banner reads
   // `getBannerText(studySession)` which calls Date.now() to compute
   // "X min in." Without a periodic re-render, the text was frozen at
@@ -652,10 +659,18 @@ export function AIScreen() {
           }}
         />
       )}
-      {/* Header — persona toggle is always visible now so users can
-          manually override the auto-switch, and the chat never feels
-          like it's locked to one mode. */}
+      {/* Header — hamburger opens the history sidebar; persona toggle
+          is always visible so users can manually override the auto-
+          switch and the chat never feels locked to one mode. */}
       <div className="flex items-center gap-2 px-4 md:px-6 h-14 border-b border-ink/8">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          aria-label="Open history and memory"
+          className="w-9 h-9 -ml-1 rounded-full inline-flex items-center justify-center text-ink/65 hover:text-ink hover:bg-ink/5 transition active:scale-[0.95]"
+        >
+          <Menu size={18} />
+        </button>
         <PersonaToggle value={persona} onChange={(p) => {
           // Don't wipe the thread on manual switch — that was
           // friction. If the user wants a fresh thread they can
@@ -830,6 +845,47 @@ export function AIScreen() {
           </p>
         </div>
       </div>
+
+      {/* History sidebar — slide-in drawer with past chats, plans, and
+          Memory access. Triggered by the hamburger in the header. */}
+      <HistorySidebar
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onSelectSession={(item: SessionListItem) => {
+          // For v1 we just close the sidebar — actually resuming a
+          // session inside the live AIScreen requires deeper plumbing
+          // (swap the messages array, restore subject + mode, etc.)
+          // and we'd rather not half-ship that. Surface a notice and
+          // let the user know we received the intent.
+          setHistoryOpen(false);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `sys-resume-${Date.now()}`,
+              role: "system",
+              persona,
+              body: `Past chat ("${item.subject}") opening soon — resuming sessions in-place is shipping next. For now, your old conversation is safe and Omar will remember the gist via memory.`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }}
+        onSelectPlan={(item: StudyPlanListItem) => {
+          // Same minimal v1 — surface a notice; the plan-modal mount
+          // path will be wired in the follow-up commit that also
+          // persists plans.
+          setHistoryOpen(false);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `sys-plan-${Date.now()}`,
+              role: "system",
+              persona,
+              body: `Plan "${item.title}" — re-opening saved plans is shipping next. The plan is safe in your account.`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }}
+      />
     </div>
   );
 }

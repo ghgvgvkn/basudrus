@@ -153,6 +153,13 @@ Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯�
     // abort it and stop the upstream Anthropic stream.
     const upstreamReader = response.body!.getReader();
 
+    // Accumulate the full plan text as we stream it so we can mirror
+    // the finished plan to user_study_plans for the History sidebar.
+    // We tee the data: writing to the client AND building the full
+    // markdown server-side. Failure to persist is best-effort —
+    // the student always gets the streamed plan regardless.
+    let fullPlanText = "";
+
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "";
@@ -174,7 +181,9 @@ Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯�
               try {
                 const parsed = JSON.parse(data);
                 if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: parsed.delta.text })}\n\n`));
+                  const fragment = parsed.delta.text as string;
+                  fullPlanText += fragment;
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: fragment })}\n\n`));
                 }
               } catch { /* ignore */ }
             }
@@ -185,6 +194,50 @@ Use markdown with headers (##), bold (**), bullets, and emojis (📚⏰💪🎯�
           } catch { /* controller already closed by cancel() */ }
         } finally {
           try { controller.close(); } catch { /* already closed */ }
+          // Best-effort persistence — only when we got a meaningful
+          // plan back AND we have an authenticated user. PostgREST
+          // call rather than supabase-js to keep the edge runtime
+          // dependency-free.
+          if (userId && fullPlanText.trim().length > 200) {
+            const subjectsArr = safeSubjects
+              .split(/[,،\n]+/)
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+              .slice(0, 10);
+            // Title from the user's first listed subject + today's date,
+            // so the History sidebar shows something meaningful even
+            // when the plan body is markdown that's hard to summarize.
+            const today = new Date().toISOString().slice(0, 10);
+            const titleBase = subjectsArr[0] || "Study plan";
+            const title = `${titleBase} — ${today}`.slice(0, 200);
+            // Best-effort exam date: take the first YYYY-MM-DD-shaped
+            // token from the user's examDates field if it parses.
+            let examDate: string | null = null;
+            const m = (safeExamDates || "").match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+            if (m) examDate = m[1];
+            const planLang = lang === "ar" ? "ar" : lang === "en" ? "en" : "mixed";
+
+            void fetch(`${SUPABASE_URL}/rest/v1/user_study_plans`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: authHeader || "",
+                apikey: SUPABASE_ANON_KEY,
+                Prefer: "return=minimal",
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                title,
+                subjects: subjectsArr,
+                exam_date: examDate,
+                uni: safeUni || null,
+                major: safeMajor || null,
+                year: safeYear || null,
+                plan_markdown: fullPlanText,
+                language: planLang,
+              }),
+            }).catch(() => { /* persistence failure is silent — student already has the streamed plan */ });
+          }
         }
       },
       async cancel() {

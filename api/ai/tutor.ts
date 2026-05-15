@@ -14,6 +14,7 @@ import {
 } from "../_lib/ai-guard";
 import { callGroqStream, translateGroqChunkToAnthropic, DEFAULT_GROQ_MODEL } from "../_lib/groq";
 import { searchTavily, shouldSearch, renderTavilyBlock } from "../_lib/tavily";
+import { fetchStudentMemory, renderMemoryBlock } from "../_lib/student-memory";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
@@ -2079,17 +2080,37 @@ If the student asks a question that goes beyond what's in the document, answer u
       ? lastUserMsg.content
       : "";
     const searchQuery = TAVILY_API_KEY ? shouldSearch(lastUserText) : null;
-    if (searchQuery) {
-      const results = await searchTavily({
-        apiKey: TAVILY_API_KEY,
-        query: searchQuery,
-        searchDepth: "basic",
-        maxResults: 4,
-        country: "jordan",
+
+    // ── Persistent student memory (best-effort) ──
+    // Pull the top 12 most-important facts the student has stored
+    // (manually added, imported, or auto-extracted) and render them
+    // as a STUDENT MEMORY block. Read path runs as the user via
+    // RLS — no leakage between users possible. We do this in
+    // parallel with Tavily because both are cold I/O and we don't
+    // want to serialize them.
+    const [tavilyResults, memoryRows] = await Promise.all([
+      searchQuery
+        ? searchTavily({
+            apiKey: TAVILY_API_KEY,
+            query: searchQuery,
+            searchDepth: "basic",
+            maxResults: 4,
+            country: "jordan",
+            signal: req.signal,
+          })
+        : Promise.resolve([]),
+      fetchStudentMemory({
+        supabaseUrl: SUPABASE_URL,
+        supabaseAnonKey: SUPABASE_ANON_KEY,
+        authHeader,
+        limit: 12,
         signal: req.signal,
-      });
-      tavilyBlock = renderTavilyBlock(searchQuery, results);
+      }),
+    ]);
+    if (searchQuery) {
+      tavilyBlock = renderTavilyBlock(searchQuery, tavilyResults);
     }
+    const memoryBlock = renderMemoryBlock(memoryRows);
 
     // Compose the final system prompt.
     const systemPrompt = [
@@ -2097,6 +2118,7 @@ If the student asks a question that goes beyond what's in the document, answer u
       buildModeBlock(safeMode),
       buildSubjectBlock(safeSubject),
       buildMemoryBlock(safeTutorMemory),
+      memoryBlock,
       databaseBlock,
       documentBlock,
       sessionContext.length > 0
