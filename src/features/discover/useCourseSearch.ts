@@ -89,11 +89,15 @@ export function useCourseSearch(query: string) {
           id: c.id, name: c.name, major_id: null,
         })));
         setLoading(false);
-      } catch {
+      } catch (err) {
         if (cancelled) return;
         // Any error — auth, network, table missing on an older deploy —
-        // show fallback so the UI doesn't appear broken. Real debugging
-        // happens in browser console / Supabase logs.
+        // show fallback so the UI doesn't appear broken. Surfacing
+        // the error to the console matters: a silent fallback to the
+        // hardcoded 6-course list would otherwise look like a working
+        // (but mysteriously empty) search. Dev/prod can both inspect.
+        // eslint-disable-next-line no-console
+        console.warn("[useCourseSearch] supabase query failed, falling back:", err);
         const needle = q.toLowerCase();
         setResults(needle
           ? FALLBACK_COURSES.filter(c => c.name.toLowerCase().includes(needle))

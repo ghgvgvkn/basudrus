@@ -849,7 +849,7 @@ function CourseCombobox({
             if (e.key === "Enter" && results[cursor]) { e.preventDefault(); select(results[cursor]); }
             if (e.key === "Escape") setOpen(false);
           }}
-          placeholder="Search 36k courses — Calculus, CS, Physics…"
+          placeholder="Search courses — Calculus, CS, Physics…"
           className="flex-1 bg-transparent outline-none text-ink-1 placeholder:text-ink-3 text-sm"
         />
         {query && (
@@ -866,7 +866,7 @@ function CourseCombobox({
       {open && (results.length > 0 || loading) && (
         <div className="absolute top-full start-0 end-0 mt-1 rounded-xl border border-line bg-surface-0 shadow-lg z-30 overflow-hidden max-h-80 overflow-y-auto">
           {loading && results.length === 0 && (
-            <div className="px-4 py-3 text-sm text-ink-3 text-center">Searching 36k courses…</div>
+            <div className="px-4 py-3 text-sm text-ink-3 text-center">Searching…</div>
           )}
           {results.map((c, i) => {
             // Split "CS 301 · Databases" style names so the code
