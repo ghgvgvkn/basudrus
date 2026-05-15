@@ -1,17 +1,27 @@
 /**
- * useCourseSearch — debounced Supabase course search.
+ * useCourseSearch — debounced search over the canonical course catalog.
  *
- * Queries `uni_courses` (36,733 rows in prod) with ILIKE on the
- * `name` column. Returns the top 12 matches by display_order.
- * Debounces user input by 180ms so typing doesn't thrash the DB.
+ * Previously this hook queried `uni_courses` (36,733 rows) and the
+ * dropdown showed the same course 109+ times — once per major × uni
+ * that offered it. Students saw "Calculus I" 109 separate entries,
+ * which felt like a broken dropdown.
  *
- * If Supabase is unavailable (offline / misconfigured) we fall back
- * to a tiny hardcoded set so the UI still shows *something* — the
- * PostComposer and Rooms search both call this, and empty results
- * would make them feel broken.
+ * Now the search queries `course_catalog` — the deduplicated, single-
+ * row-per-course master list. Today that's 5,770 rows (all Jordanian
+ * courses, deduplicated from the messy uni_courses backing data).
+ * Future migrations grow this toward ~20,000 worldwide canonical
+ * courses without changing this hook.
  *
- * Read-only. No writes. No auth required (the `uni_courses` RLS
- * has a public SELECT policy — "Anyone can read courses").
+ * Sort:
+ *   - When the query is empty, return the most-offered courses first
+ *     (Math/CS general-ed courses bubble up — what most students start
+ *     typing). Driven by `uni_courses_count`.
+ *   - When the query is non-empty, also sort by frequency so the more
+ *     common matches appear first. Tie-break alphabetically.
+ *
+ * The legacy `uni_courses` table is untouched — help_requests +
+ * profile.subjects still match by name, so nothing breaks. We just
+ * stopped READING from the noisy table.
  */
 import { useEffect, useState } from "react";
 import { supabase } from "@/shared/supabase";
@@ -19,6 +29,9 @@ import { supabase } from "@/shared/supabase";
 export interface Course {
   id: string;
   name: string;
+  /** Legacy: `major_id` from the old uni_courses contract. Always null
+   *  for canonical courses since they're not tied to a major. Kept on
+   *  the type so consumers don't have to change. */
   major_id: string | null;
 }
 
@@ -31,8 +44,9 @@ const FALLBACK_COURSES: Course[] = [
   { id: "chem101", name: "CHEM 101 · General Chemistry", major_id: null },
 ];
 
-/** Search courses. Empty query → popular first 12 (by display_order).
- *  Non-empty → ILIKE on name, max 12 results, debounced 180ms. */
+/** Search courses. Empty query → most-offered first, 12 results.
+ *  Non-empty → ILIKE on name, sorted by popularity, max 12 results,
+ *  debounced 180ms. */
 export function useCourseSearch(query: string) {
   const [results, setResults] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,29 +66,34 @@ export function useCourseSearch(query: string) {
     }
 
     setLoading(true);
-    const client = supabase; // narrow for TS — null was handled above
+    const client = supabase; // narrow for TS
     const timer = setTimeout(async () => {
       try {
-        // When query is empty, serve "popular" — sorted by
-        // display_order (NULL last) then name, capped at 12.
-        // When non-empty, use ILIKE for case-insensitive contains.
+        // Query the canonical catalog. Excludes alias rows
+        // (canonical_of IS NOT NULL) so synonym entries don't show up
+        // as separate hits — only their canonical form.
         let req = client
-          .from("uni_courses")
-          .select("id, name, major_id")
-          .order("display_order", { ascending: true, nullsFirst: false })
+          .from("course_catalog")
+          .select("id, name")
+          .is("canonical_of", null)
+          .order("uni_courses_count", { ascending: false, nullsFirst: false })
           .order("name", { ascending: true })
           .limit(12);
         if (q) req = req.ilike("name", `%${q}%`);
         const { data, error } = await req;
         if (cancelled) return;
         if (error) throw error;
-        setResults((data as Course[]) ?? []);
+        // course_catalog has no major_id — back-pop to null so the
+        // existing Course shape callers expect stays compatible.
+        setResults(((data ?? []) as Array<{ id: string; name: string }>).map(c => ({
+          id: c.id, name: c.name, major_id: null,
+        })));
         setLoading(false);
       } catch {
         if (cancelled) return;
-        // Any error — auth, network, bad request — show fallback so
-        // the UI doesn't appear broken. Real debugging happens in
-        // the browser console / Supabase logs.
+        // Any error — auth, network, table missing on an older deploy —
+        // show fallback so the UI doesn't appear broken. Real debugging
+        // happens in browser console / Supabase logs.
         const needle = q.toLowerCase();
         setResults(needle
           ? FALLBACK_COURSES.filter(c => c.name.toLowerCase().includes(needle))
