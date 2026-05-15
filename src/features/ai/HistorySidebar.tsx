@@ -7,7 +7,7 @@
  *
  * Layout, top to bottom:
  *   1. Profile header — avatar, name, uni/major/year
- *   2. Memory shortcut card — "N things Omar remembers · View"
+ *   2. Memory shortcut card — "N things the AI remembers · View"
  *   3. Chats — grouped by Today / Yesterday / Last 7 / Earlier
  *   4. Plans — flat list, newest first
  *   5. Footer — Settings + Logout (parent supplies hooks)
@@ -104,7 +104,9 @@ export function HistorySidebar({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13.5px] font-semibold text-ink">
-                  {memories.length === 0 ? "Teach Omar about you" : `${memories.length} thing${memories.length === 1 ? "" : "s"} Omar remembers`}
+                  {memories.length === 0
+                    ? "Teach your AI about you"
+                    : `${memories.length} thing${memories.length === 1 ? "" : "s"} the AI remembers`}
                 </div>
                 <div className="text-[11.5px] text-ink/55 mt-0.5 leading-tight">
                   {memories.length === 0

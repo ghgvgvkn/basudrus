@@ -72,7 +72,11 @@ export function MemoryModal({ open, onClose }: Props) {
 // ─────────────────────────────────────────────────────────────────────
 
 function Header({ phase, onBack, onClose }: { phase: Phase; onBack: (() => void) | null; onClose: () => void }) {
-  const title = phase === "list" ? "What Omar remembers" : phase === "add" ? "Add a memory" : "Import from another AI";
+  // Title: "AI memory" rather than "What Omar remembers" because the
+  // memory is shared across Omar (tutor) AND Noor (wellbeing) — one
+  // memory layer, both personas read from it. Calling it "Omar's"
+  // memory misrepresented that.
+  const title = phase === "list" ? "AI memory" : phase === "add" ? "Add a memory" : "Import from another AI";
   return (
     <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-ink/8 bg-bg/95 backdrop-blur">
       <div className="inline-flex items-center gap-2">
@@ -125,7 +129,7 @@ function ListPhase({ onAdd, onImport }: { onAdd: () => void; onImport: () => voi
   return (
     <div className="max-w-xl mx-auto px-5 md:px-6 py-6">
       <p className="text-[13.5px] text-ink/65 leading-relaxed">
-        These are the things Omar remembers about you across all your sessions. You can delete anything, add new memories, or import facts from another AI to bootstrap.
+        These are the things your AI (Omar and Noor) remembers about you across every session. You can delete anything, add new memories yourself, or import facts from another AI to bootstrap.
       </p>
 
       {/* Action row */}
@@ -180,9 +184,9 @@ function ListPhase({ onAdd, onImport }: { onAdd: () => void; onImport: () => voi
 function EmptyState({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   return (
     <div className="mt-12 rounded-2xl bg-ink/3 border border-ink/8 p-6 text-center">
-      <div className="text-[14.5px] font-semibold text-ink">Omar doesn't know anything about you yet.</div>
+      <div className="text-[14.5px] font-semibold text-ink">Your AI doesn't know anything about you yet.</div>
       <p className="mt-2 text-[13px] text-ink/65 leading-relaxed">
-        Memories build naturally as you chat. You can also seed them — add what you'd want Omar to know, or import from another AI you've been using.
+        Memories build naturally as you chat with Omar and Noor. You can also seed them — add what you'd want your AI to know, or import facts from another AI you've been using.
       </p>
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         <button onClick={onAdd} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-ink text-bg text-[13px] font-medium">

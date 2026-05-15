@@ -210,7 +210,11 @@ export function ConnectScreen() {
           photo_url: c.partner?.photo_url,
         },
         last: preview,
-        at: c.last_message_at ?? "",
+        // Format the last-message timestamp as a relative string
+        // ("5m", "2h", "3d", "just now"). Previously this was the raw
+        // ISO timestamp, which rendered as "2026-05-15T13:28:01.851338+00:..."
+        // in the thread list — visually broken.
+        at: c.last_message_at ? formatRelativeTime(c.last_message_at) : "",
         unread: 0,
       };
     });
@@ -656,9 +660,15 @@ function MsgBubble({ m }: { m: Msg }) {
             gotcha that students in Arabic flagged repeatedly. The
             tutor message renderer already does this correctly; we're
             mirroring the pattern here. */}
+        {/* `min-w-[2.5rem]` keeps single-letter messages ("e", "h",
+            "j") from collapsing into a circular avatar shape. Before
+            this, short text + rounded-2xl made the bubble look like a
+            stacked column of avatars when a student sent a flurry of
+            one-letter messages. The min-width preserves the
+            pill / bubble silhouette regardless of content length. */}
         <div
           dir="auto"
-          className={`max-w-[76%] px-4 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${m.mine ? "bg-accent text-white" : "bg-surface-2 text-ink-1"}`}
+          className={`min-w-[2.5rem] max-w-[76%] px-4 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${m.mine ? "bg-accent text-white" : "bg-surface-2 text-ink-1"}`}
         >
           {m.body}
         </div>
@@ -1020,4 +1030,25 @@ function fakeWave(seed: string, n: number): number[] {
     out.push(0.25 + ((h % 1000) / 1000) * 0.75);
   }
   return out;
+}
+
+/** "5m", "2h", "3d", "just now". For DM thread rows so a raw ISO
+ *  timestamp never reaches the visual layer. Same shape as the
+ *  matching helpers in DiscoverScreen + HomeScreen — could be
+ *  extracted to shared/timeAgo.ts later. */
+function formatRelativeTime(iso: string): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  if (w < 4) return `${w}w`;
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

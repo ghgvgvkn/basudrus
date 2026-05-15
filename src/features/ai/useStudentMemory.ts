@@ -238,13 +238,53 @@ export interface ParsedImportEntry {
 
 export function parseImportPayload(raw: string): ParsedImportEntry[] | null {
   if (typeof raw !== "string") return null;
-  // Find the outermost JSON array.
-  const first = raw.indexOf("[");
-  const last = raw.lastIndexOf("]");
-  if (first < 0 || last <= first) return null;
-  const slice = raw.slice(first, last + 1);
+  // Step 1: strip common wrappers the source AI might add around the
+  // array. ChatGPT and Claude both occasionally wrap output in
+  // ```json ... ``` code fences, or prefix it with a sentence like
+  // "Here's the JSON array:". The parser used to choke on these and
+  // return null with the error "I couldn't find a valid JSON array".
+  let cleaned = raw.trim();
+  // Strip markdown code fences (```json...``` or ```...```)
+  cleaned = cleaned.replace(/^```(?:json|JSON)?\s*\n?/m, "");
+  cleaned = cleaned.replace(/\n?```\s*$/m, "");
+  // Strip a leading "Here is..." / "Here's..." / "Output:" prefix line.
+  cleaned = cleaned.replace(/^[^[]*?(?=\[)/s, "");
+
+  // Step 2: find the outermost JSON array. We use a bracket counter so
+  // arrays with nested arrays still parse cleanly — the previous
+  // first-bracket-to-last-bracket slice would over-include when the
+  // AI emitted multiple top-level arrays separated by prose.
+  const first = cleaned.indexOf("[");
+  if (first < 0) return null;
+  let depth = 0;
+  let end = -1;
+  for (let i = first; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (ch === "[") depth++;
+    else if (ch === "]") {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end < 0) return null;
+  const slice = cleaned.slice(first, end + 1);
+
+  // Step 3: try strict JSON.parse. On failure, try one round of common
+  // fixes (smart-quotes → straight quotes, trailing commas → none).
   let parsed: unknown;
-  try { parsed = JSON.parse(slice); } catch { return null; }
+  try {
+    parsed = JSON.parse(slice);
+  } catch {
+    try {
+      const fixed = slice
+        .replace(/[“”]/g, '"')      // smart double quotes
+        .replace(/[‘’]/g, "'")       // smart single quotes
+        .replace(/,(\s*[}\]])/g, "$1");        // trailing commas
+      parsed = JSON.parse(fixed);
+    } catch {
+      return null;
+    }
+  }
   if (!Array.isArray(parsed)) return null;
 
   const ALLOWED: ReadonlySet<MemoryCategory> = new Set<MemoryCategory>([
