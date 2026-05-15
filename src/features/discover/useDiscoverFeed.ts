@@ -471,38 +471,57 @@ export function useDiscoverFeed(opts: {
           });
         }
 
-        // Also include help-askers whose profile passed the
-        // course-filter check via the ask itself even when their
-        // profile didn't otherwise match.
-        if (courseFilter) {
-          for (const a of askRows) {
-            const p = a.profile!;
-            if (usedIds.has(p.id)) continue;
-            if (!a.subject.toLowerCase().includes(courseFilter.toLowerCase())) continue;
-            usedIds.add(p.id);
-            const candidateAnswers = quizByUserId.get(p.id) ?? null;
-            const m = computeMatch({
-              viewerAnswers,
-              candidateAnswers,
-              viewer: {
-                uni: viewerRow?.uni ?? null,
-                major: viewerRow?.major ?? null,
-                year: viewerRow?.year ?? null,
-                subjects: viewerRow?.subjects ?? null,
-              },
-              candidate: {
-                uni: p.uni, major: p.major, year: p.year, subjects: p.subjects,
-              },
-            });
-            feed.push({
-              kind: "help",
-              id: `help:${a.id}`,
-              profile: p,
-              helpRequest: a,
-              score: Math.max(80, Math.min(99, m.score + 5)),
-              reasons: [`Asking: ${a.subject}`, ...m.reasons.slice(0, 2)],
-            });
-          }
+        // Fallback: ALWAYS include help-askers in the feed, even when
+        // their profile wasn't already added by the main loop above.
+        // Previously this only ran when `courseFilter` was set, which
+        // meant askers whose profile was missing from `profileRows`
+        // for ANY reason (filtered by blockedSet, missed the 1000-row
+        // cap on a future scale, or a transient query issue) silently
+        // disappeared from the feed — and so did their help_request.
+        //
+        // Two posters with valid help_requests vanished from Ahmed's
+        // Discover view because of this. The asks query has its own
+        // profile JOIN (askRows[i].profile), so we have everything we
+        // need to add the missing-asker card without re-querying.
+        //
+        // We DO still apply uni / major / course filters so the
+        // student's chosen filtering intent is honored. Match-signal
+        // toggles (sameCourse, similarPace, etc.) are skipped here so
+        // a non-matching asker still surfaces — they're explicitly
+        // asking for help, that's a stronger signal than a tier-2
+        // match guess.
+        for (const a of askRows) {
+          const p = a.profile;
+          if (!p) continue;                              // defensive: bad join
+          if (usedIds.has(p.id)) continue;               // already added
+          if (blockedSet.has(p.id)) continue;            // respect blocks
+          if (!matchesCourse(p)
+              && !a.subject.toLowerCase().includes((courseFilter ?? "").toLowerCase())) continue;
+          if (!matchesUni(p)) continue;
+          if (!matchesMajor(p)) continue;
+          usedIds.add(p.id);
+          const candidateAnswers = quizByUserId.get(p.id) ?? null;
+          const m = computeMatch({
+            viewerAnswers,
+            candidateAnswers,
+            viewer: {
+              uni: viewerRow?.uni ?? null,
+              major: viewerRow?.major ?? null,
+              year: viewerRow?.year ?? null,
+              subjects: viewerRow?.subjects ?? null,
+            },
+            candidate: {
+              uni: p.uni, major: p.major, year: p.year, subjects: p.subjects,
+            },
+          });
+          feed.push({
+            kind: "help",
+            id: `help:${a.id}`,
+            profile: p,
+            helpRequest: a,
+            score: Math.max(80, Math.min(99, m.score + 5)),
+            reasons: [`Asking: ${a.subject}`, ...m.reasons.slice(0, 2)],
+          });
         }
 
         // Tiered sort: tier first, then recency within tier.

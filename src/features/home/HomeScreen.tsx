@@ -254,7 +254,8 @@ export function HomeScreen() {
                   <li key={f.id} className="flex items-start gap-3 py-2 border-b border-line last:border-0">
                     <Avatar
                       profile={{
-                        name: f.actor?.name ?? "Someone",
+                        // `||` catches empty-string names, not just null/undefined
+                        name: (f.actor?.name || "").trim() || "Someone",
                         avatar_color: f.actor?.avatar_color ?? "#5B4BF5",
                         photo_mode: f.actor?.photo_mode === "photo" ? "photo" : "avatar",
                         photo_url: f.actor?.photo_url ?? null,
@@ -263,7 +264,7 @@ export function HomeScreen() {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-ink-1">
-                        <span className="font-semibold">{f.actor?.name ?? "Someone"}</span> {f.verb}
+                        <span className="font-semibold">{(f.actor?.name || "").trim() || "Someone"}</span> {f.verb}
                       </div>
                       <div className="text-xs text-ink-3 mt-0.5">{relativeTime(f.createdAt)}</div>
                     </div>

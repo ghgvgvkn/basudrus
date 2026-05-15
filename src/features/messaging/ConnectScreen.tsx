@@ -199,7 +199,11 @@ export function ConnectScreen() {
         kind: "dm",
         partner: {
           id: c.partner_id,
-          name: c.partner?.name ?? "Someone",
+          // Use `||` not `??` so an empty-string name (e.g. a partner
+          // who signed in via Google but hasn't completed onboarding)
+          // falls back to "Someone" instead of rendering blank. The
+          // `??` operator only catches null/undefined, not "".
+          name: (c.partner?.name || "").trim() || "Someone",
           avatar_color: c.partner?.avatar_color ?? "#5B4BF5",
           last_seen_at: c.partner?.last_seen_at ?? null,
           photo_mode: c.partner?.photo_mode,
@@ -589,6 +593,7 @@ function ChatView({ thread, onBack }: { thread: Thread; onBack: () => void }) {
     <>
       <TopBar
         back="connect"
+        onBack={onBack}
         center={
           isRoom ? (
             <div className="flex items-center gap-2 min-w-0">

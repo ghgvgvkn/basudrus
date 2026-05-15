@@ -429,13 +429,17 @@ function UnifiedCard({
 }) {
   const p = item.profile;
   const ask = item.helpRequest;
-  const initials = (p.name ?? "?").split(" ").slice(0, 2).map(s => s[0]?.toUpperCase() ?? "").join("") || "?";
+  // Display name fallback. Use `||` not `??` because some Google-SSO
+  // users have name = "" (empty string) instead of null. The `??`
+  // would let that empty string through and render a blank card.
+  const displayName = (p.name || "").trim() || "A student";
+  const initials = displayName.split(" ").slice(0, 2).map(s => s[0]?.toUpperCase() ?? "").join("") || "?";
   const [reportOpen, setReportOpen] = useState(false);
 
   // Body prefers the help-request detail when this is an ask — the
   // bio is secondary context in that case. If the detail is empty
   // we fall back to the profile bio.
-  const bodyText = ask?.detail?.trim() || p.bio || `${p.name} is on Bas Udrus.`;
+  const bodyText = ask?.detail?.trim() || p.bio || `${displayName} is on Bas Udrus.`;
   const ctaLabel = ask ? "Help them" : "Say hi";
 
   return (
@@ -454,7 +458,7 @@ function UnifiedCard({
       {reportOpen && (
         <ReportBlockModal
           reportedUserId={p.id}
-          reportedUserName={p.name || "this user"}
+          reportedUserName={displayName}
           onClose={() => setReportOpen(false)}
         />
       )}
@@ -497,7 +501,7 @@ function UnifiedCard({
         </div>
         <div className="flex-1 min-w-0">
           <div className="serif text-xl lg:text-2xl text-ink-1 leading-snug" style={{ fontStyle: "italic" }}>
-            {p.name || "Someone"}
+            {displayName}
           </div>
           <div className="text-ink-3 text-sm truncate">
             {[p.major, p.year ? `Year ${p.year}` : null, p.uni].filter(Boolean).join(" · ")}

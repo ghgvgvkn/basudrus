@@ -26,6 +26,12 @@ import { useRealNotifications } from "@/features/notifications/useRealNotificati
 export interface TopBarProps {
   /** If set, shows a back arrow; clicking navigates to this screen. */
   back?: string;
+  /** Optional override for the back-arrow click handler. When present,
+   *  the arrow runs THIS callback instead of `setScreen(back)`. Use
+   *  this for sub-state navigation (e.g. closing an open chat thread
+   *  inside the Connect screen without leaving Connect). The `back`
+   *  prop is still respected for the visual presence of the arrow. */
+  onBack?: () => void;
   /** Override center content. Defaults to `title` in serif italic. */
   center?: ReactNode;
   /** Title for center slot. Falls back to t(`nav.${screen}`). */
@@ -40,6 +46,7 @@ export interface TopBarProps {
 
 export function TopBar({
   back,
+  onBack,
   center,
   title,
   rightActions = ["search", "bell"],
@@ -62,7 +69,14 @@ export function TopBar({
   const leftSlot = back ? (
     <button
       type="button"
-      onClick={() => setScreen(back)}
+      onClick={() => {
+        // onBack override wins when present — used by ChatView so
+        // tapping back closes the open thread (clears activeId) instead
+        // of navigating to the screen the user is already on. Without
+        // the override, mobile back was a no-op inside Connect.
+        if (onBack) onBack();
+        else setScreen(back);
+      }}
       aria-label={t("top.back")}
       className="h-10 w-10 -ms-2 grid place-items-center text-ink-2 rounded-full hover:bg-surface-2 active:scale-95 transition-transform"
     >
