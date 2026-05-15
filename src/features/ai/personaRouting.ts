@@ -92,14 +92,27 @@ const NOOR_KEYWORDS: string[] = [
 ];
 
 const OMAR_KEYWORDS: string[] = [
-  // English
+  // English — math / cs / programming verbs
   "solve", "prove", "calculate", "integrate", "derivative", "equation",
   "explain", "why does", "how does", "what is",
   "debug", "code", "syntax", "error", "compile", "function",
   "grammar", "translate", "conjugate",
+  // Study/exam vocabulary
   "plan", "schedule", "study", "exam", "midterm", "final",
   "homework", "assignment", "quiz", "practice",
   "formula", "theorem", "chapter",
+  // Academic neuroscience / biology / psychology factual terms — when
+  // a message contains these, the student is studying the topic, not
+  // disclosing personal distress. Routing to Omar makes Noor's
+  // factual-answer rule less critical because the question reaches
+  // the tutor in the first place. Bilateral safety: even if it stays
+  // on Noor, her 1b FACTUAL-QUESTION rule still answers properly.
+  "dopamine", "serotonin", "norepinephrine", "neurotransmitter",
+  "cortisol", "adrenaline", "oxytocin", "endorphin", "hormone",
+  "neuron", "synapse", "neuroscience", "neuroplasticity",
+  "brain", "amygdala", "hippocampus", "prefrontal", "cortex",
+  "frontal lobe", "limbic",
+  "hippocampal", "dopaminergic",
   // Arabic — academic vocabulary
   "احسب", "حل", "أثبت", "اثبت", "اشتقاق", "تكامل", "معادلة",
   "اشرح", "اشرحلي", "ليش", "كيف",
@@ -108,6 +121,9 @@ const OMAR_KEYWORDS: string[] = [
   "خطة", "جدول", "ادرس", "أدرس", "امتحان", "اختبار",
   "واجب", "تكليف", "كويز",
   "صيغة", "نظرية", "فصل",
+  // Arabic neuroscience terms
+  "دوبامين", "سيروتونين", "ناقل عصبي", "كورتيزول", "هرمون",
+  "خلية عصبية", "دماغ", "مخ",
 ];
 
 /** Tokenize a message into a Set of lowercase words. Works for both
