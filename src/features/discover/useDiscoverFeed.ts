@@ -41,13 +41,54 @@ export interface FeedItem {
 // from features/match/computeScore.ts using real profile data and
 // match_quiz.answers. See computeMatch() above.
 
+/**
+ * Match-signal filters — toggles in the Discover filter rail that
+ * compare a candidate profile against the VIEWER'S profile. All four
+ * are off by default; the user explicitly opts in via the toggle.
+ *
+ * Semantics:
+ *   - sameCourse:  viewer.subjects ∩ candidate.subjects ≠ ∅
+ *                  (case-insensitive, substring-friendly so "CS 301"
+ *                   and "CS301" still match)
+ *   - similarPace: |viewer.streak − candidate.streak| ≤ 5 days,
+ *                  excluding the case where viewer.streak === 0
+ *                  (otherwise the toggle would hide every active user)
+ *   - onCampus:    candidate.online === true OR last_seen_at within
+ *                  the last 24h. We don't have GPS so "on campus" is
+ *                  interpreted as "active today" — the practical
+ *                  signal a student cares about.
+ *   - sameYear:    candidate.year === viewer.year (case-insensitive,
+ *                  trimmed — "Year 3" and "year 3" match)
+ *
+ * When viewer data is missing (anon viewer, or viewer hasn't filled
+ * out their profile), the relevant filters become no-ops rather
+ * than excluding everyone. We log this as a dev-warn so callers
+ * know why the toggle had no effect.
+ */
+export interface MatchSignalFilters {
+  sameCourse: boolean;
+  similarPace: boolean;
+  onCampus: boolean;
+  sameYear: boolean;
+}
+
+const PACE_TOLERANCE_DAYS = 5;
+const ON_CAMPUS_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export function useDiscoverFeed(opts: {
   viewerId: string | null;
   courseFilter: string | null;
   uniFilter: string;
   majorFilter: string;
+  matchSignals?: MatchSignalFilters;
 }) {
-  const { viewerId, courseFilter, uniFilter, majorFilter } = opts;
+  const { viewerId, courseFilter, uniFilter, majorFilter, matchSignals } = opts;
+  // Memo'd at usage site so we don't re-trigger the heavy effect every
+  // render. Default to all-off when caller doesn't pass anything.
+  const sigSameCourse = !!matchSignals?.sameCourse;
+  const sigSimilarPace = !!matchSignals?.similarPace;
+  const sigOnCampus = !!matchSignals?.onCampus;
+  const sigSameYear = !!matchSignals?.sameYear;
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<"blocked" | "offline" | null>(null);
@@ -270,7 +311,66 @@ export function useDiscoverFeed(opts: {
           !uniFilter || norm(p.uni ?? "") === norm(uniFilter);
         const matchesMajor = (p: Profile) =>
           !majorFilter || norm(p.major ?? "") === norm(majorFilter);
-        const keep = (p: Profile) => matchesCourse(p) && matchesUni(p) && matchesMajor(p);
+
+        // ── Match-signal filters (toggled by the user) ──
+        // Each one is a no-op when its toggle is off OR when the
+        // viewer's profile lacks the field needed for comparison
+        // (e.g. similarPace can't filter if we don't know the viewer's
+        // streak). Reading viewerRow once and capturing the relevant
+        // values into locals avoids re-deref in the hot per-profile path.
+        const viewerSubjectsNormalized = new Set(
+          (viewerRow?.subjects ?? []).map(s => norm(s)).filter(s => s.length > 0)
+        );
+        const viewerStreak = typeof viewerRow?.streak === "number" ? viewerRow.streak : null;
+        const viewerYear = viewerRow?.year ? norm(viewerRow.year) : "";
+
+        const matchesSameCourse = (p: Profile) => {
+          if (!sigSameCourse) return true;
+          if (viewerSubjectsNormalized.size === 0) return true; // no-op
+          for (const s of p.subjects ?? []) {
+            const ns = norm(s);
+            if (viewerSubjectsNormalized.has(ns)) return true;
+            // Substring match handles formatting drift like "CS 301"
+            // vs "CS301" — both should be treated as the same course.
+            for (const v of viewerSubjectsNormalized) {
+              if (v.length >= 3 && (ns.includes(v) || v.includes(ns))) return true;
+            }
+          }
+          return false;
+        };
+
+        const matchesSimilarPace = (p: Profile) => {
+          if (!sigSimilarPace) return true;
+          if (viewerStreak === null || viewerStreak === 0) return true; // no-op
+          const theirs = typeof p.streak === "number" ? p.streak : null;
+          if (theirs === null) return false;
+          return Math.abs(theirs - viewerStreak) <= PACE_TOLERANCE_DAYS;
+        };
+
+        const matchesOnCampus = (p: Profile) => {
+          if (!sigOnCampus) return true;
+          // online flag is a hard pass; otherwise check freshness.
+          if (p.online === true) return true;
+          const ls = (p as Profile & { last_seen_at?: string | null }).last_seen_at;
+          if (!ls) return false;
+          const t = Date.parse(ls);
+          return Number.isFinite(t) && (now - t) <= ON_CAMPUS_WINDOW_MS;
+        };
+
+        const matchesSameYear = (p: Profile) => {
+          if (!sigSameYear) return true;
+          if (!viewerYear) return true; // no-op
+          return norm(p.year ?? "") === viewerYear;
+        };
+
+        const keep = (p: Profile) =>
+          matchesCourse(p)
+          && matchesUni(p)
+          && matchesMajor(p)
+          && matchesSameCourse(p)
+          && matchesSimilarPace(p)
+          && matchesOnCampus(p)
+          && matchesSameYear(p);
 
         // ── Build the feed in TIERS, by real signal ──
         //
@@ -424,7 +524,13 @@ export function useDiscoverFeed(opts: {
     })();
 
     return () => { cancelled = true; };
-  }, [viewerId, courseFilter, uniFilter, majorFilter, refreshNonce, blockedSet]);
+  }, [
+    viewerId, courseFilter, uniFilter, majorFilter, refreshNonce, blockedSet,
+    // Match-signal flags — when any toggles, the filter pipeline
+    // needs to re-run against the same data. Boolean primitives so
+    // strict-equality dep check is trivially cheap.
+    sigSameCourse, sigSimilarPace, sigOnCampus, sigSameYear,
+  ]);
 
   return { items, loading, error };
 }

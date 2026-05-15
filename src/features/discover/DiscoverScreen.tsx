@@ -89,11 +89,23 @@ export function DiscoverScreen() {
 
   // Unified real feed — profiles + help_requests merged into one
   // stream. Replaces the old STUBS + HelpPostList split.
+  //
+  // matchSignals: shape required by useDiscoverFeed. We construct a
+  // strict typed object here rather than passing the loose
+  // Record<string, boolean> so the hook gets exact keys. Any
+  // unknown keys in the `filters` state silently get dropped, which
+  // is the correct safety behavior — only documented signals filter.
   const { items, loading: feedLoading, error: feedError } = useDiscoverFeed({
     viewerId: user?.id ?? null,
     courseFilter: courseCode,
     uniFilter,
     majorFilter,
+    matchSignals: {
+      sameCourse: !!filters.sameCourse,
+      similarPace: !!filters.similarPace,
+      onCampus: !!filters.onCampus,
+      sameYear: !!filters.sameYear,
+    },
   });
 
   // Live platform-wide student count — auto-updates the moment a
@@ -608,10 +620,6 @@ function FilterRail({
   major: string;
   setMajor: (v: string) => void;
 }) {
-  // setFilters is plumbed but unused while match-signals are disabled.
-  // Keeping the prop so the wire-up will be trivial once useDiscoverFeed
-  // starts honoring them — avoids a follow-up plumbing pass.
-  void setFilters;
   // Real universities from Supabase. We store the display name in
   // `uni` (matches profiles.uni column for the equality filter).
   const { data: universities, loading: unisLoading } = useUniversities();
@@ -694,26 +702,21 @@ function FilterRail({
       </div>
 
       <div className="pt-4 border-t border-line">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs text-ink-3 font-medium uppercase tracking-wide">Match signals</span>
-          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-ink-1/5 text-ink-3">
-            Coming soon
-          </span>
-        </div>
-        <div className="space-y-4 text-sm opacity-50">
+        <div className="text-xs text-ink-3 mb-3 font-medium uppercase tracking-wide">Match signals</div>
+        <div className="space-y-4 text-sm">
           {Object.keys(filters).map(k => (
             <FilterRow
               key={k}
               label={filterLabel(k)}
+              hint={filterHint(k)}
               on={filters[k]}
-              onToggle={() => { /* disabled until useDiscoverFeed honors these */ }}
-              disabled
+              onToggle={() => setFilters({ ...filters, [k]: !filters[k] })}
             />
           ))}
         </div>
       </div>
       <div className="mt-5 pt-5 border-t border-line text-xs text-ink-3">
-        University and major work today. Match-signal filters are on the roadmap.
+        All filters apply live to the feed. Toggle the ones you want — leave the rest off.
       </div>
     </div>
   );
@@ -723,23 +726,42 @@ function filterLabel(k: string) {
   return {
     sameCourse: "Same course",
     similarPace: "Similar pace",
-    onCampus: "On campus",
+    onCampus: "Active today",
     sameYear: "Same year",
   }[k] ?? k;
 }
 
-function FilterRow({ label, on, onToggle, disabled = false }: { label: string; on: boolean; onToggle: () => void; disabled?: boolean }) {
+/** Short helper line under each filter — explains exactly what
+ *  toggling it on will hide / keep, so the student isn't guessing. */
+function filterHint(k: string) {
+  return {
+    sameCourse: "Share at least one course with me",
+    similarPace: "Streak within 5 days of mine",
+    onCampus: "Online or active in the last 24h",
+    sameYear: "Same university year as me",
+  }[k] ?? "";
+}
+
+function FilterRow({
+  label, hint, on, onToggle,
+}: {
+  label: string;
+  hint?: string;
+  on: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <label className={`flex items-center justify-between ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
-      <span className="text-ink-1">{label}</span>
+    <label className="flex items-start justify-between gap-3 cursor-pointer">
+      <div className="flex-1 min-w-0">
+        <div className="text-ink-1">{label}</div>
+        {hint && <div className="text-[11px] text-ink-3 mt-0.5 leading-snug">{hint}</div>}
+      </div>
       <button
         type="button"
         role="switch"
         aria-checked={on}
-        aria-disabled={disabled}
-        disabled={disabled}
         onClick={onToggle}
-        className={`w-9 h-5 rounded-full transition-colors relative ${on ? "bg-accent" : "bg-surface-3"} ${disabled ? "cursor-not-allowed" : ""}`}
+        className={`mt-1 shrink-0 w-9 h-5 rounded-full transition-colors relative ${on ? "bg-accent" : "bg-surface-3"}`}
       >
         <span className={`absolute top-0.5 ${on ? "start-[18px]" : "start-0.5"} h-4 w-4 rounded-full bg-white transition-all`} />
       </button>
