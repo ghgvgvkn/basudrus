@@ -57,7 +57,7 @@ import {
   Lightbulb, BookOpen, ListChecks, Flame, Menu,
 } from "lucide-react";
 import { HistorySidebar } from "./HistorySidebar";
-import type { SessionListItem, StudyPlanListItem } from "./useAIHistory";
+import { fetchSessionById, type SessionListItem, type StudyPlanListItem } from "./useAIHistory";
 
 type TutorMode = "homework_help" | "study_mode" | "homework_helper";
 
@@ -851,28 +851,62 @@ export function AIScreen() {
       <HistorySidebar
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        onSelectSession={(item: SessionListItem) => {
-          // For v1 we just close the sidebar — actually resuming a
-          // session inside the live AIScreen requires deeper plumbing
-          // (swap the messages array, restore subject + mode, etc.)
-          // and we'd rather not half-ship that. Surface a notice and
-          // let the user know we received the intent.
+        onSelectSession={async (item: SessionListItem) => {
+          // Resume in place: pull the session's full messages, swap
+          // them into the chat view, switch to Omar (tutor_sessions
+          // are tutor-side only), and push a small system notice so
+          // the student knows what just happened. The user can then
+          // continue chatting — useStreamingAI sees the full history
+          // via the `history` param on the next send, so the AI has
+          // perfect context even though internally it starts a new
+          // session row (a per-tutor row, by subject — that's the
+          // existing model). Future polish: append to the original
+          // session row instead, but the conversation is uninterrupted
+          // from the student's POV either way.
           setHistoryOpen(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `sys-resume-${Date.now()}`,
-              role: "system",
-              persona,
-              body: `Past chat ("${item.subject}") opening soon — resuming sessions in-place is shipping next. For now, your old conversation is safe and Omar will remember the gist via memory.`,
-              createdAt: new Date().toISOString(),
-            },
-          ]);
+          const full = await fetchSessionById(item.id);
+          if (!full) {
+            // Permission denied, deleted, or network hiccup. Show a
+            // soft notice rather than failing silently.
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `sys-resume-fail-${Date.now()}`,
+                role: "system",
+                persona,
+                body: "Couldn't load that chat — it might have been deleted, or your connection blipped. Try again in a moment.",
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+            return;
+          }
+          // Switch to Omar (tutor_sessions are tutor-only).
+          if (persona !== "omar") setPersona("omar");
+          // Convert TutorMessage[] → AIMessage[]. We give each
+          // message a stable-ish id derived from its timestamp + role
+          // so React keys are unique across the array.
+          const resumed: typeof messages = full.messages.map((m, i) => ({
+            id: `resumed-${full.id}-${i}-${m.ts}`,
+            role: m.role === "assistant" ? "ai" : "user",
+            persona: "omar",
+            body: m.content,
+            createdAt: m.ts,
+          }));
+          const subjectLabel = full.subject || "this chat";
+          resumed.push({
+            id: `sys-resumed-${Date.now()}`,
+            role: "system",
+            persona: "omar",
+            body: `Resumed your past chat about ${subjectLabel}. Keep going where you left off — Omar can see the full thread above.`,
+            createdAt: new Date().toISOString(),
+          });
+          setMessages(resumed);
         }}
         onSelectPlan={(item: StudyPlanListItem) => {
-          // Same minimal v1 — surface a notice; the plan-modal mount
-          // path will be wired in the follow-up commit that also
-          // persists plans.
+          // Plan re-open is still placeholder-only — re-rendering the
+          // saved markdown in the existing study-plan artifact modal
+          // is a separate plumbing job and we'd rather ship that
+          // fully wired in its own commit than half-ship it here.
           setHistoryOpen(false);
           setMessages((prev) => [
             ...prev,
@@ -880,7 +914,7 @@ export function AIScreen() {
               id: `sys-plan-${Date.now()}`,
               role: "system",
               persona,
-              body: `Plan "${item.title}" — re-opening saved plans is shipping next. The plan is safe in your account.`,
+              body: `Plan "${item.title}" — re-opening saved plans in the artifact modal is shipping next. The plan is safe in your account.`,
               createdAt: new Date().toISOString(),
             },
           ]);

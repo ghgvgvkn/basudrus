@@ -205,3 +205,76 @@ export function useAIHistory(): UseAIHistoryState {
     deletePlan,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// One-shot session loader — used by the resume-in-place flow.
+// We deliberately don't bundle this into the hook above (which caches
+// list-shaped data) because resuming is a one-time fetch on user
+// action and doesn't want to share that cache.
+// ─────────────────────────────────────────────────────────────────────
+
+export interface FullSessionMessage {
+  role: "user" | "assistant";
+  content: string;
+  ts: string;
+}
+
+export interface FullSessionRow {
+  id: string;
+  subject: string;
+  messages: FullSessionMessage[];
+  session_summary: string | null;
+  topics_covered: string[];
+  updated_at: string;
+  created_at: string;
+}
+
+/**
+ * Pull a single session by ID, including the full messages JSONB.
+ * Returns null on any failure — caller decides how to surface to the
+ * user (we typically push a system notice in the chat).
+ *
+ * Because tutor_sessions has RLS, this naturally only returns rows
+ * the requesting user owns. No need to filter client-side.
+ */
+export async function fetchSessionById(sessionId: string): Promise<FullSessionRow | null> {
+  const { data, error } = await supabase
+    .from("tutor_sessions")
+    .select("id, subject, messages, session_summary, topics_covered, updated_at, created_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const raw = data as {
+    id: string;
+    subject: string;
+    messages: unknown;
+    session_summary: string | null;
+    topics_covered: string[] | null;
+    updated_at: string;
+    created_at: string;
+  };
+  // Defensive: messages is JSONB so anything could be in there.
+  const messages: FullSessionMessage[] = Array.isArray(raw.messages)
+    ? (raw.messages as unknown[])
+        .filter((m): m is { role: string; content: string; ts?: string } =>
+          typeof m === "object" && m !== null
+            && "role" in m && "content" in m
+            && typeof (m as { role: unknown }).role === "string"
+            && typeof (m as { content: unknown }).content === "string"
+        )
+        .map((m) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content,
+          ts: typeof m.ts === "string" ? m.ts : new Date().toISOString(),
+        }))
+    : [];
+  return {
+    id: raw.id,
+    subject: raw.subject,
+    messages,
+    session_summary: raw.session_summary,
+    topics_covered: raw.topics_covered ?? [],
+    updated_at: raw.updated_at,
+    created_at: raw.created_at,
+  };
+}
