@@ -160,6 +160,16 @@ export interface AIMessage {
       pageCount: number;
       characterCount: number;
       truncated: boolean;
+      /** Optional document title from PDF metadata (Info dict). When
+       *  present, the card uses this as the headline; falls back to
+       *  filename otherwise. */
+      title?: string | null;
+      /** Optional author from PDF metadata. */
+      author?: string | null;
+      /** Optional friendly producer label — "Microsoft Word", "LaTeX",
+       *  "Google Docs", etc. Mapped from the raw Producer field by
+       *  pdfMetaPeek.friendlyProducer. */
+      producer?: string | null;
     };
   };
   /** When set, renders the system message as a two-button switch

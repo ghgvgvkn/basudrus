@@ -18,7 +18,7 @@ import { useRealProfile } from "./useRealProfile";
 import { CoursesPicker } from "./CoursesPicker";
 import { useSupabaseSession, signOutEverywhere } from "@/features/auth/useSupabaseSession";
 import { PersonalityQuizScreen } from "@/features/match/PersonalityQuizScreen";
-import { useUniversities, useMajors } from "@/features/onboarding/useOnboardingCatalog";
+import { useUniversities, useMajors, OTHER_UNI_ID, isOtherUni } from "@/features/onboarding/useOnboardingCatalog";
 import { SubjectProgressGrid } from "@/features/ai/SubjectProgressGrid";
 
 // Year selector — same scale as Onboarding (1-7 covers undergrad,
@@ -88,7 +88,15 @@ export function ProfileScreen() {
     if (!unis || unis.length === 0) return;
     if (!draft.uni) { setUniId(""); return; }
     const match = unis.find((u) => u.name.trim().toLowerCase() === draft.uni.trim().toLowerCase());
-    if (match && match.id !== uniId) setUniId(match.id);
+    if (match) {
+      if (match.id !== uniId) setUniId(match.id);
+    } else if (uniId !== OTHER_UNI_ID) {
+      // Their saved uni isn't in the catalog (likely free-typed via
+      // the OTHER path). Switch the picker to OTHER so the editable
+      // text input renders below the select, pre-filled with their
+      // current value.
+      setUniId(OTHER_UNI_ID);
+    }
   }, [unis, draft.uni, uniId]);
 
   // Source of truth: the real DB row when authed, otherwise the
@@ -216,7 +224,10 @@ export function ProfileScreen() {
                       setUniId(id);
                       setDraft(d => ({
                         ...d,
-                        uni: picked?.name ?? "",
+                        // For the OTHER sentinel, clear `uni` so the
+                        // text input below renders empty — the student
+                        // types their actual university name there.
+                        uni: id === OTHER_UNI_ID ? "" : (picked?.name ?? ""),
                         // Reset major because uni-major catalog is
                         // scoped per university.
                         major: id ? "" : d.major,
@@ -229,6 +240,16 @@ export function ProfileScreen() {
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
                   </select>
+                  {isOtherUni(uniId) && (
+                    <input
+                      type="text"
+                      value={draft.uni ?? ""}
+                      onChange={(e) => setDraft(d => ({ ...d, uni: e.target.value.slice(0, 120) }))}
+                      placeholder="Type your university name…"
+                      maxLength={120}
+                      className="mt-2 w-full h-11 px-3 rounded-lg border border-line bg-surface-1 text-ink-1 focus:border-accent outline-none"
+                    />
+                  )}
                 </Field>
                 <Field label="Major">
                   {/* Dropdown sourced from `uni_majors` filtered by

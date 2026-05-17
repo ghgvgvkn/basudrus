@@ -24,6 +24,8 @@
  * context window benefits from focused chunks.
  */
 
+import { peekPdfMeta, type PdfMetaPeek } from "./pdfMetaPeek";
+
 export interface ReadPdfResult {
   /** Base64 string with no prefix — what the API needs in the
    *  `data` field of an Anthropic document content block. */
@@ -32,6 +34,11 @@ export interface ReadPdfResult {
   filename: string;
   /** Raw bytes of the PDF as the user uploaded it. */
   sizeBytes: number;
+  /** Lightweight metadata peeked from the bytes — page count, title,
+   *  producer software, etc. All fields nullable; if extraction fails
+   *  (corrupt PDF, weird encoding), all values are null and the
+   *  caller renders the bare fallback card. */
+  meta: PdfMetaPeek;
 }
 
 /** Hard cap on PDF input size. 1 MB raw → ~1.33 MB base64, leaving
@@ -83,9 +90,13 @@ export async function readPdfAsBase64(file: File): Promise<ReadPdfResult> {
   }
   const buf = await fileToArrayBuffer(file);
   const base64 = bufferToBase64(buf);
+  // Peek metadata from the raw bytes. Cheap (~ms even on 1 MB PDFs)
+  // and never throws — returns all-null on any extraction failure.
+  const meta = peekPdfMeta(new Uint8Array(buf));
   return {
     base64,
     filename: file.name,
     sizeBytes: file.size,
+    meta,
   };
 }

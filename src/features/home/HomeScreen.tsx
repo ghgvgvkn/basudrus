@@ -22,6 +22,7 @@ import { startConversation } from "@/features/messaging/connectActions";
 import { usePhotoGuard } from "@/features/profile/usePhotoGuard";
 import { useRecentActivity } from "./useRecentActivity";
 import { useRealProfile } from "@/features/profile/useRealProfile";
+import { MagicMomentCard, shouldShowMagicMomentCard } from "./MagicMomentCard";
 
 export function HomeScreen() {
   const { profile, setScreen, setAIPrefill, openPostComposer } = useApp();
@@ -70,6 +71,15 @@ export function HomeScreen() {
       <TopBar onOpenPalette={openPalette} />
       <div className="max-w-[1200px] mx-auto px-4 lg:px-8 py-6 lg:py-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+          {/* Magic-moment onboarding card — shows once after onboarding,
+              vanishes forever on dismiss or first use. Gate the
+              section wrapper on the same flag so dismissed users get
+              no empty grid cell or extra gap. */}
+          {shouldShowMagicMomentCard() && (
+            <section className="order-0 lg:order-0 lg:col-span-12">
+              <MagicMomentCard />
+            </section>
+          )}
           {/* Greeting + AI
               Mobile order: 1st (top, after greeting). Same as desktop.
               Phone reorder explanation: user requested matches above

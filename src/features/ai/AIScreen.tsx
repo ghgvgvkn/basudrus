@@ -58,8 +58,18 @@ import {
 } from "lucide-react";
 import { HistorySidebar } from "./HistorySidebar";
 import { fetchSessionById, type SessionListItem, type StudyPlanListItem } from "./useAIHistory";
+import { FeedbackRow } from "./FeedbackRow";
+import { useMemoryHint } from "./useMemoryHint";
+import { ThinkingStatus, type ThinkingAttachmentKind } from "./ThinkingStatus";
+import { friendlyProducer } from "./pdfMetaPeek";
+import { ModelPicker } from "./ModelPicker";
 
-type TutorMode = "homework_help" | "study_mode" | "homework_helper";
+// "auto" is a NEW client-side option that tells the API to pick the
+// right teaching mode based on the message. The server treats it
+// (in api/ai/tutor.ts buildModeBlock) as "look at the prompt and
+// decide". The three legacy modes are preserved unchanged so any
+// user who has explicitly picked one still gets the same behavior.
+type TutorMode = "auto" | "homework_help" | "study_mode" | "homework_helper";
 
 const OMAR_PROMPTS = [
   "Explain photosynthesis like I'm five",
@@ -86,7 +96,10 @@ export function AIScreen() {
   // "study_mode" (proactive teaching), or "homework_helper" (guided
   // walkthrough — student writes every line, AI confirms each step).
   // Sent to /api/ai/tutor as `mode`. Noor doesn't use this.
-  const [tutorMode, setTutorMode] = useState<TutorMode>("homework_help");
+  // Default to "auto" so the student feels like the AI picks the
+  // right approach for each question. They can still override per
+  // session by tapping Hints / Teach / Walkthrough.
+  const [tutorMode, setTutorMode] = useState<TutorMode>("auto");
   const streamRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -292,7 +305,14 @@ export function AIScreen() {
     // homework / chapter / past-paper uploads. Long textbooks need
     // to be split anyway because Claude's context window benefits
     // from focused chunks.
-    let pdfPayload: { base64: string; name: string; sizeBytes: number } | null = null;
+    let pdfPayload: {
+      base64: string;
+      name: string;
+      sizeBytes: number;
+      /** Lightweight metadata peeked from raw bytes — populated when
+       *  the file successfully parses; all fields null otherwise. */
+      meta?: { pageCount: number | null; title: string | null; author: string | null; producer: string | null; creator: string | null };
+    } | null = null;
     let documentFailReason: string | null = null;
     if (file && looksLikePdf) {
       try {
@@ -302,6 +322,7 @@ export function AIScreen() {
           base64: result.base64,
           name: result.filename,
           sizeBytes: result.sizeBytes,
+          meta: result.meta,
         };
       } catch (e) {
         if (import.meta.env.DEV) console.warn("[upload] pdf read failed:", e);
@@ -351,13 +372,24 @@ export function AIScreen() {
             url: imagePayload?.dataUrl,
             pdfMeta: pdfPayload
               ? {
-                  // We don't know page count without parsing — set to
-                  // 0 and let the bubble render a "PDF · 245 KB" card
-                  // using sizeBytes instead. The 0 is a sentinel the
-                  // UserMessage component checks for.
-                  pageCount: 0,
+                  // Page count comes from pdfMetaPeek's byte-level
+                  // regex (no parser, no iOS Safari crash). When the
+                  // peek can't find a Pages dict, we keep the legacy
+                  // sentinel value of 0 so the bubble falls back to
+                  // showing file size only — same as before this
+                  // upgrade. characterCount stores the raw byte size
+                  // so the size-label render below still works.
+                  pageCount: pdfPayload.meta?.pageCount ?? 0,
                   characterCount: pdfPayload.sizeBytes,
                   truncated: false,
+                  title: pdfPayload.meta?.title ?? null,
+                  author: pdfPayload.meta?.author ?? null,
+                  producer: pdfPayload.meta?.producer
+                    // Map raw producer ("Microsoft Word 2021 for Mac")
+                    // to a friendly label ("Microsoft Word") at the
+                    // origin point so the renderer stays presentational.
+                    ? friendlyProducer(pdfPayload.meta.producer)
+                    : null,
                 }
               : undefined,
           }
@@ -743,24 +775,50 @@ export function AIScreen() {
           />
         ) : (
           <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
-            {messages.map((m) => (
-              <MessageRow
-                key={m.id}
-                msg={m}
-                onSwitchPersona={setPersona}
-                onDismissSuggestion={(id) =>
-                  setMessages((arr) => arr.filter((x) => x.id !== id))
-                }
-                onQuickReply={(text) => {
-                  // Same path as typing + sending. The `null` second
-                  // arg is the file slot — quick replies never carry
-                  // an attachment.
-                  void sendWith(text, null);
-                }}
-                isSaved={saved.isSaved(m.id)}
-                onToggleSave={() => { void saved.toggle(m); }}
-              />
-            ))}
+            {(() => {
+              // Find the index of the LATEST AI message so we can
+              // attach the always-available quick-action chips
+              // ("Quiz me on this", "Make it simpler", etc.) to it
+              // only. Older AI messages don't show the chips —
+              // sending a new message naturally "dismisses" them
+              // because a newer AI reply becomes latest. Computed
+              // once per render. Streaming preview is rendered
+              // separately below and has no quick-actions.
+              let latestAiIdx = -1;
+              for (let k = messages.length - 1; k >= 0; k--) {
+                if (messages[k].role === "ai") { latestAiIdx = k; break; }
+              }
+              return messages.map((m, i) => {
+                // For AI messages, find the most recent user message
+                // before this one — used as feedback context so the
+                // weekly thumbs-down review shows BOTH the prompt and
+                // the bad reply. Lightweight: small linear scan, runs
+                // once per render of a stable list.
+                const priorUserMessageText = m.role === "ai"
+                  ? (messages.slice(0, i).reverse().find((p) => p.role === "user")?.body ?? null)
+                  : null;
+                return (
+                  <MessageRow
+                    key={m.id}
+                    msg={m}
+                    onSwitchPersona={setPersona}
+                    onDismissSuggestion={(id) =>
+                      setMessages((arr) => arr.filter((x) => x.id !== id))
+                    }
+                    onQuickReply={(text) => {
+                      // Same path as typing + sending. The `null` second
+                      // arg is the file slot — quick replies never carry
+                      // an attachment.
+                      void sendWith(text, null);
+                    }}
+                    isSaved={saved.isSaved(m.id)}
+                    onToggleSave={() => { void saved.toggle(m); }}
+                    priorUserMessageText={priorUserMessageText}
+                    isLatestAi={i === latestAiIdx}
+                  />
+                );
+              });
+            })()}
             {/* Streaming live preview: render the partial response as
                 a real assistant bubble so the user sees text flow in
                 token-by-token. Once the stream finishes we commit
@@ -784,7 +842,23 @@ export function AIScreen() {
                 }}
               />
             )}
-            {isThinking && !ai.partial && <ThinkingRow persona={persona} />}
+            {isThinking && !ai.partial && (() => {
+              // Derive the most recent user message + its attachment
+              // kind so the thinking indicator can adapt its phrase
+              // ("Looking at your image...", "Reading your PDF...",
+              // "Checking sources...", etc.). Purely visual — no
+              // change to the request/response logic.
+              const lastUser = [...messages].reverse().find((m) => m.role === "user");
+              const lastUserText = lastUser?.body ?? "";
+              const att: ThinkingAttachmentKind = lastUser?.attachment?.kind ?? null;
+              return (
+                <ThinkingStatus
+                  persona={persona}
+                  attachment={att}
+                  userText={lastUserText}
+                />
+              );
+            })()}
           </div>
         )}
       </div>
@@ -797,28 +871,31 @@ export function AIScreen() {
           so we don't sacrifice accessibility for compactness. */}
       <div className="border-t border-ink/8 bg-bg">
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-2">
-          {/* Tutor-mode picker (Omar only). Three modes:
-              · Hints — strict Socratic, AI asks until you reach it
-              · Teach — proactive teaching, AI explains concepts
-              · Walkthrough — guided step-by-step, you write each line
-              Only meaningful for Omar; Noor doesn't use modes so we
-              hide this entirely on the mental-health side. */}
-          {persona === "omar" && (
-            <TutorModeToggle value={tutorMode} onChange={setTutorMode} />
-          )}
-          {/* Quick-action pills — always-visible global shortcuts so
-              tired students can fire common follow-ups with one tap.
-              Different set per persona. Only shown after the chat has
-              actually started (at least one user message) so they
-              don't crowd the empty state, which has its own prompt
-              pills. The buttons just call sendWith() with predefined
-              text — same code path as typing it manually. */}
-          {messages.some((m) => m.role === "user") && !isThinking && (
-            <QuickActions
-              persona={persona}
-              onTap={(text) => { void sendWith(text, null); }}
-            />
-          )}
+          {/* Tutor-mode picker (Omar only). Four modes now:
+              · Auto — Omar picks the right approach per question (default)
+              · Hints — strict Socratic
+              · Teach — proactive concept teaching
+              · Walkthrough — guided step-by-step
+              Sits to the LEFT of the model picker on the same row so
+              the composer header reads as a unified control strip.
+              Noor doesn't use modes so the row is empty on her side
+              except for the model picker. */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              {persona === "omar" && (
+                <TutorModeToggle value={tutorMode} onChange={setTutorMode} />
+              )}
+            </div>
+            <div className="shrink-0 pb-1">
+              <ModelPicker
+                isPro={subscription.tier === "pro"}
+              />
+            </div>
+          </div>
+          {/* Quick-action chips moved into each AI message bubble —
+              rendered only on the LATEST AI reply so they auto-dismiss
+              as soon as the student sends a follow-up. See the chips
+              block in AIMessageView. */}
           {attachment && (
             <div className="mb-1.5 inline-flex items-center gap-2 h-8 px-3 rounded-full bg-ink/5 border border-ink/10 text-[13px]">
               <FileText size={13} className="text-ink/60" />
@@ -936,6 +1013,13 @@ export function AIScreen() {
  *  meant to be the eye's first stop. */
 function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { persona: AIPersona; onQuick: (text: string) => void; onOpenScreen?: () => void; onOpenSession?: () => void }) {
   const memory = useTutorMemory(persona);
+  // Optional proactive hint — surfaces ONE high-confidence durable
+  // memory ("Last time you mentioned struggling with AVL trees — want
+  // to revisit?"). Null when no memory qualifies. Renders in addition
+  // to the existing greeting/subline; never replaces them. Style is a
+  // distinct accent card so the eye reads it as "Omar remembers" not
+  // a second tagline.
+  const memoryHint = useMemoryHint(persona);
   const accent = memory.recentSubject ? paletteFor(memory.recentSubject) : null;
   // The first N prompts are memory-driven; the rest are generic.
   // We track which is which to apply different styling. memory.prompts
@@ -960,6 +1044,34 @@ function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { per
           <p className="mt-3 text-ink/55 text-sm md:text-base">
             Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Omar)" : "AI (Noor)"}</span>. I'll switch modes if the topic calls for it.
           </p>
+        )}
+        {/* Proactive memory hint — renders only when we have a high-
+            confidence, recent durable fact for this user. Tap-to-act
+            quick prompt appears alongside on Omar. Empty state stays
+            unchanged for first-time users. */}
+        {memoryHint.hint && (
+          <div
+            className="mt-4 mx-auto max-w-xl rounded-2xl px-4 py-3 text-start border"
+            style={{
+              borderColor: persona === "omar" ? "#5B4BF533" : "#0E8A6B33",
+              background: persona === "omar" ? "#5B4BF50A" : "#0E8A6B0A",
+            }}
+          >
+            <p className="text-[13px] text-ink/75 leading-relaxed">{memoryHint.hint}</p>
+            {memoryHint.quickPrompt && (
+              <button
+                type="button"
+                onClick={() => onQuick(memoryHint.quickPrompt!)}
+                className="mt-2 inline-flex items-center h-8 px-3 rounded-full text-[12.5px] font-medium transition active:scale-95"
+                style={{
+                  background: persona === "omar" ? "#5B4BF5" : "#0E8A6B",
+                  color: "#ffffff",
+                }}
+              >
+                {memoryHint.quickPrompt}
+              </button>
+            )}
+          </div>
         )}
         {/* Noor entry cards — discoverable hooks into Noor's deeper
             capabilities. Two cards in v1:
@@ -1125,6 +1237,12 @@ function TutorModeToggle({
     icon: React.ReactNode;
   }[] = [
     {
+      id: "auto",
+      label: "Auto",
+      hint: "Omar picks the right approach for each question",
+      icon: <Sparkles size={12} />,
+    },
+    {
       id: "homework_help",
       label: "Hints",
       hint: "Socratic — Omar asks questions, you solve",
@@ -1194,7 +1312,10 @@ const NOOR_QUICK_ACTIONS = [
   "What can I do right now?",
 ];
 
-function QuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: string) => void }) {
+// Preserved legacy "above composer" chip row. Replaced by per-message
+// chips inside AIMessageView; kept here as a rollback escape hatch.
+// Underscore prefix tells TS we intentionally aren't calling it.
+function _LegacyQuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: string) => void }) {
   const actions = persona === "omar" ? OMAR_QUICK_ACTIONS : NOOR_QUICK_ACTIONS;
   return (
     // Horizontally scrollable on mobile so 4 buttons fit on a phone
@@ -1215,6 +1336,8 @@ function QuickActions({ persona, onTap }: { persona: AIPersona; onTap: (text: st
     </div>
   );
 }
+// Intentionally referenced so TS doesn't flag the rollback function.
+void _LegacyQuickActions;
 
 /** Streak chip — small flame + day count, sits in the header next to
  *  the quota chip. Color shifts at higher tiers so a long streak
@@ -1347,13 +1470,21 @@ function ComposerRow({
   attachmentPresent: boolean;
 }) {
   return (
-    <div className={`flex items-end gap-1.5 rounded-2xl border p-1.5 bg-bg transition ${over ? "border-ink/10 opacity-60" : "border-ink/15 focus-within:border-ink/35"}`}>
+    // Tightened composer:
+    //   • Outer padding reduced from p-1.5 → p-1
+    //   • Internal gap reduced from gap-1.5 → gap-1
+    //   • Action buttons shrunk from w-9/h-9 (36px) → w-8/h-8 (32px)
+    //   • Textarea vertical padding tightened from py-[7px] → py-[5px]
+    //   • Textarea horizontal padding kept (px-1) so the cursor
+    //     doesn't hug the button. Result: ~30% less visual weight
+    //     while preserving 32 px tap targets (still passes a11y).
+    <div className={`flex items-end gap-1 rounded-2xl border p-1 bg-bg transition ${over ? "border-ink/10 opacity-60" : "border-ink/15 focus-within:border-ink/35"}`}>
       <button
         onClick={() => fileRef.current?.click()}
         disabled={over || busy}
         aria-label="Attach a file"
-        className="w-9 h-9 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition disabled:opacity-40 disabled:cursor-default"
-      ><Plus size={17} /></button>
+        className="w-8 h-8 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition disabled:opacity-40 disabled:cursor-default"
+      ><Plus size={15} /></button>
       <input ref={fileRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" className="hidden" onChange={onPickFile} />
       <textarea
         value={draft}
@@ -1364,24 +1495,21 @@ function ComposerRow({
           persona === "omar" ? "Ask Omar anything…" : "Share what's on your mind…"}
         disabled={over}
         rows={1}
-        // Tighter textarea: lower line-height (5 = 20px) + smaller
-        // vertical padding so a single-line message lives in a 36 px
-        // tall row instead of the previous ~44 px. max-h still allows
-        // multi-line growth up to 7 lines (28×5) before scrolling.
-        className="flex-1 resize-none bg-transparent outline-none text-ink placeholder:text-ink/40 px-1 py-[7px] max-h-28 leading-5 text-[15px]"
+        className="flex-1 resize-none bg-transparent outline-none text-ink placeholder:text-ink/40 px-1 py-[5px] max-h-28 leading-5 text-[14.5px]"
       />
       <button
         onClick={onSend}
         disabled={over || busy || (!draft.trim() && !attachmentPresent)}
         aria-label="Send message"
-        className="w-9 h-9 shrink-0 rounded-full bg-ink text-bg inline-flex items-center justify-center disabled:opacity-25 hover:bg-ink/85 transition"
-      ><ArrowUp size={17} /></button>
+        className="w-8 h-8 shrink-0 rounded-full bg-ink text-bg inline-flex items-center justify-center disabled:opacity-25 hover:bg-ink/85 transition"
+      ><ArrowUp size={15} /></button>
     </div>
   );
 }
 
 function MessageRow({
   msg, onSwitchPersona, onDismissSuggestion, onQuickReply, isSaved, onToggleSave,
+  priorUserMessageText, isLatestAi,
 }: {
   msg: AIMessage;
   onSwitchPersona?: (p: AIPersona) => void;
@@ -1392,6 +1520,15 @@ function MessageRow({
   /** Bookmark state + toggle. Only meaningful on AI messages. */
   isSaved?: boolean;
   onToggleSave?: () => void;
+  /** Most recent user message text BEFORE this AI message — passed
+   *  to the feedback row so a thumbs-down captures both prompt and
+   *  reply in the same row. Null for non-AI messages. */
+  priorUserMessageText?: string | null;
+  /** True when this AI message is the most-recent one in the thread.
+   *  Drives whether to render the global quick-action chips below
+   *  the bubble. Old AI messages don't show them — sending a new
+   *  message moves the chips automatically to the new reply. */
+  isLatestAi?: boolean;
 }) {
   if (msg.role === "user") return <UserMessage msg={msg} />;
   if (msg.role === "system") {
@@ -1417,6 +1554,8 @@ function MessageRow({
       onQuickReply={onQuickReply}
       isSaved={isSaved}
       onToggleSave={onToggleSave}
+      priorUserMessageText={priorUserMessageText}
+      isLatestAi={isLatestAi}
     />
   );
 }
@@ -1500,38 +1639,72 @@ function UserMessage({ msg }: { msg: AIMessage }) {
           />
         )}
         {isPdfWithMeta && msg.attachment && (() => {
-          // PDF preview card. Two render modes:
-          //   • New (pageCount === 0): we sent the PDF directly to
-          //     Anthropic as a document content block. We don't know
-          //     page count without parsing — show file size instead.
-          //   • Legacy (pageCount > 0): old extracted-text path. Kept
-          //     for back-compat with messages already rendered in the
-          //     thread before this commit.
+          // PDF preview card. Three render layers:
+          //   1. Headline: PDF-embedded title when present, otherwise
+          //      filename (without the .pdf extension for cleanliness).
+          //   2. Subline: page count · file size · creator software
+          //      ("Microsoft Word", "LaTeX", etc.) — each piece shown
+          //      only when known. Dots are inserted between present
+          //      pieces only, no orphan separators.
+          //   3. Footer: confirms which AI has read it (Omar or Noor).
+          //
+          // Page count comes from pdfMetaPeek (byte-level regex, no
+          // parser). When unknown (pageCount === 0), we just omit it
+          // and fall back to size — same graceful behavior as before.
           const meta = msg.attachment.pdfMeta!;
-          const isNativeMode = meta.pageCount === 0;
-          const sizeBytes = isNativeMode ? meta.characterCount : 0;
+          const sizeBytes = meta.characterCount; // We store raw bytes here.
           const sizeKb = sizeBytes > 0 ? Math.round(sizeBytes / 1024) : 0;
           const sizeLabel = sizeKb >= 1024
             ? `${(sizeKb / 1024).toFixed(1)} MB`
-            : `${sizeKb} KB`;
+            : sizeKb > 0 ? `${sizeKb} KB` : null;
+          const rawTitle = (meta.title ?? "").trim();
+          const filenameClean = (msg.attachment.name || "Document").replace(/\.pdf$/i, "");
+          const headline = rawTitle.length > 0 ? rawTitle : filenameClean;
+          // Show filename underneath as secondary info when title
+          // differs from filename — useful when the PDF was saved
+          // with a friendly title but the file got renamed on disk.
+          const showFilenameSecondary = rawTitle.length > 0 && rawTitle.toLowerCase() !== filenameClean.toLowerCase();
+          const pageLabel = meta.pageCount > 0
+            ? `${meta.pageCount} ${meta.pageCount === 1 ? "page" : "pages"}`
+            : null;
+          const producerLabel = (meta.producer || "").trim() || null;
+          // Footer text — show the active persona, never the
+          // deprecated "Bas Udros" / "Ustaz" names.
+          const personaLabel = msg.persona === "noor" ? "Noor" : "Omar";
+          const subInfo = [pageLabel, sizeLabel, producerLabel].filter(Boolean).join(" · ");
           return (
             <div className="mb-2 rounded-2xl bg-bg/10 border border-bg/15 px-3.5 py-3 max-w-[320px]">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="w-7 h-7 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0">
-                  <FileText size={14} />
+              <div className="flex items-start gap-2.5 mb-2">
+                <span className="w-9 h-11 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0 mt-0.5"
+                  // Slight book-cover proportions to read more as "document"
+                  // and less as "icon". Same color treatment as before so
+                  // it doesn't fight the bubble.
+                >
+                  <FileText size={16} />
                 </span>
-                <span className="text-[13px] font-medium truncate">{msg.attachment.name}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-semibold leading-tight truncate" title={headline}>
+                    {headline}
+                  </div>
+                  {showFilenameSecondary && (
+                    <div className="text-[11px] text-bg/55 truncate mt-0.5" title={msg.attachment.name}>
+                      {msg.attachment.name}
+                    </div>
+                  )}
+                  {meta.author && meta.author.trim().length > 0 && (
+                    <div className="text-[11px] text-bg/65 truncate mt-0.5">
+                      by {meta.author}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="text-[11.5px] text-bg/70 leading-relaxed space-y-0.5">
-                {isNativeMode ? (
-                  <div>📄 PDF · {sizeLabel}</div>
-                ) : (
-                  <>
-                    <div>📄 {meta.pageCount} {meta.pageCount === 1 ? "page" : "pages"}</div>
-                    <div>📊 {Math.round(meta.characterCount / 1000)}k characters extracted{meta.truncated ? " (partial — file was longer)" : ""}</div>
-                  </>
-                )}
-                <div className="pt-1 text-bg/55">Bas Udros has read this and can answer questions about it.</div>
+              {subInfo && (
+                <div className="text-[11.5px] text-bg/70 leading-relaxed">
+                  {subInfo}
+                </div>
+              )}
+              <div className="text-[11px] text-bg/55 pt-1.5">
+                {personaLabel} has read this and can answer questions about it.
               </div>
             </div>
           );
@@ -1551,12 +1724,20 @@ function UserMessage({ msg }: { msg: AIMessage }) {
 }
 
 function AIMessageView({
-  msg, onQuickReply, isSaved, onToggleSave,
+  msg, onQuickReply, isSaved, onToggleSave, priorUserMessageText, isLatestAi,
 }: {
   msg: AIMessage;
   onQuickReply?: (text: string) => void;
   isSaved?: boolean;
   onToggleSave?: () => void;
+  /** Prior user message text — used by the feedback row to snapshot
+   *  the full context of a 👎. Optional and gracefully missing. */
+  priorUserMessageText?: string | null;
+  /** True when this is the most-recent AI message in the thread.
+   *  Renders the always-available global quick-action chips
+   *  underneath. Sending a new message naturally moves them to the
+   *  new reply (old chips disappear). */
+  isLatestAi?: boolean;
 }) {
   const subject: AISubject = msg.subject ?? "general";
   const fallback = fallbackGradient(msg.id, msg.persona);
@@ -1667,6 +1848,35 @@ function AIMessageView({
         {msg.artifact && msg.artifact.kind === "cv" && (
           <CvArtifact artifact={msg.artifact} />
         )}
+        {/* Global quick-action chips — "Quiz me on this",
+            "Make it simpler", etc. Only rendered on the LATEST AI
+            message. Sending a new message naturally hides them
+            because a newer AI reply becomes latest. Skip on the
+            streaming preview (msg.id === "streaming"). Persona-tinted
+            outline so they read as suggestions, not primary actions. */}
+        {isLatestAi && msg.id !== "streaming" && onQuickReply && (() => {
+          const actions = msg.persona === "omar" ? OMAR_QUICK_ACTIONS : NOOR_QUICK_ACTIONS;
+          const accent = msg.persona === "omar" ? "#5B4BF5" : "#0E8A6B";
+          return (
+            <div className="mt-3 flex flex-wrap gap-1.5 px-1">
+              {actions.map((label) => (
+                <button
+                  key={`${msg.id}-qa-${label}`}
+                  type="button"
+                  onClick={() => onQuickReply(label)}
+                  className="inline-flex items-center text-[12.5px] h-8 px-3 rounded-full border transition active:scale-95 whitespace-nowrap"
+                  style={{
+                    borderColor: `${accent}33`,
+                    color: "rgba(0,0,0,0.65)",
+                    background: "transparent",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         {/* Quick-reply chips — extracted from the AI's <<<OPTIONS>>>
             block. Tappable shortcuts so students don't have to type.
             Rendered below the bubble so they don't compete visually
@@ -1703,13 +1913,18 @@ function AIMessageView({
             </div>
           );
         })()}
-        {/* Bookmark — saves this AI reply to tutor_saved_messages so
-            the student can revisit it later (review queues, exam
-            prep). Streaming preview rows pass id="streaming" and we
-            don't render the bookmark there because the message
-            isn't committed yet. Filled icon = saved, outline = not. */}
+        {/* Action row — feedback (👍/👎) on the left, bookmark on the
+            right. Both are no-ops for the streaming preview row (which
+            uses id="streaming") because the message hasn't committed
+            yet. Feedback is fire-and-forget into tutor_feedback;
+            bookmark toggles tutor_saved_messages. */}
         {onToggleSave && msg.id !== "streaming" && (
-          <div className="mt-2 px-1 flex justify-end">
+          <div className="mt-2 px-1 flex items-center justify-between">
+            <FeedbackRow
+              persona={msg.persona}
+              messageText={msg.body}
+              userMessageText={priorUserMessageText}
+            />
             <button
               type="button"
               onClick={onToggleSave}
@@ -1733,7 +1948,12 @@ function AIMessageView({
   );
 }
 
-function ThinkingRow({ persona }: { persona: AIPersona }) {
+/** Preserved legacy three-dots-only thinking indicator. Replaced in
+ *  the stream by ThinkingStatus (adaptive phrasing) but kept here for
+ *  easy rollback — flip the call site back to <_LegacyThinkingRow />
+ *  if the new indicator ever causes problems. Underscore prefix tells
+ *  TypeScript we intentionally aren't calling it right now. */
+function _LegacyThinkingRow({ persona }: { persona: AIPersona }) {
   const tone = persona === "omar" ? "bg-[#5B4BF5]" : "bg-[#0E8A6B]";
   return (
     <div className="flex justify-start">
@@ -1745,6 +1965,9 @@ function ThinkingRow({ persona }: { persona: AIPersona }) {
     </div>
   );
 }
+// Intentionally unused export-shaped reference so the linter doesn't
+// flag the rollback escape hatch above. Never imported elsewhere.
+void _LegacyThinkingRow;
 
 // ───────────────────────── helpers ─────────────────────────
 

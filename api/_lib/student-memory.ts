@@ -4,14 +4,23 @@
  *
  * The client UI (MemoryModal) lets the student CRUD their memory.
  * This module is the read path that runs in the edge function on
- * every chat turn: load the top-N most-important memories for the
+ * every chat turn: load the top-N most-RELEVANT memories for the
  * authenticated user, render them as a `STUDENT MEMORY` section the
  * AI can read.
  *
+ * TWO read paths:
+ *   1. fetchStudentMemory()          — legacy importance-ordered fetch.
+ *                                      Always works (no embedding needed).
+ *   2. fetchStudentMemoryRelevant()  — semantic fetch via
+ *                                      match_student_memory RPC.
+ *                                      Falls back to (1) automatically
+ *                                      when embedding service is offline.
+ *
  * Best-effort by design — if Supabase is unreachable or the table
- * doesn't exist yet on a fresh deploy, we return "" and the chat
+ * doesn't exist yet on a fresh deploy, we return [] and the chat
  * runs without memory injection. No user-facing failure.
  */
+import { embedText, embeddingsAvailable } from "./embeddings";
 
 export interface MemoryRow {
   fact: string;
@@ -107,3 +116,70 @@ export function renderMemoryBlock(rows: MemoryRow[]): string {
   lines.push("═══════════════════════════════════════════");
   return lines.join("\n");
 }
+
+interface FetchRelevantOpts extends FetchOpts {
+  /** The query text — typically the latest user message. We embed
+   *  this and ask Postgres for cosine-nearest rows. If embedText
+   *  returns null (no OPENAI_API_KEY, fetch failed, etc.), we
+   *  silently fall back to the importance-ordered legacy fetch. */
+  query: string;
+  /** Minimum confidence required for a row to be considered. Default
+   *  0.0 so legacy rows (NULL confidence) still surface. Increase
+   *  (e.g. 0.8) when the caller wants only high-confidence facts. */
+  minConfidence?: number;
+}
+
+/**
+ * Fetch the user's most RELEVANT memories for a query. Uses the
+ * pgvector RPC `match_student_memory`. Falls back to legacy
+ * importance-ordering when embeddings are unavailable.
+ *
+ * Always returns within ~1 second under normal conditions because the
+ * embedding call is bounded by a 10s timeout and Postgres lookups on
+ * a per-user corpus are sub-50ms.
+ */
+export async function fetchStudentMemoryRelevant(
+  opts: FetchRelevantOpts,
+): Promise<MemoryRow[]> {
+  const { supabaseUrl, supabaseAnonKey, authHeader, limit = 10, signal, query, minConfidence = 0 } = opts;
+  if (!authHeader || !supabaseUrl) return [];
+
+  // Optional embedding. Null is fine — RPC handles the null case.
+  let queryEmbedding: number[] | null = null;
+  if (embeddingsAvailable() && query && query.trim().length > 0) {
+    queryEmbedding = await embedText(query, { signal });
+  }
+
+  try {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/match_student_memory`, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        apikey: supabaseAnonKey,
+        "Content-Type": "application/json",
+      },
+      signal,
+      body: JSON.stringify({
+        query_embedding: queryEmbedding,
+        match_count: limit,
+        min_confidence: minConfidence,
+      }),
+    });
+    if (!res.ok) {
+      // RPC missing on an older DB (e.g. local dev that hasn't
+      // applied the migration) — fall back to legacy.
+      return fetchStudentMemory(opts);
+    }
+    const rows = (await res.json()) as Array<{
+      fact: string; category: string; importance: number;
+    }>;
+    if (!Array.isArray(rows) || rows.length === 0) return [];
+    return rows
+      .filter((r) => typeof r.fact === "string" && r.fact.length >= 4)
+      .map((r) => ({ fact: r.fact, category: r.category ?? "other", importance: r.importance ?? 5 }));
+  } catch {
+    // Network / serialization error — fall back so the chat keeps running.
+    return fetchStudentMemory(opts);
+  }
+}
+

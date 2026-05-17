@@ -20,6 +20,20 @@ export interface University {
   short_name: string | null;
 }
 
+/** Sentinel UUID for the "Other / Not listed" row in the universities
+ *  table. Students whose university isn't in our catalog pick this
+ *  and type their university name in a free-text input. The typed
+ *  string becomes their profile.uni (overriding the sentinel display
+ *  name "My university isn't listed"). Majors fall back to the
+ *  generic list when this is the selected uni id. */
+export const OTHER_UNI_ID = "00000000-0000-0000-0000-000000000099";
+
+/** True when the given uni id represents the "Other / Not listed"
+ *  sentinel — i.e. the user is providing their own free-text name. */
+export function isOtherUni(uniId: string | null | undefined): boolean {
+  return uniId === OTHER_UNI_ID;
+}
+
 export interface Major {
   id: string;
   university_id: string;
@@ -94,9 +108,11 @@ export function useMajors(universityId: string | null) {
     setLoading(true);
     (async () => {
       // If this is a fallback uni id (user picked from the offline
-      // list), serve a generic major list rather than 0 results.
+      // list), OR the OTHER sentinel ("My university isn't listed"),
+      // serve a generic major list rather than 0 results.
       const isFallback = universityId.startsWith("fallback-");
-      if (!supabase || isFallback) {
+      const isOther = universityId === OTHER_UNI_ID;
+      if (!supabase || isFallback || isOther) {
         if (!cancelled) {
           setData((FALLBACK_MAJORS_BY_UNI[universityId] ?? FALLBACK_MAJORS_BY_UNI.default).map((name, i) => ({
             id: `${universityId}:${i}`, university_id: universityId, name,

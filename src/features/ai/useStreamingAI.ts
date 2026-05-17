@@ -32,6 +32,7 @@ import {
   startOrResumeSession,
   appendMessages,
   analyzeAndCloseSession,
+  extractMemoryFromSession,
   type SessionHandle,
   type TutorMode,
   type TutorMessage,
@@ -164,6 +165,16 @@ export function useStreamingAI(): StreamingAIState {
     if (handle?.sessionId && token) {
       // Fire-and-forget — analyzer is idempotent and never throws.
       void analyzeAndCloseSession(handle.sessionId, token);
+      // Extract durable facts into student_memory (semantic memory).
+      // Independent of analyze; both safe to run in parallel.
+      void extractMemoryFromSession(handle.sessionId, "omar", token);
+    }
+    // Also extract memory from any active Noor session — wellbeing
+    // sessions don't have an analyzer counterpart, but they DO produce
+    // memorable facts (emotional patterns, recurring stressors).
+    const wbHandle = wellbeingSessionRef.current;
+    if (wbHandle?.sessionId && token) {
+      void extractMemoryFromSession(wbHandle.sessionId, "noor", token);
     }
   }, []);
 
@@ -220,6 +231,8 @@ export function useStreamingAI(): StreamingAIState {
         if (active && active.subject !== subjectForSession) {
           // Subject change → analyse + close + open fresh.
           void analyzeAndCloseSession(active.sessionId, access);
+          // Also extract memory from the closing session.
+          void extractMemoryFromSession(active.sessionId, "omar", access);
           sessionRef.current = null;
         }
         if (!sessionRef.current) {

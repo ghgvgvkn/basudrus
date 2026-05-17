@@ -26,7 +26,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import type { PersonalityAnswers as LegacyPersonalityAnswers } from "@/shared/types";
 import { Mail, ArrowRight } from "lucide-react";
-import { useUniversities, useMajors } from "./useOnboardingCatalog";
+import { useUniversities, useMajors, OTHER_UNI_ID, isOtherUni } from "./useOnboardingCatalog";
 import { supabase } from "@/lib/supabase";
 import { CoursesPicker } from "@/features/profile/CoursesPicker";
 import type { PersonalityAnswers } from "@/features/match/personalityQuestions";
@@ -485,7 +485,11 @@ export function OnboardingScreen() {
                       const id = e.target.value;
                       const pick = unis.find(u => u.id === id);
                       setUniId(id);
-                      setUni(pick?.name ?? "");
+                      // For the OTHER sentinel, clear `uni` so the
+                      // text input below renders empty — student
+                      // types their actual university name there.
+                      // For all other picks, store the catalog name.
+                      setUni(id === OTHER_UNI_ID ? "" : (pick?.name ?? ""));
                       setMajor("");
                     }}
                     disabled={unisLoading}
@@ -500,6 +504,17 @@ export function OnboardingScreen() {
                       </option>
                     ))}
                   </select>
+                  {isOtherUni(uniId) && (
+                    <input
+                      type="text"
+                      value={uni}
+                      onChange={(e) => setUni(e.target.value.slice(0, 120))}
+                      placeholder="Type your university name…"
+                      maxLength={120}
+                      autoFocus
+                      className="mt-2 w-full h-12 px-4 rounded-xl border border-ink/15 bg-bg text-ink focus:outline-none focus:ring-2 focus:ring-ink/20"
+                    />
+                  )}
                 </Field>
 
                 <Field label="Major">

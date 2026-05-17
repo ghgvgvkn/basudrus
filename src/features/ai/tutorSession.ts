@@ -53,7 +53,10 @@ import { supabase } from "@/lib/supabase";
  *                      but optimised for "I have homework to do, walk
  *                      me through it."
  */
-export type TutorMode = "homework_help" | "study_mode" | "homework_helper";
+// "auto" added as a client-driven mode that defers the teaching
+// strategy decision to the AI per-turn. Server understands it in
+// buildModeBlock (api/ai/tutor.ts). Legacy modes preserved unchanged.
+export type TutorMode = "auto" | "homework_help" | "study_mode" | "homework_helper";
 
 export interface TutorMessage {
   role: "user" | "assistant";
@@ -440,6 +443,32 @@ export async function analyzeAndCloseSession(
     });
   } catch (e) {
     if (import.meta.env.DEV) console.warn("[tutorSession] analyzeAndCloseSession swallowed error:", e);
+  }
+}
+
+/** Fire-and-forget memory extraction. The endpoint pulls the session's
+ *  messages from DB, asks Haiku for 0-3 durable facts (conservative —
+ *  most calls return 0), embeds each, and inserts into student_memory.
+ *  Failures are silent. Safe to call alongside analyzeAndCloseSession;
+ *  the two are independent. */
+export async function extractMemoryFromSession(
+  sessionId: string,
+  persona: "omar" | "noor",
+  accessToken: string,
+): Promise<void> {
+  if (!sessionId || !accessToken) return;
+  try {
+    await fetch("/api/ai/extract-memory", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ sessionId, persona }),
+      keepalive: true,
+    });
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn("[tutorSession] extractMemoryFromSession swallowed error:", e);
   }
 }
 
