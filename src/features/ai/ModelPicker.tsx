@@ -28,6 +28,10 @@ export interface ModelOption {
   description: string;
   /** Pro / paid tier required. Free users see a lock + disabled state. */
   proRequired?: boolean;
+  /** When true, the option is shown but un-selectable for ALL users
+   *  (free + Pro). Use for models that haven't launched yet. The
+   *  pick handler bails out so the chip stays on whatever they had. */
+  comingSoon?: boolean;
   /** Optional small tag under the label ("Default", "Faster", "Smarter"). */
   badge?: string;
 }
@@ -55,8 +59,8 @@ const MODELS: ModelOption[] = [
     id: "groq-llama-4",
     label: "Llama 4 Maverick",
     description: "Open-source via Groq. Fast token speed, no vision.",
-    badge: "Beta",
-    proRequired: true,
+    badge: "Coming soon",
+    comingSoon: true,
   },
 ];
 
@@ -111,7 +115,8 @@ export function ModelPicker({ isPro = false, onChange }: ModelPickerProps) {
   const active = MODELS.find((m) => m.id === selected) || MODELS[0];
 
   const pick = (m: ModelOption) => {
-    if (m.proRequired && !isPro) return; // locked — no-op
+    if (m.comingSoon) return; // not launched yet — no-op for everyone
+    if (m.proRequired && !isPro) return; // locked behind Pro tier
     setSelected(m.id);
     writeStoredModel(m.id);
     onChange?.(m.id);
@@ -139,7 +144,9 @@ export function ModelPicker({ isPro = false, onChange }: ModelPickerProps) {
         >
           {MODELS.map((m) => {
             const isSelected = m.id === selected;
-            const locked = m.proRequired && !isPro;
+            // "locked" covers both Pro-gated rows (when the viewer
+            // isn't Pro) and comingSoon rows (locked for everyone).
+            const locked = (m.proRequired && !isPro) || !!m.comingSoon;
             return (
               <button
                 key={m.id}
