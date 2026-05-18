@@ -17,7 +17,7 @@ export type ScreenId =
   | "subscription"
   | "onboarding";
 
-/** AI mode — Omar = Study, Noor = Mental Health. */
+/** AI mode — Tony Starrk = Study, Sherlock = Mental Health. */
 export type AIPersona = "omar" | "noor";
 
 /** Subscription tier. */
@@ -251,17 +251,17 @@ export interface ProfessorEmailArtifact {
    *  header so the student knows which dial they're on and can ask
    *  for a different tone. */
   tone: "formal" | "respectful_warm" | "casual_respectful";
-  /** Optional one-paragraph coaching note from Omar — WHY he wrote
+  /** Optional one-paragraph coaching note from Tony Starrk — WHY he wrote
    *  it this way, what to watch out for, what to do if the prof
    *  rejects. Rendered below the card in subdued text, NOT inside
    *  the email body the student copies. */
   coachingNote?: string;
 }
 
-/** Day 16 — drafted message Noor helps the student send to someone
+/** Day 16 — drafted message Sherlock helps the student send to someone
  *  in their life (partner, friend, family). NOT real-time mediation.
  *  Student copies / sends themselves. Strong safeguards apply on the
- *  prompt side: Noor refuses to draft when abuse signals, manipulation
+ *  prompt side: Sherlock refuses to draft when abuse signals, manipulation
  *  intent, or out-of-scope requests are detected. */
 export interface RelationshipMessageArtifact {
   kind: "relationshipMessage";
@@ -283,7 +283,7 @@ export interface RelationshipMessageArtifact {
   tone: "warm" | "direct" | "firm" | "compassionate";
   /** Language — drives copy direction (LTR/RTL) + localized labels. */
   lang: "en" | "ar";
-  /** Coaching note from Noor — when to send, what to expect, what
+  /** Coaching note from Sherlock — when to send, what to expect, what
    *  to do if reaction is bad. Lives BELOW the card so it doesn't
    *  get copied accidentally. */
   coachingNote?: string;
@@ -291,12 +291,12 @@ export interface RelationshipMessageArtifact {
    *  (goodbye, boundary_setting). Surfaced prominently in the card
    *  so the student sees the risk before sending. */
   riskNote?: string;
-  /** Optional 24-hour soft delay suggestion — Noor sets this for
+  /** Optional 24-hour soft delay suggestion — Sherlock sets this for
    *  high-emotion drafts so the student is reminded to sleep on it. */
   suggestSleepOnIt?: boolean;
 }
 
-/** Day 17 — CV / résumé Omar drafts for a student. The artifact
+/** Day 17 — CV / résumé Tony Starrk drafts for a student. The artifact
  *  is structured so the renderer can format sections cleanly AND
  *  the "copy as plain text" button produces a CV the student can
  *  paste into Word / Google Docs / LinkedIn / job forms.
@@ -382,7 +382,7 @@ export interface CvArtifact {
     issuer?: string;
     date?: string;
   }>;
-  /** Coaching note from Omar — what's strong, what's weak, what
+  /** Coaching note from Tony Starrk — what's strong, what's weak, what
    *  to add as the student gains experience. Lives below the card. */
   coachingNote?: string;
 }

@@ -75,7 +75,7 @@ function ShowUpgrade({
             featured
             comingSoon={!PAYMENTS_LIVE}
             features={[
-              { icon: <InfinityIcon size={14}/>, text: "Unlimited AI (Omar + Noor)" },
+              { icon: <InfinityIcon size={14}/>, text: "Unlimited AI (Tony Starrk + Sherlock)" },
               { icon: <Zap size={14}/>, text: "Priority Discover placement" },
               "Upload PDFs, docs, images to AI",
               "Voice messages in chat",

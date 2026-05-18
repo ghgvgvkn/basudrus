@@ -1,10 +1,10 @@
 /**
  * parseProfessorEmail — extract the AI-emitted <<<PROFESSOR_EMAIL>>>
- * block from an Omar reply, return the cleaned body + parsed
+ * block from an Tony Starrk reply, return the cleaned body + parsed
  * ProfessorEmailArtifact so the AIScreen can attach it to the
  * message and the renderer shows a premium copy-pasteable card.
  *
- * The format Omar emits:
+ * The format Tony Starrk emits:
  *
  *   Short prose framing the email + any honest caveats.
  *

@@ -297,7 +297,7 @@ function renderPlanHtml(plan: SafePlan, recipientFirstName: string): string {
     <!-- Footer -->
     <div style="padding:18px 24px;border-top:1px solid #e5e3dc;font-size:11.5px;color:#7a7a7a;line-height:1.5;">
       Bas Udrus · <a href="${escapeHtml(APP_URL)}" style="color:${head.accent};text-decoration:none;">basudrus.com</a><br/>
-      Adjust the plan anytime — chat with Omar and ask for changes.
+      Adjust the plan anytime — chat with Tony Starrk and ask for changes.
     </div>
   </div>
 </div>

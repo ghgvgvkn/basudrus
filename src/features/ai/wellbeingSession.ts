@@ -1,14 +1,14 @@
 /**
- * wellbeingSession.ts — durable session bookkeeping for Noor.
+ * wellbeingSession.ts — durable session bookkeeping for Sherlock.
  *
  * Mirrors the basic shape of tutorSession.ts but without the
- * subject / topics / progress / weak-areas machinery. Noor
+ * subject / topics / progress / weak-areas machinery. Sherlock
  * conversations are emotional, not academic — so we keep them
  * minimal: messages, a free-form topic tag, an optional summary
  * (filled in async by an analyzer later, or left null forever
  * with no consequence).
  *
- * Resume window: if the most recent Noor session was updated less
+ * Resume window: if the most recent Sherlock session was updated less
  * than 30 minutes ago, we append to it rather than creating a new
  * row. Same instinct as tutorSession — "this is one sitting, even
  * if there was a short pause."
@@ -39,7 +39,7 @@ export interface WellbeingSessionRow {
 const RESUME_WINDOW_MS = 30 * 60 * 1000;
 
 /**
- * Pull the latest open Noor session for the user (if any, and recent
+ * Pull the latest open Sherlock session for the user (if any, and recent
  * enough to count as "the same sitting"), or create a fresh one.
  * Best-effort — returns an empty handle on DB failure so callers can
  * keep streaming without persistence rather than failing the chat.
@@ -78,7 +78,7 @@ export async function startOrResumeWellbeingSession(
 }
 
 /**
- * Append a (user, assistant) message pair to a Noor session. Best-
+ * Append a (user, assistant) message pair to a Sherlock session. Best-
  * effort — failure is silent so a transient DB blip doesn't blow up
  * the user-facing chat. The `messages` JSONB is read-modify-write
  * because PostgREST doesn't support jsonb_array_append in a single

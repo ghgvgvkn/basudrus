@@ -134,7 +134,7 @@ export default async function handler(req: Request): Promise<Response> {
   return htmlPage(
     "You're unsubscribed",
     `<h1>You're unsubscribed.</h1>
-<p>You won't receive Sunday letters from Bas Udrus anymore. The rest of the app keeps working — chat with Omar and Noor whenever you want.</p>
+<p>You won't receive Sunday letters from Bas Udrus anymore. The rest of the app keeps working — chat with Tony Starrk and Sherlock whenever you want.</p>
 <p>Changed your mind? Toggle Sunday letters back on in <a href="https://www.basudrus.com">your settings</a> any time.</p>`,
   );
 }

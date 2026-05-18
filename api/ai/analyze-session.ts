@@ -1,7 +1,7 @@
 /**
  * /api/ai/analyze-session — post-session analysis (UPGRADE 5).
  *
- * Dedicated to Omar 🍏. The analyzer is what turns a noisy chat
+ * Dedicated to Tony Starrk 🍏. The analyzer is what turns a noisy chat
  * transcript into durable, structured progress data so the next
  * session can pick up exactly where the student left off.
  *

@@ -1,14 +1,14 @@
 /**
  * personaRouting — client-side classifier that decides:
- *   1. Is this a crisis message? (force-switch to Noor, no opt-in)
+ *   1. Is this a crisis message? (force-switch to Sherlock, no opt-in)
  *   2. Is this more emotional or more academic? (suggest a persona
  *      switch via the SwitchSuggestionCard, but never force)
  *
  * Defense-in-depth note: api/ai/wellbeing.ts ALREADY classifies
- * crisis on the server and switches Noor into CRISIS_MODE. This
+ * crisis on the server and switches Sherlock into CRISIS_MODE. This
  * module mirrors a SUBSET of those patterns client-side for ROUTING
- * — i.e. so we can force-route a crisis message to Noor instead of
- * letting it reach Omar's tutor endpoint. Server-side classification
+ * — i.e. so we can force-route a crisis message to Sherlock instead of
+ * letting it reach Tony Starrk's tutor endpoint. Server-side classification
  * remains the source of truth for tone-mode selection.
  *
  * Bilingual: every pattern set has English + Arabic equivalents.
@@ -22,10 +22,10 @@ import type { AIPersona } from "@/shared/types";
 
 // ─────────────────────────────────────────────────────────────────
 // Crisis patterns — must mirror api/ai/wellbeing.ts CRISIS_PATTERNS.
-// These FORCE-route to Noor regardless of the user's persona pick.
+// These FORCE-route to Sherlock regardless of the user's persona pick.
 // Bias toward false positives is correct here: the cost of a missed
 // crisis routing far outweighs the cost of routing a math question
-// to Noor for one turn.
+// to Sherlock for one turn.
 // ─────────────────────────────────────────────────────────────────
 
 const CRISIS_PATTERNS: RegExp[] = [
@@ -52,7 +52,7 @@ const CRISIS_PATTERNS: RegExp[] = [
 ];
 
 /** Returns true if the message contains crisis-level language. The
- *  caller should force-route to Noor without showing a "want to
+ *  caller should force-route to Sherlock without showing a "want to
  *  switch?" prompt. */
 export function isCrisisMessage(message: string): boolean {
   if (!message || typeof message !== "string") return false;
@@ -67,7 +67,7 @@ export function isCrisisMessage(message: string): boolean {
 // ─────────────────────────────────────────────────────────────────
 // Persona inference — soft signal used to drive the
 // SwitchSuggestionCard ("This sounded more like an emotional
-// question — want to switch to Noor?"). Bilingual.
+// question — want to switch to Sherlock?"). Bilingual.
 // ─────────────────────────────────────────────────────────────────
 
 const NOOR_KEYWORDS: string[] = [
@@ -103,10 +103,10 @@ const OMAR_KEYWORDS: string[] = [
   "formula", "theorem", "chapter",
   // Academic neuroscience / biology / psychology factual terms — when
   // a message contains these, the student is studying the topic, not
-  // disclosing personal distress. Routing to Omar makes Noor's
+  // disclosing personal distress. Routing to Tony Starrk makes Sherlock's
   // factual-answer rule less critical because the question reaches
   // the tutor in the first place. Bilateral safety: even if it stays
-  // on Noor, her 1b FACTUAL-QUESTION rule still answers properly.
+  // on Sherlock, her 1b FACTUAL-QUESTION rule still answers properly.
   "dopamine", "serotonin", "norepinephrine", "neurotransmitter",
   "cortisol", "adrenaline", "oxytocin", "endorphin", "hormone",
   "neuron", "synapse", "neuroscience", "neuroplasticity",
@@ -153,22 +153,22 @@ function keywordHit(keyword: string, lowered: string, tokens: Set<string>): bool
  *
  *  Dual-signal rule: when a message contains BOTH academic AND emotional
  *  keywords (e.g. "I'm stressed about my calculus exam"), we lead with
- *  emotion → suggest Noor. A huge share of Jordanian-student messages
+ *  emotion → suggest Sherlock. A huge share of Jordanian-student messages
  *  carry both signals; before this rule, the keyword combination silently
  *  returned `current`, meaning whichever persona the student happened to
- *  be on won by accident. Emotion-first is the right default: Noor can
- *  always bridge back to Omar after acknowledging how the student feels.
+ *  be on won by accident. Emotion-first is the right default: Sherlock can
+ *  always bridge back to Tony Starrk after acknowledging how the student feels.
  */
 export function inferPersona(message: string, current: AIPersona): AIPersona {
   if (!message) return current;
   const lowered = message.toLowerCase();
   const tokens = tokenize(lowered);
-  const hasNoor = NOOR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
-  const hasOmar = OMAR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
-  if (hasNoor && !hasOmar) return "noor";
-  if (hasOmar && !hasNoor) return "omar";
+  const hasSherlock = NOOR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
+  const hasTonyStarrk = OMAR_KEYWORDS.some((k) => keywordHit(k, lowered, tokens));
+  if (hasSherlock && !hasTonyStarrk) return "noor";
+  if (hasTonyStarrk && !hasSherlock) return "omar";
   // Dual signal (both academic + emotional): lead with emotion.
-  if (hasNoor && hasOmar) return "noor";
+  if (hasSherlock && hasTonyStarrk) return "noor";
   return current;
 }
 
@@ -180,7 +180,7 @@ export function inferPersona(message: string, current: AIPersona): AIPersona {
 
 export type RoutingDecision =
   | {
-      /** Force-switch to Noor; no user opt-in. */
+      /** Force-switch to Sherlock; no user opt-in. */
       kind: "force_crisis";
       target: "noor";
     }

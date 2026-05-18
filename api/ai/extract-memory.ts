@@ -210,7 +210,7 @@ function buildSystemPrompt(persona: "omar" | "noor"): string {
     ? "emotional patterns the student has revealed, recurring stressors, what calms them, support systems they mentioned"
     : "academic context (course, exam date, subject focus), strengths, weaknesses, study preferences, goals, recurring confusions";
 
-  return `You extract DURABLE FACTS from a chat transcript between a Jordanian university student and an AI ${persona === "noor" ? "wellbeing companion (Noor)" : "tutor (Omar)"} inside Bas Udrus.
+  return `You extract DURABLE FACTS from a chat transcript between a Jordanian university student and an AI ${persona === "noor" ? "wellbeing companion (Sherlock)" : "tutor (Tony Starrk)"} inside Bas Udrus.
 
 Your output is the input to a long-term memory store. The AI will read these facts on every future conversation, so they MUST be durable, true, and useful months from now.
 

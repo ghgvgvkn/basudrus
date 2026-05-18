@@ -1,8 +1,8 @@
 /**
- * parseCv — extract the AI-emitted <<<CV>>> block from an Omar
+ * parseCv — extract the AI-emitted <<<CV>>> block from an Tony Starrk
  * reply, return the cleaned body + parsed CvArtifact.
  *
- * Format Omar emits:
+ * Format Tony Starrk emits:
  *
  *   Short framing line — what mode + what's missing the student
  *   should add over time.

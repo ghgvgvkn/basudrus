@@ -9,7 +9,7 @@
  * slice 2 we keep it simple: screens render their own TopBar at the
  * top of their tree, Shell just provides spacing/chrome.
  *
- * Cmd+K / Ctrl+K toggles the CommandPalette. Long-press AI (Omar) in
+ * Cmd+K / Ctrl+K toggles the CommandPalette. Long-press AI (Tony Starrk) in
  * MobileNav opens the same palette.
  */
 import { useEffect, useState } from "react";

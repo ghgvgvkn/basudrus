@@ -5,8 +5,8 @@
  * Design: feels like a real email composition window. Subject in a
  * dedicated row, body in a clean readable block, sign-off separated
  * from body, recipient prominently shown. Tone tag in the header
- * tells the student which dial Omar selected so they can ask for a
- * different one. Coaching note (Omar's "why I wrote it this way")
+ * tells the student which dial Tony Starrk selected so they can ask for a
+ * different one. Coaching note (Tony Starrk's "why I wrote it this way")
  * lives BELOW the card in subdued text so it doesn't get copied
  * accidentally.
  */
@@ -145,13 +145,13 @@ export function ProfessorEmailArtifact({ artifact }: Props) {
         </button>
       </div>
 
-      {/* Coaching note — Omar's "why I wrote it this way" — lives
+      {/* Coaching note — Tony Starrk's "why I wrote it this way" — lives
           OUTSIDE the email body so it doesn't get copied. Subdued
           styling so the email itself remains the visual focus. */}
       {artifact.coachingNote && (
         <div className="px-4 md:px-5 py-3 border-t border-ink/6 bg-ink/[1.5%]">
           <div className="text-[10.5px] uppercase tracking-wider text-ink/45 font-semibold mb-1">
-            {isAr ? "ملاحظة من عمر" : "Note from Omar"}
+            {isAr ? "ملاحظة من عمر" : "Note from Tony Starrk"}
           </div>
           <p className="text-[13px] text-ink/70 leading-relaxed whitespace-pre-wrap">
             {artifact.coachingNote}

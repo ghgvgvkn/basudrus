@@ -6,7 +6,7 @@
  *     question, plain question)
  *   • Rotates phrases every ~3 seconds so it feels alive
  *   • Slips a gentler "almost there" line in after ~8s of waiting
- *   • Speaks per-persona — Omar action-y, Noor gentle
+ *   • Speaks per-persona — Tony Starrk action-y, Sherlock gentle
  *   • Stays in the persona color
  *
  * Heuristic only — purely client-side. No backend / SSE changes.
@@ -36,21 +36,21 @@ const LONG_WAIT_MS = 8000;
  *  phrase is what shows on appearance, then we rotate. */
 function buildPhrases(opts: ThinkingStatusProps): string[] {
   const { persona, attachment, userText } = opts;
-  const isNoor = persona === "noor";
+  const isSherlock = persona === "noor";
 
   // Attachment-driven flows (most specific first).
   if (attachment === "image") {
-    return isNoor
+    return isSherlock
       ? ["Looking at what you shared...", "Sitting with this...", "Thinking with you..."]
       : ["Looking at your image...", "Reading what's in it...", "Putting it together..."];
   }
   if (attachment === "pdf") {
-    return isNoor
+    return isSherlock
       ? ["Reading what you shared...", "Letting it land...", "Sitting with this..."]
       : ["Reading your PDF...", "Pulling out what matters...", "Putting it together..."];
   }
   if (attachment === "doc") {
-    return isNoor
+    return isSherlock
       ? ["Reading what you shared...", "Letting it land...", "Sitting with this..."]
       : ["Reading the doc...", "Picking out what matters...", "Putting it together..."];
   }
@@ -62,20 +62,20 @@ function buildPhrases(opts: ThinkingStatusProps): string[] {
     /\b(today|recent|latest|news|right now|اليوم|الآن)\b/i.test(text) ||
     /\b20(2[3-9]|3\d)\b/.test(text);
 
-  if (looksLikeSearch && !isNoor) {
+  if (looksLikeSearch && !isSherlock) {
     return ["Checking sources...", "Cross-referencing...", "Putting it together..."];
   }
 
   // Long / complex message → working it out.
   const long = (userText || "").length > 250;
   if (long) {
-    return isNoor
+    return isSherlock
       ? ["Taking this in...", "Sitting with all of it...", "Thinking with you..."]
       : ["Working through this...", "Breaking it down...", "Putting it together..."];
   }
 
   // Default — short factual question.
-  return isNoor
+  return isSherlock
     ? ["Listening...", "With you...", "Thinking..."]
     : ["Thinking...", "Working it out...", "Almost there..."];
 }

@@ -1,6 +1,6 @@
 /**
  * parseQuickReplies — extract the AI-emitted <<<OPTIONS>>> block
- * from a Bas Udros / Noor reply, return the cleaned text + the
+ * from a Bas Udros / Sherlock reply, return the cleaned text + the
  * options list separately so the UI can render them as tappable
  * chips below the message.
  *

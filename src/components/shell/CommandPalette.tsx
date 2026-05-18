@@ -2,7 +2,7 @@
  * CommandPalette — Cmd+K / long-press-AI launcher.
  *
  * Two modes in this slice:
- *   - default   → Ask Omar (AI). Enter routes to the AI screen with
+ *   - default   → Ask Tony Starrk (AI). Enter routes to the AI screen with
  *                 the typed query preloaded.
  *   - "/go …"   → screen jumps ("home", "discover", "settings", …).
  *
@@ -126,7 +126,7 @@ export function CommandPalette({ open, onOpenChange }: PaletteProps) {
 
         <div className="max-h-[50vh] overflow-y-auto">
           {mode === "ai" && (
-            <AskOmarRow query={q} onSubmit={commit} />
+            <AskTonyStarrkRow query={q} onSubmit={commit} />
           )}
 
           {mode === "go" && (
@@ -158,7 +158,7 @@ export function CommandPalette({ open, onOpenChange }: PaletteProps) {
   );
 }
 
-function AskOmarRow({ query, onSubmit }: { query: string; onSubmit: () => void }) {
+function AskTonyStarrkRow({ query, onSubmit }: { query: string; onSubmit: () => void }) {
   const { t } = useLocale();
   const hasQuery = query.trim().length > 0;
   return (

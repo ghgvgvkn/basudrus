@@ -1,9 +1,9 @@
 /**
  * parseRelationshipMessage — extract the AI-emitted
- * <<<RELATIONSHIP_MESSAGE>>> block from a Noor reply, return the
+ * <<<RELATIONSHIP_MESSAGE>>> block from a Sherlock reply, return the
  * cleaned body + parsed RelationshipMessageArtifact.
  *
- * Format Noor emits:
+ * Format Sherlock emits:
  *
  *   Short framing — explain what kind of message + when to send +
  *   what to expect.

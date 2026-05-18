@@ -61,7 +61,7 @@ export function paletteFor(subject: string | null | undefined): SubjectPalette {
 
 /** Subjects in the order they should appear in the progress grid.
  *  Math first because it's the most-studied subject; wellbeing last
- *  because Noor has its own surface elsewhere. */
+ *  because Sherlock has its own surface elsewhere. */
 export const SUBJECT_DISPLAY_ORDER: AISubject[] = [
   "math",
   "cs",

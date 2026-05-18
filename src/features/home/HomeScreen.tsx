@@ -1,5 +1,5 @@
 /**
- * HomeScreen — bento feed + Ask Omar hero.
+ * HomeScreen — bento feed + Ask Tony Starrk hero.
  *
  * Bento (desktop, 12-col grid, collapses to 1-col on mobile):
  *   row 1: Greeting + AI input  (span 8)    Streak card       (span 4)
@@ -92,7 +92,7 @@ export function HomeScreen() {
               {greet}, {name}.
             </div>
             <p className="text-ink-3 text-sm lg:text-base mb-5">
-              Ask AI (Omar) anything — study help, exam stress, planning, who to study with.
+              Ask AI (Tony Starrk) anything — study help, exam stress, planning, who to study with.
             </p>
             <div className="flex gap-2">
               <div className="flex-1 flex items-center gap-2 h-12 px-4 rounded-full bg-surface-2 border border-line focus-within:border-accent transition-colors">
@@ -292,7 +292,7 @@ export function HomeScreen() {
 // ── stubs (signed-out fallback only — Home falls back here when a
 // guest visits so the design still demos. Real users see live data.) ──
 const MATCH_STUBS = [
-  { id: "m1", name: "Omar Hamdan", major: "CS · Year 3", score: 94, avatar_color: "#5B4BF5",
+  { id: "m1", name: "Faris Hamdan", major: "CS · Year 3", score: 94, avatar_color: "#5B4BF5",
     reasons: ["Same DB course · overlapping free blocks Tuesdays"] },
   { id: "m2", name: "Hanan Saleh", major: "Math · Year 2", score: 88, avatar_color: "#E27D60",
     reasons: ["Both prefer whiteboarding · similar pace"] },

@@ -1,12 +1,12 @@
 /**
  * MemoryModal — full-screen modal where the student sees, edits, deletes,
- * adds, and imports the facts Omar / Noor remember about them.
+ * adds, and imports the facts Tony Starrk / Sherlock remember about them.
  *
  * Three internal tabs:
- *   1. "What Omar knows" — list of current memories, grouped by category,
+ *   1. "What Tony Starrk knows" — list of current memories, grouped by category,
  *      each with edit + delete affordances.
  *   2. "Add a memory" — single text field + category + importance.
- *      Used when the student wants to teach Omar something explicitly
+ *      Used when the student wants to teach Tony Starrk something explicitly
  *      ("I commute 1 hour every morning so my study window is 6pm-10pm").
  *   3. "Import from another AI" — shows the copy-paste prompt template
  *      with a "Copy" button, then a textarea where the student pastes
@@ -72,9 +72,9 @@ export function MemoryModal({ open, onClose }: Props) {
 // ─────────────────────────────────────────────────────────────────────
 
 function Header({ phase, onBack, onClose }: { phase: Phase; onBack: (() => void) | null; onClose: () => void }) {
-  // Title: "AI memory" rather than "What Omar remembers" because the
-  // memory is shared across Omar (tutor) AND Noor (wellbeing) — one
-  // memory layer, both personas read from it. Calling it "Omar's"
+  // Title: "AI memory" rather than "What Tony Starrk remembers" because the
+  // memory is shared across Tony Starrk (tutor) AND Sherlock (wellbeing) — one
+  // memory layer, both personas read from it. Calling it "Tony Starrk's"
   // memory misrepresented that.
   const title = phase === "list" ? "AI memory" : phase === "add" ? "Add a memory" : "Import from another AI";
   return (
@@ -129,7 +129,7 @@ function ListPhase({ onAdd, onImport }: { onAdd: () => void; onImport: () => voi
   return (
     <div className="max-w-xl mx-auto px-5 md:px-6 py-6">
       <p className="text-[13.5px] text-ink/65 leading-relaxed">
-        These are the things your AI (Omar and Noor) remembers about you across every session. You can delete anything, add new memories yourself, or import facts from another AI to bootstrap.
+        These are the things your AI (Tony Starrk and Sherlock) remembers about you across every session. You can delete anything, add new memories yourself, or import facts from another AI to bootstrap.
       </p>
 
       {/* Action row */}
@@ -186,7 +186,7 @@ function EmptyState({ onAdd, onImport }: { onAdd: () => void; onImport: () => vo
     <div className="mt-12 rounded-2xl bg-ink/3 border border-ink/8 p-6 text-center">
       <div className="text-[14.5px] font-semibold text-ink">Your AI doesn't know anything about you yet.</div>
       <p className="mt-2 text-[13px] text-ink/65 leading-relaxed">
-        Memories build naturally as you chat with Omar and Noor. You can also seed them — add what you'd want your AI to know, or import facts from another AI you've been using.
+        Memories build naturally as you chat with Tony Starrk and Sherlock. You can also seed them — add what you'd want your AI to know, or import facts from another AI you've been using.
       </p>
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         <button onClick={onAdd} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-ink text-bg text-[13px] font-medium">
@@ -284,7 +284,7 @@ function AddPhase({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="max-w-xl mx-auto px-5 md:px-6 py-6">
-      <Field label="What should Omar remember?">
+      <Field label="What should Tony Starrk remember?">
         <textarea
           value={fact}
           onChange={(e) => setFact(e.target.value)}

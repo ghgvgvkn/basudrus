@@ -6,7 +6,7 @@
  *   2. Active    — Pomodoro timer (25 min focus / 5 min break / repeat)
  *   3. Summary   — elapsed time, focus blocks completed, celebrate
  *
- * Design intent: a student can chat with Omar normally during a
+ * Design intent: a student can chat with Tony Starrk normally during a
  * session — the system prompt knows they're in focus mode (more
  * structured, less playful, gentle redirect on off-topic). When the
  * timer hits zero on a focus block, a soft break notification fires;
@@ -406,7 +406,7 @@ function ActivePhase({
       </div>
 
       <p className="mt-7 text-[11.5px] text-ink/45 max-w-sm mx-auto leading-relaxed">
-        Chat with Omar in the main app while the session runs. He'll stay in focus mode and help you stay on track.
+        Chat with Tony Starrk in the main app while the session runs. He'll stay in focus mode and help you stay on track.
       </p>
     </div>
   );
@@ -488,7 +488,7 @@ export interface StudySessionContext {
 export function getSessionContext(phase: SessionPhase | null): StudySessionContext | null {
   if (!phase || phase.kind !== "active") return null;
   // Exclude pause time from both elapsed AND remaining math so the
-  // numbers we send to Omar's prompt reflect actual working time.
+  // numbers we send to Tony Starrk's prompt reflect actual working time.
   const inProgressPauseMs = phase.paused && phase.pausedSinceMs !== null
     ? Date.now() - phase.pausedSinceMs
     : 0;

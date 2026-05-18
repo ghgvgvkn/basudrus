@@ -219,7 +219,7 @@ export function useAIHistory(): UseAIHistoryState {
       }
     }
     // Sort the merged list by updated_at desc so the sidebar shows
-    // one unified timeline (Omar + Noor interleaved by time).
+    // one unified timeline (Tony Starrk + Sherlock interleaved by time).
     merged.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
     setSessions(merged);
 
@@ -358,7 +358,7 @@ export async function fetchSessionById(sessionId: string, persona: AIPersona): P
       created_at: raw.created_at,
     };
   }
-  // Default: tutor (Omar) sessions.
+  // Default: tutor (Tony Starrk) sessions.
   const { data, error } = await supabase
     .from("tutor_sessions")
     .select("id, subject, messages, session_summary, topics_covered, updated_at, created_at")

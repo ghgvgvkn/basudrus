@@ -607,7 +607,7 @@ export function OnboardingScreen() {
               You're in.
             </h2>
             <p className="mt-4 text-ink/70 text-lg max-w-md">
-              Discover is already matching you. Say hi to Omar whenever you're
+              Discover is already matching you. Say hi to Tony Starrk whenever you're
               ready.
             </p>
             <button

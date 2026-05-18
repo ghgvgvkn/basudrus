@@ -2,7 +2,7 @@
  * MobileNav — bottom tab bar for screens <lg.
  *
  * 5 slots: Home · Discover · AI (center, elevated) · Connect · Profile.
- * AI (Omar): single-tap navigates to AI screen. Long-press (450ms) opens
+ * AI (Tony Starrk): single-tap navigates to AI screen. Long-press (450ms) opens
  * the command palette. Search icon also lives in TopBar — the
  * long-press is a power-user shortcut.
  *

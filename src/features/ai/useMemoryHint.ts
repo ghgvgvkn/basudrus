@@ -15,8 +15,8 @@
  *     gets a memory subtly wrong.
  *   • Only memories from the last 30 days. A 4-month-old fact will
  *     read as stale, not personal.
- *   • Different framings for Omar vs Noor. Omar gets actionable;
- *     Noor stays gentle.
+ *   • Different framings for Tony Starrk vs Sherlock. Tony Starrk gets actionable;
+ *     Sherlock stays gentle.
  *   • One memory only — never a list. The empty state is hero copy,
  *     not a recap screen.
  */
@@ -121,7 +121,7 @@ function formatHint(row: MemoryRow, persona: AIPersona): string {
     return `Remembering from before: ${lower}. Helpful starting point?`;
   }
 
-  // Noor — gentler, no action prompt by default.
+  // Sherlock — gentler, no action prompt by default.
   if (persona === "noor") {
     return `I remember from before — ${lower}. Here when you want to talk.`;
   }

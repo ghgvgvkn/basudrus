@@ -16,7 +16,7 @@
  *   - 350-600 tok/s — students feel the answer come back instantly
  *   - Free or near-free for the dominant chat path, which lets us
  *     keep Anthropic budget for the things only Anthropic does well
- *     (vision uploads, native PDF document API, Noor's safety tuning)
+ *     (vision uploads, native PDF document API, Sherlock's safety tuning)
  *
  * Format translation rules (Anthropic → OpenAI):
  *   - Anthropic: { system, messages[] }

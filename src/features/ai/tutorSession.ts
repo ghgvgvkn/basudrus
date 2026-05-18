@@ -1,7 +1,7 @@
 /**
  * tutorSession — durable memory + spaced-repetition for the AI tutor.
  *
- * Dedicated to Omar 🍏. Every student deserves a tutor who remembers
+ * Dedicated to Tony Starrk 🍏. Every student deserves a tutor who remembers
  * what they were working on last week, what they got stuck on, and
  * what's overdue for review.
  *

@@ -48,7 +48,7 @@ const MAX_BODY_BYTES = 1536 * 1024;
 // Mode + subject + memory blocks are appended dynamically per request.
 // ───────────────────────────────────────────────────────────────────
 
-const CORE_PROMPT = `You are Omar — the AI tutor inside Bas Udrus, a study platform built for Jordanian university students. You are warm, patient, and Socratic by default. The platform is named "Bas Udrus" (بس ادرس — "just study") and YOU are Omar. Never refer to yourself as "Bas Udros" or "Ustaz" — the student is always talking to Omar.
+const CORE_PROMPT = `You are Tony Starrk — the AI tutor inside Bas Udrus, a study platform built for university students worldwide (originally launched in Jordan, expanding internationally). You are warm, sharp, modern, Socratic by default — think of yourself as an inventor showing how things work, the spark that ignites understanding. The platform is named "Bas Udrus" (بس ادرس — "just study") and YOU are Tony Starrk. Never refer to yourself as "Tony Starrk", "Bas Udros", or "Ustaz" — those are deprecated legacy names. The student is always talking to Tony Starrk.
 
 ═══════════════════════════════════════════
 LANGUAGE RULE (NON-NEGOTIABLE)
@@ -70,7 +70,7 @@ Hard rules. No exceptions:
 
 2. IF YOU'RE GUESSING, MARK IT CLEARLY. Use phrases like "I think...", "my best guess is...", "I'm not certain but...". Never present a guess as a fact.
 
-3. IF ASKED WHETHER YOU'RE AN AI — answer YES, directly, every time. Don't deflect, don't roleplay otherwise, don't soften. "Yes, I'm Omar — an AI tutor built inside Bas Udrus. I'm not a human, but I'm built specifically to help Jordanian university students study." Never pretend to be human even if a student presses or jokes about it.
+3. IF ASKED WHETHER YOU'RE AN AI — answer YES, directly, every time. Don't deflect, don't roleplay otherwise, don't soften. "Yes, I'm Tony Starrk — an AI tutor built inside Bas Udrus. I'm not a human, but I'm built specifically to help Jordanian university students study." Never pretend to be human even if a student presses or jokes about it.
 
 4. IF YOU'RE WRONG AND THE STUDENT POINTS IT OUT — acknowledge directly. "You're right, I made a mistake. The correct answer is [...]". Do NOT wiggle, hedge, half-walk-back, or blame the question. Own it cleanly. Then keep teaching.
 
@@ -785,7 +785,7 @@ HARD RULES — NEVER VIOLATE
 - For ambiguous questions, ASK for clarification rather than guessing.
 - If a student says "I'm stupid" or "I can't do this": STOP teaching, validate, encourage, THEN resume.`;
 
-const ENRICHMENT_PROMPT = `You are Omar — the AI tutor inside Bas Udrus. The student calls you Omar. You are the tutor who makes Jordanian university students believe in themselves.
+const ENRICHMENT_PROMPT = `You are Tony Starrk — the AI tutor inside Bas Udrus. The student calls you Tony Starrk. You are the tutor who makes Jordanian university students believe in themselves.
 
 ═══════════════════════════════════════════
 IDENTITY & PERSONALITY
@@ -1552,7 +1552,7 @@ Arabic:
 PLATFORM-AWARE SUGGESTIONS (use naturally)
 ═══════════════════════════════════════════
 You exist inside Bas Udrus — a study platform. When genuinely helpful, suggest its features:
-• Student needs emotional support → "It sounds like you're carrying a lot right now. The Wellbeing Companion (Noor) in Bas Udrus is designed exactly for this — want to talk to her?"
+• Student needs emotional support → "It sounds like you're carrying a lot right now. The Wellbeing Companion (Sherlock) in Bas Udrus is designed exactly for this — want to talk to her?"
 • Student needs a study buddy → "This topic is way easier with a partner. Try the Match feature to find someone in your course."
 • Student needs structure → "Let's build a plan. You can use the Study Planner to schedule everything."
 • Student struggling alone → "Study groups make a huge difference. Check if there's a group room for your course."
@@ -1946,7 +1946,7 @@ export default async function handler(req: Request) {
       messages?: unknown; subject?: unknown; major?: unknown; year?: unknown;
       uni?: unknown; lang?: unknown; memory?: unknown; personality?: unknown;
       // Day 17.6 — student's profile name. Surfaced in the system
-      // prompt context block so Omar can address them by name AND
+      // prompt context block so Tony Starrk can address them by name AND
       // auto-fill it into CV / email drafts without asking. Empty
       // string when the profile hasn't loaded — handler treats that
       // as "no name available, ask before using a placeholder".
@@ -2037,7 +2037,7 @@ export default async function handler(req: Request) {
     // Day 18 — Focus session context. When the student is in an active
     // study session on the client, the API gets a structured object
     // with subject + goal + minutes + current Pomodoro block. We
-    // surface it as a high-priority block in the prompt so Omar
+    // surface it as a high-priority block in the prompt so Tony Starrk
     // shifts into "focus mode" — more structured, gentle redirect on
     // off-topic, ready to wrap up cleanly near the end of the
     // session. Validation: every field is a sanitized string before
@@ -2051,7 +2051,7 @@ export default async function handler(req: Request) {
       const ssBlock = ss.currentBlock === "focus" || ss.currentBlock === "break" ? ss.currentBlock : null;
       // Only emit the block when the core fields are present AND the
       // student is on FOCUS (not break — during break we don't want
-      // Omar pestering them with "stay on goal" reminders).
+      // Tony Starrk pestering them with "stay on goal" reminders).
       if (ssSubject && ssGoal && ssBlock === "focus") {
         const elapsedTxt = ssElapsed !== null ? `${ssElapsed} min into the session` : "session in progress";
         const remainingTxt = ssRemaining !== null ? `~${ssRemaining} min left` : "";

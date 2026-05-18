@@ -2,8 +2,8 @@
  * AIScreen — two modes.
  *
  * 1) **Hero** (empty state, iteration 3):
- *    Two oversized persona cards side-by-side — Omar (violet, neural
- *    bloom) and Noor (teal, liquid wave). Each card has its own live
+ *    Two oversized persona cards side-by-side — Tony Starrk (violet, neural
+ *    bloom) and Sherlock (teal, liquid wave). Each card has its own live
  *    Three.js artifact rendered as a still, a rotating subject ribbon,
  *    and a giant ask input sitting below. Picking a persona + typing
  *    sends the first message and collapses into the stream view.
@@ -92,10 +92,10 @@ export function AIScreen() {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
-  // Tutor mode for Omar: "homework_help" (strict Socratic, default),
+  // Tutor mode for Tony Starrk: "homework_help" (strict Socratic, default),
   // "study_mode" (proactive teaching), or "homework_helper" (guided
   // walkthrough — student writes every line, AI confirms each step).
-  // Sent to /api/ai/tutor as `mode`. Noor doesn't use this.
+  // Sent to /api/ai/tutor as `mode`. Sherlock doesn't use this.
   // Default to "auto" so the student feels like the AI picks the
   // right approach for each question. They can still override per
   // session by tapping Hints / Teach / Walkthrough.
@@ -118,17 +118,17 @@ export function AIScreen() {
   // never feels canned. State persists in Supabase (own-only RLS).
   const streak = useStreak();
   const [milestone, setMilestone] = useState<MilestoneEvent | null>(null);
-  // Mental-health self-screen modal (Day 13). Open from the Noor
+  // Mental-health self-screen modal (Day 13). Open from the Sherlock
   // empty state or via a "Take a check-in" quick reply. After the
   // student completes a screen, we push a system notice into the
-  // chat with their score so Noor can respond contextually on the
+  // chat with their score so Sherlock can respond contextually on the
   // next message. Crisis-flagged results route through Day 8's
   // force-switch flow (already in place via wellbeing.ts CRISIS_MODE).
   const [screenOpen, setScreenOpen] = useState(false);
   // Day 18 — solo focus session state. studySession holds the live
   // phase (or null when no session is running). When non-null + active,
   // we show a small banner at top and pass session context to the AI
-  // on each message send so Omar's prompt switches to focus mode.
+  // on each message send so Tony Starrk's prompt switches to focus mode.
   const [studyModalOpen, setStudyModalOpen] = useState(false);
   const [studySession, setStudySession] = useState<SessionPhase | null>(null);
   // History sidebar — slides in from the left, shows past chats, plans,
@@ -200,12 +200,12 @@ export function AIScreen() {
     //   1. CRISIS (force_crisis):
     //      Message contains genuine crisis language — suicide ideation,
     //      self-harm, "I want to die" / "بدي أموت". We FORCE-SWITCH to
-    //      Noor regardless of the user's pick. No suggestion card, no
-    //      opt-in — direct to Noor's CRISIS_MODE. The bias toward
+    //      Sherlock regardless of the user's pick. No suggestion card, no
+    //      opt-in — direct to Sherlock's CRISIS_MODE. The bias toward
     //      action is correct here: the cost of missing a crisis routing
-    //      far outweighs the cost of one math question going to Noor.
+    //      far outweighs the cost of one math question going to Sherlock.
     //      We ALSO flip the global PersonaToggle so subsequent messages
-    //      keep going to Noor unless the user manually switches back.
+    //      keep going to Sherlock unless the user manually switches back.
     //
     //   2. SUGGEST (suggest):
     //      Soft signal that the other persona might be a better fit.
@@ -224,7 +224,7 @@ export function AIScreen() {
     const inferred = routing.kind === "suggest" ? routing.target : activePersona;
 
     // Force-switch case: flip the global toggle so the conversation
-    // continues with Noor on the next turn too. The user can always
+    // continues with Sherlock on the next turn too. The user can always
     // manually switch back via PersonaToggle. The in-chat notice that
     // surfaces this switch to the student is pushed below as a system
     // "crisis-bridge" message — see the setMessages call further down.
@@ -407,7 +407,7 @@ export function AIScreen() {
           id: `crisis-bridge-${Date.now()}`,
           role: "system",
           persona: "noor",
-          body: "Switched to Noor — she handles the heavier stuff. If this was about something else, tap Omar at the top to switch back. Either is okay.",
+          body: "Switched to Sherlock — she handles the heavier stuff. If this was about something else, tap Tony Starrk at the top to switch back. Either is okay.",
           createdAt: new Date().toISOString(),
         });
       }
@@ -449,7 +449,7 @@ export function AIScreen() {
       year:  profile?.year  ?? undefined,
       // Image attached this turn — backend swaps the last user
       // message into a multimodal Anthropic content block so Bas
-      // Udros / Noor can actually see it.
+      // Udros / Sherlock can actually see it.
       imageBase64:    imagePayload?.base64,
       imageMediaType: imagePayload?.mediaType,
       // PDF attached this turn — sent as a base64 `document` content
@@ -462,14 +462,14 @@ export function AIScreen() {
       // Currently unwired — both fields are always undefined.
       documentContext: documentTextForApi,
       documentLabel:   documentLabelForApi,
-      // Tutor mode (Omar only) — homework_help / study_mode /
-      // homework_helper. Noor ignores this.
+      // Tutor mode (Tony Starrk only) — homework_help / study_mode /
+      // homework_helper. Sherlock ignores this.
       mode: activePersona === "omar" ? tutorMode : undefined,
       // Day 18 — when a focus session is active, pass the session
-      // context so Omar's prompt switches into focus mode (more
+      // context so Tony Starrk's prompt switches into focus mode (more
       // structured, gently redirects off-topic, helps wrap up cleanly
       // near the end). Null when no session is active or persona
-      // is Noor (mental-health side ignores this).
+      // is Sherlock (mental-health side ignores this).
       studySession: activePersona === "omar"
         ? getSessionContext(studySession) ?? undefined
         : undefined,
@@ -480,7 +480,7 @@ export function AIScreen() {
       // promote the parsed options to msg.quickReplies — the bubble
       // renders them as tappable chips below the message instead of
       // making the student read the marker syntax. Both Bas Udros
-      // and Noor are instructed (via system prompt) to emit this
+      // and Sherlock are instructed (via system prompt) to emit this
       // block whenever they ask a question with 3-5 typical answers.
       // Five-stage parsing: pull off STUDY_PLAN, PROFESSOR_EMAIL,
       // RELATIONSHIP_MESSAGE, then CV blocks first (so the JSON
@@ -526,8 +526,8 @@ export function AIScreen() {
             role: "system",
             persona: activePersona,
             body: inferred === "noor"
-              ? "This sounded more like an emotional / motivation question. Want to switch to Noor?"
-              : "This sounded more like a study / homework question. Want to switch to Omar?",
+              ? "This sounded more like an emotional / motivation question. Want to switch to Sherlock?"
+              : "This sounded more like a study / homework question. Want to switch to Tony Starrk?",
             createdAt: new Date().toISOString(),
             switchSuggestion: { suggested: inferred, current: activePersona },
           });
@@ -600,9 +600,9 @@ export function AIScreen() {
     <div className="relative flex flex-col h-[calc(100dvh-64px)] md:h-[calc(100dvh-56px)]" dir={dir}>
       {/* Mental-health self-screen modal (Day 13). Mounts at top so
           its own fixed-position layer doesn't fight with the chat
-          tree. After a result is saved we (a) flip persona to Noor
+          tree. After a result is saved we (a) flip persona to Sherlock
           if it isn't already, and (b) push a single system notice
-          into the chat with the score so Noor's next reply has
+          into the chat with the score so Sherlock's next reply has
           context. We don't auto-send a message — the student decides
           when / whether to share more. */}
       {screenOpen && (
@@ -610,7 +610,7 @@ export function AIScreen() {
           initialLang={lang === "ar" ? "ar" : "en"}
           onClose={() => setScreenOpen(false)}
           onResultSaved={(r) => {
-            // Always switch to Noor — this is mental-health territory,
+            // Always switch to Sherlock — this is mental-health territory,
             // any follow-up should go through her flow.
             if (persona !== "noor") setPersona("noor");
             // Drop a system notice with the result. Severity is in
@@ -635,7 +635,7 @@ export function AIScreen() {
       {/* Day 18 — focus-session modal. We persist the active phase in
           AIScreen state so the modal can be closed/reopened without
           losing the session in progress. The modal pushes a system
-          notice into the chat at start + end so Omar's next reply
+          notice into the chat at start + end so Tony Starrk's next reply
           has context, plus passes session context on every send. */}
       {studyModalOpen && (
         <StudySessionModal
@@ -745,7 +745,7 @@ export function AIScreen() {
           is active. Tap reopens the modal (timer + actions). Hidden
           when no session is running. Shown for both personas because
           the banner is informational (the AI behavior change applies
-          to Omar specifically). */}
+          to Tony Starrk specifically). */}
       {getBannerText(studySession) && (
         <button
           type="button"
@@ -871,14 +871,14 @@ export function AIScreen() {
           so we don't sacrifice accessibility for compactness. */}
       <div className="border-t border-ink/8 bg-bg">
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-2">
-          {/* Tutor-mode picker (Omar only). Four modes now:
-              · Auto — Omar picks the right approach per question (default)
+          {/* Tutor-mode picker (Tony Starrk only). Four modes now:
+              · Auto — Tony Starrk picks the right approach per question (default)
               · Hints — strict Socratic
               · Teach — proactive concept teaching
               · Walkthrough — guided step-by-step
               Sits to the LEFT of the model picker on the same row so
               the composer header reads as a unified control strip.
-              Noor doesn't use modes so the row is empty on her side
+              Sherlock doesn't use modes so the row is empty on her side
               except for the model picker. */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex-1 min-w-0">
@@ -911,14 +911,14 @@ export function AIScreen() {
             attachmentPresent={!!attachment}
           />
           {/* Disclaimer — single short line. Mobile shows the trimmed
-              version; on a crisis Noor's own response carries the
+              version; on a crisis Sherlock's own response carries the
               full safety message anyway, so the footer doesn't need
               to. Compact text-[10.5px] line so it doesn't add a
               perceptible row height. */}
           <p className="mt-1 text-[10.5px] text-ink/40 text-center leading-tight">
             {persona === "omar"
-              ? "Omar can be wrong — check important answers."
-              : "Noor isn't a therapist. Crisis? Call your local emergency number."}
+              ? "Tony Starrk can be wrong — check important answers."
+              : "Sherlock isn't a therapist. Crisis? Call your local emergency number."}
           </p>
         </div>
       </div>
@@ -931,7 +931,7 @@ export function AIScreen() {
         onSelectSession={async (item: SessionListItem) => {
           // Resume in place: pull the session's full messages from
           // whichever table the session lives in (tutor_sessions for
-          // Omar, wellbeing_sessions for Noor), swap them into the
+          // Tony Starrk, wellbeing_sessions for Sherlock), swap them into the
           // chat view, switch the global persona toggle to match,
           // and push a system notice so the student understands what
           // happened. The next message they send will go to the
@@ -963,7 +963,7 @@ export function AIScreen() {
             body: m.content,
             createdAt: m.ts,
           }));
-          const personaName = full.persona === "noor" ? "Noor" : "Omar";
+          const personaName = full.persona === "noor" ? "Sherlock" : "Tony Starrk";
           const subjectLabel = full.persona === "noor"
             ? "what you were working through"
             : (full.subject || "this chat");
@@ -1017,7 +1017,7 @@ function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { per
   // memory ("Last time you mentioned struggling with AVL trees — want
   // to revisit?"). Null when no memory qualifies. Renders in addition
   // to the existing greeting/subline; never replaces them. Style is a
-  // distinct accent card so the eye reads it as "Omar remembers" not
+  // distinct accent card so the eye reads it as "Tony Starrk remembers" not
   // a second tagline.
   const memoryHint = useMemoryHint(persona);
   const accent = memory.recentSubject ? paletteFor(memory.recentSubject) : null;
@@ -1042,12 +1042,12 @@ function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { per
           </p>
         ) : (
           <p className="mt-3 text-ink/55 text-sm md:text-base">
-            Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Omar)" : "AI (Noor)"}</span>. I'll switch modes if the topic calls for it.
+            Chatting with <span className="font-medium text-ink/80">{persona === "omar" ? "AI (Tony Starrk)" : "AI (Sherlock)"}</span>. I'll switch modes if the topic calls for it.
           </p>
         )}
         {/* Proactive memory hint — renders only when we have a high-
             confidence, recent durable fact for this user. Tap-to-act
-            quick prompt appears alongside on Omar. Empty state stays
+            quick prompt appears alongside on Tony Starrk. Empty state stays
             unchanged for first-time users. */}
         {memoryHint.hint && (
           <div
@@ -1073,15 +1073,15 @@ function EmptyChatState({ persona, onQuick, onOpenScreen, onOpenSession }: { per
             )}
           </div>
         )}
-        {/* Noor entry cards — discoverable hooks into Noor's deeper
+        {/* Sherlock entry cards — discoverable hooks into Sherlock's deeper
             capabilities. Two cards in v1:
               1. Mental health check-in (Day 13) → opens PHQ-9/GAD-7 modal
               2. Talk about a relationship (Day 15) → seeds the chat
-                 with a relationship prompt; Noor's relationship-advisor
+                 with a relationship prompt; Sherlock's relationship-advisor
                  system prompt block takes it from there. Both hidden
-                 for Omar (he has his own surfaces). */}
-        {/* Omar entry card — Start focus session (Day 18). Lives on
-            the empty state so it's discoverable without Omar having
+                 for Tony Starrk (he has his own surfaces). */}
+        {/* Tony Starrk entry card — Start focus session (Day 18). Lives on
+            the empty state so it's discoverable without Tony Starrk having
             to suggest it every conversation. Shown only when there
             isn't an active session already. */}
         {persona === "omar" && onOpenSession && (
@@ -1185,28 +1185,28 @@ function PersonaToggle({ value, onChange }: { value: AIPersona; onChange: (p: AI
         <button
           role="tab"
           aria-selected={value === "omar"}
-          aria-label="Omar — tutor and study plans"
-          title="Omar — tutor & study plans"
+          aria-label="Tony Starrk — tutor and study plans"
+          title="Tony Starrk — tutor & study plans"
           onClick={() => onChange("omar")}
           className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "omar" ? "text-ink" : "text-ink/55")}
         >
-          <Brain size={14} /> Omar
+          <Brain size={14} /> Tony Starrk
         </button>
         <button
           role="tab"
           aria-selected={value === "noor"}
-          aria-label="Noor — wellbeing, mental health, relationships"
-          title="Noor — wellbeing & relationships"
+          aria-label="Sherlock — wellbeing, mental health, relationships"
+          title="Sherlock — wellbeing & relationships"
           onClick={() => onChange("noor")}
           className={"relative z-10 h-8 px-4 rounded-full text-sm font-medium inline-flex items-center gap-1.5 transition " + (value === "noor" ? "text-ink" : "text-ink/55")}
         >
-          <Heart size={14} /> Noor
+          <Heart size={14} /> Sherlock
         </button>
       </div>
       {/* Tiny descriptor under the active tab so first-time students
           understand what each persona is for. ChatGPT-style tabs alone
-          (just "Omar" / "Noor") were too opaque — friends defaulted to
-          Omar for everything because Noor's purpose was invisible. */}
+          (just "Tony Starrk" / "Sherlock") were too opaque — friends defaulted to
+          Tony Starrk for everything because Sherlock's purpose was invisible. */}
       <div className="text-[10.5px] text-ink/45 leading-tight tracking-tight tabular-nums">
         {value === "omar" ? "tutor & study plans" : "wellbeing & relationships"}
       </div>
@@ -1218,7 +1218,7 @@ function PersonaToggle({ value, onChange }: { value: AIPersona; onChange: (p: AI
  *  between Hints (strict Socratic — default), Teach (proactive
  *  explanation), and Walkthrough (guided step-by-step where the
  *  student writes every line). Sent to /api/ai/tutor as `mode`.
- *  Only rendered for Omar — Noor doesn't use tutor modes.
+ *  Only rendered for Tony Starrk — Sherlock doesn't use tutor modes.
  *
  *  Layout: scrollable on narrow phones so all three labels stay
  *  readable; on desktop the row is short enough to fit naturally.
@@ -1239,25 +1239,25 @@ function TutorModeToggle({
     {
       id: "auto",
       label: "Auto",
-      hint: "Omar picks the right approach for each question",
+      hint: "Tony Starrk picks the right approach for each question",
       icon: <Sparkles size={12} />,
     },
     {
       id: "homework_help",
       label: "Hints",
-      hint: "Socratic — Omar asks questions, you solve",
+      hint: "Socratic — Tony Starrk asks questions, you solve",
       icon: <Lightbulb size={12} />,
     },
     {
       id: "study_mode",
       label: "Teach",
-      hint: "Omar explains the concept, then you practice",
+      hint: "Tony Starrk explains the concept, then you practice",
       icon: <BookOpen size={12} />,
     },
     {
       id: "homework_helper",
       label: "Walkthrough",
-      hint: "Step-by-step — you write each line, Omar confirms",
+      hint: "Step-by-step — you write each line, Tony Starrk confirms",
       icon: <ListChecks size={12} />,
     },
   ];
@@ -1492,7 +1492,7 @@ function ComposerRow({
         onKeyDown={onKey}
         placeholder={over ? "Daily limit reached — upgrade to continue" :
           busy ? "Still answering — hold on a sec…" :
-          persona === "omar" ? "Ask Omar anything…" : "Share what's on your mind…"}
+          persona === "omar" ? "Ask Tony Starrk anything…" : "Share what's on your mind…"}
         disabled={over}
         rows={1}
         className="flex-1 resize-none bg-transparent outline-none text-ink placeholder:text-ink/40 px-1 py-[5px] max-h-28 leading-5 text-[14.5px]"
@@ -1591,8 +1591,8 @@ function SwitchSuggestionCard({
 }) {
   const sug = msg.switchSuggestion!;
   const suggestedColor = sug.suggested === "omar" ? "#5B4BF5" : "#0E8A6B";
-  const suggestedLabel = sug.suggested === "omar" ? "Omar" : "Noor";
-  const currentLabel = sug.current === "omar" ? "Omar" : "Noor";
+  const suggestedLabel = sug.suggested === "omar" ? "Tony Starrk" : "Sherlock";
+  const currentLabel = sug.current === "omar" ? "Tony Starrk" : "Sherlock";
   const SuggestedIcon = sug.suggested === "omar" ? Brain : Heart;
   return (
     <div className="flex justify-center">
@@ -1646,7 +1646,7 @@ function UserMessage({ msg }: { msg: AIMessage }) {
           //      ("Microsoft Word", "LaTeX", etc.) — each piece shown
           //      only when known. Dots are inserted between present
           //      pieces only, no orphan separators.
-          //   3. Footer: confirms which AI has read it (Omar or Noor).
+          //   3. Footer: confirms which AI has read it (Tony Starrk or Sherlock).
           //
           // Page count comes from pdfMetaPeek (byte-level regex, no
           // parser). When unknown (pageCount === 0), we just omit it
@@ -1670,7 +1670,7 @@ function UserMessage({ msg }: { msg: AIMessage }) {
           const producerLabel = (meta.producer || "").trim() || null;
           // Footer text — show the active persona, never the
           // deprecated "Bas Udros" / "Ustaz" names.
-          const personaLabel = msg.persona === "noor" ? "Noor" : "Omar";
+          const personaLabel = msg.persona === "noor" ? "Sherlock" : "Tony Starrk";
           const subInfo = [pageLabel, sizeLabel, producerLabel].filter(Boolean).join(" · ");
           return (
             <div className="mb-2 rounded-2xl bg-bg/10 border border-bg/15 px-3.5 py-3 max-w-[320px]">
@@ -1799,7 +1799,7 @@ function AIMessageView({
                 {msg.persona === "omar" ? <Brain size={12} /> : <Heart size={12} />}
               </span>
               <span className="text-white text-xs uppercase tracking-wider" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.4)" }}>
-                {msg.persona === "omar" ? "Omar" : "Noor"}
+                {msg.persona === "omar" ? "Tony Starrk" : "Sherlock"}
               </span>
               {msg.subject && msg.subject !== "general" && (() => {
                 // Subject pill — uses the per-subject palette so a math
@@ -1884,8 +1884,8 @@ function AIMessageView({
         {msg.quickReplies && msg.quickReplies.length > 0 && onQuickReply && (() => {
           // Quick-reply chips — color-keyed to the subject palette so
           // a math conversation's chips are indigo, biology's are
-          // green, etc. Falls back to persona color (Omar violet,
-          // Noor teal) when subject is unset or "general", matching
+          // green, etc. Falls back to persona color (Tony Starrk violet,
+          // Sherlock teal) when subject is unset or "general", matching
           // the previous behaviour. Inline style instead of arbitrary
           // Tailwind values so the palette table is the single source
           // of truth.

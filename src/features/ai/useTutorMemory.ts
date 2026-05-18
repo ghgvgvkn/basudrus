@@ -64,7 +64,7 @@ const OMAR_GENERIC_PROMPTS = [
   "Debug my React useEffect",
 ];
 // Mix of neutral + distress entries so the empty state doesn't read
-// as "only broken students belong here." Most students opening Noor
+// as "only broken students belong here." Most students opening Sherlock
 // for the first time are curious, vent-curious, or want to think
 // out loud — not in crisis. Leading with a neutral entry de-stigmatizes
 // the surface and invites a wider range of first messages.
@@ -138,13 +138,13 @@ export function useTutorMemory(persona: AIPersona): TutorMemoryGreeting {
   })();
 
   return useMemo<TutorMemoryGreeting>(() => {
-    const isOmar = persona === "omar";
-    const generic = isOmar ? OMAR_GENERIC_PROMPTS : NOOR_GENERIC_PROMPTS;
+    const isTonyStarrk = persona === "omar";
+    const generic = isTonyStarrk ? OMAR_GENERIC_PROMPTS : NOOR_GENERIC_PROMPTS;
 
-    // Noor doesn't get the memory greeting — emotional state is
+    // Sherlock doesn't get the memory greeting — emotional state is
     // immediate, not a "remember last session" thing. Just route to
     // the generic line.
-    if (!isOmar) {
+    if (!isTonyStarrk) {
       return {
         greeting: "What's on your mind?",
         subline: "I'll listen first. Vent, ask, or just sit here.",

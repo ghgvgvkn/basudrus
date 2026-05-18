@@ -1,5 +1,5 @@
 /**
- * RelationshipMessageArtifact — premium card for messages Noor
+ * RelationshipMessageArtifact — premium card for messages Sherlock
  * helped the student draft to someone in their life. NOT real-time
  * mediation — student copies and sends themselves.
  *
@@ -191,12 +191,12 @@ export function RelationshipMessageArtifact({ artifact }: Props) {
         </span>
       </div>
 
-      {/* Coaching note — Noor's "when to send / what to expect" lives
+      {/* Coaching note — Sherlock's "when to send / what to expect" lives
           OUTSIDE the message body so it doesn't get copied. */}
       {artifact.coachingNote && (
         <div className="px-4 md:px-5 py-3 border-t border-ink/6 bg-ink/[1.5%]">
           <div className="text-[10.5px] uppercase tracking-wider text-ink/45 font-semibold mb-1">
-            {isAr ? "ملاحظة من نور" : "Note from Noor"}
+            {isAr ? "ملاحظة من نور" : "Note from Sherlock"}
           </div>
           <p className="text-[13px] text-ink/70 leading-relaxed whitespace-pre-wrap">
             {artifact.coachingNote}

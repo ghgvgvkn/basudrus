@@ -94,9 +94,9 @@ export interface StreamingAIState {
       /** Day 18 — when a focus study session is active, this carries
        *  the live session context (subject, goal, elapsed/remaining
        *  minutes, current Pomodoro block). The tutor endpoint reads
-       *  it and switches Omar into "focus mode" — more structured,
+       *  it and switches Tony Starrk into "focus mode" — more structured,
        *  gentle redirect on off-topic, ready to wrap up near end.
-       *  Undefined when no session is running or persona is Noor. */
+       *  Undefined when no session is running or persona is Sherlock. */
       studySession?: {
         subject: string;
         goal: string;
@@ -135,7 +135,7 @@ export function useStreamingAI(): StreamingAIState {
   // Wellbeing session handle — kept in a parallel ref so persona
   // switching doesn't wipe each other's session state. Tutor and
   // wellbeing each persist to their own table; this ref holds the
-  // active Noor session id during a Noor conversation.
+  // active Sherlock session id during a Sherlock conversation.
   const wellbeingSessionRef = useRef<WellbeingSessionHandle | null>(null);
   const accessTokenRef = useRef<string | null>(null);
 
@@ -169,7 +169,7 @@ export function useStreamingAI(): StreamingAIState {
       // Independent of analyze; both safe to run in parallel.
       void extractMemoryFromSession(handle.sessionId, "omar", token);
     }
-    // Also extract memory from any active Noor session — wellbeing
+    // Also extract memory from any active Sherlock session — wellbeing
     // sessions don't have an analyzer counterpart, but they DO produce
     // memorable facts (emotional patterns, recurring stressors).
     const wbHandle = wellbeingSessionRef.current;
@@ -221,7 +221,7 @@ export function useStreamingAI(): StreamingAIState {
 
       // ── Bas Udros tutor-session bookkeeping ──
       // Only the tutor endpoint uses the durable per-subject memory
-      // tables; the wellbeing endpoint stays on its own (Noor) flow.
+      // tables; the wellbeing endpoint stays on its own (Sherlock) flow.
       // If the active session's subject differs from this turn's
       // subject, close the old one first so its analysis runs.
       const subjectForSession = (context.subject ?? "general").trim() || "general";
@@ -251,7 +251,7 @@ export function useStreamingAI(): StreamingAIState {
         tutorMemory = sessionRef.current?.memoryContext ?? null;
       }
 
-      // ── Noor session bookkeeping ──
+      // ── Sherlock session bookkeeping ──
       // Wellbeing sessions persist into wellbeing_sessions (parallel
       // table to tutor_sessions). Resume window is the same 30 min
       // window — multi-turn conversations stay in one row. Failure
@@ -321,7 +321,7 @@ export function useStreamingAI(): StreamingAIState {
           documentContext: context.documentContext ?? undefined,
           documentLabel:   context.documentLabel   ?? undefined,
           // Day 18 — focus session context. Tutor endpoint reads it
-          // to switch Omar into focus mode. Undefined when no session
+          // to switch Tony Starrk into focus mode. Undefined when no session
           // is running.
           studySession: context.studySession ?? undefined,
         }),
@@ -395,7 +395,7 @@ export function useStreamingAI(): StreamingAIState {
       // Persist this user/assistant pair into the correct session
       // table for this persona. Best-effort — failure is silent and
       // never blocks the chat. Tutor turns flow into tutor_sessions
-      // for memory + progress; Noor turns flow into wellbeing_sessions
+      // for memory + progress; Sherlock turns flow into wellbeing_sessions
       // so they show up in the unified History sidebar.
       const handle = sessionRef.current;
       if (handle?.sessionId && endpoint === "/api/ai/tutor") {

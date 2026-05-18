@@ -4,12 +4,12 @@
  * The standard onboarding ends with a form completion — emotionally
  * flat. This card adds the "holy shit, this knows me already" moment:
  *
- *   "Get your first personalized plan from Omar.
+ *   "Get your first personalized plan from Tony Starrk.
  *    Paste your syllabus, share an exam date, or just describe what's
  *    on your plate this week — I'll build you a 5-day plan."
  *
  * On submit: routes to AIScreen with a prefilled prompt that triggers
- * Omar's existing study-plan artifact path. No new endpoint required.
+ * Tony Starrk's existing study-plan artifact path. No new endpoint required.
  *
  * On dismiss: localStorage flag — never appears again. Card vanishes.
  *
@@ -70,7 +70,7 @@ export function MagicMomentCard() {
   const handleSubmit = () => {
     const raw = text.trim();
     if (!raw) return;
-    // Frame the prefill as a study-plan request so Omar's existing
+    // Frame the prefill as a study-plan request so Tony Starrk's existing
     // STUDY_PLAN artifact path kicks in. Same code that already
     // generates artifacts from chat — we're just seeding the first
     // turn. No new endpoint, no new prompt logic.
@@ -115,7 +115,7 @@ export function MagicMomentCard() {
             {greet}let's build your first plan together.
           </h2>
           <p className="mt-1.5 text-ink/65 text-[13.5px] leading-relaxed">
-            Paste a syllabus, share an exam date, or describe what's on your plate this week — Omar will build you a personalized study plan.
+            Paste a syllabus, share an exam date, or describe what's on your plate this week — Tony Starrk will build you a personalized study plan.
           </p>
         </div>
       </div>
@@ -157,7 +157,7 @@ export function MagicMomentCard() {
               className="h-10 px-5 rounded-full text-[13px] font-medium text-white disabled:opacity-30 hover:opacity-90 transition active:scale-95"
               style={{ background: "#5B4BF5" }}
             >
-              Generate plan with Omar
+              Generate plan with Tony Starrk
             </button>
             <button
               type="button"

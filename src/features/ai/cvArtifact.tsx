@@ -5,7 +5,7 @@
  *
  * Two layouts in this file:
  *   • The on-screen CARD (this component) — interactive, has buttons,
- *     coaching notes from Omar, the TOC chip strip.
+ *     coaching notes from Tony Starrk, the TOC chip strip.
  *   • The PRINT LAYOUT (cvPrintLayout.tsx) — A4-aspect, no buttons,
  *     no coaching notes, used as the html2canvas render target for
  *     PNG export. Off-screen, mounted on demand.
@@ -482,11 +482,11 @@ export function CvArtifact({ artifact }: Props) {
         <CvPrintLayout artifact={artifact} id={printIdRef.current} />
       )}
 
-      {/* Coaching note from Omar */}
+      {/* Coaching note from Tony Starrk */}
       {artifact.coachingNote && (
         <div className="px-4 md:px-5 py-3 border-t border-ink/6 bg-ink/[1.5%]">
           <div className="text-[10.5px] uppercase tracking-wider text-ink/45 font-semibold mb-1">
-            {isAr ? "ملاحظة من عمر" : "Note from Omar"}
+            {isAr ? "ملاحظة من عمر" : "Note from Tony Starrk"}
           </div>
           <p className="text-[13px] text-ink/70 leading-relaxed whitespace-pre-wrap">
             {artifact.coachingNote}

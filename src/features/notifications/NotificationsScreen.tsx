@@ -17,7 +17,7 @@ import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import type { Notification as NotifRow } from "@/lib/supabase";
 
 const STUB_NOTIFS: NotifRow[] = [
-  { id: "stub-1", user_id: "guest", from_id: "u1", type: "match",   subject: "New match",   post_id: null, read: false, created_at: new Date().toISOString(),                         from_profile: { id: "u1", name: "Omar Hamdan", avatar_color: "#5B4BF5" } as NotifRow["from_profile"] },
+  { id: "stub-1", user_id: "guest", from_id: "u1", type: "match",   subject: "New match",   post_id: null, read: false, created_at: new Date().toISOString(),                         from_profile: { id: "u1", name: "Faris Hamdan", avatar_color: "#5B4BF5" } as NotifRow["from_profile"] },
   { id: "stub-2", user_id: "guest", from_id: "u2", type: "message", subject: "New message", post_id: null, read: false, created_at: new Date(Date.now() - 3600e3).toISOString(),       from_profile: { id: "u2", name: "Hanan Saleh", avatar_color: "#E27D60" } as NotifRow["from_profile"] },
   { id: "stub-3", user_id: "guest", from_id: "u3", type: "room",    subject: "Room starts soon", post_id: null, read: true,  created_at: new Date(Date.now() - 2 * 3600e3).toISOString(), from_profile: { id: "u3", name: "Algorithms cram", avatar_color: "#7CE0B6" } as NotifRow["from_profile"] },
 ];

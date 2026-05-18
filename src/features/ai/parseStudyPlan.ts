@@ -1,6 +1,6 @@
 /**
  * parseStudyPlan — extract the AI-emitted <<<STUDY_PLAN>>> block
- * from an Omar reply, return the cleaned text + the parsed
+ * from an Tony Starrk reply, return the cleaned text + the parsed
  * StudyPlanArtifact so AIScreen can attach it to the message and
  * the artifact card renders premium.
  *

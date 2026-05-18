@@ -138,7 +138,7 @@ export function HistorySidebar({
           {/* Plans */}
           <SectionHeader icon={FileText} label="Plans" />
           {plans.length === 0 && (
-            <EmptyHint icon={Sparkles} text="Plans you create with Omar will be saved here." />
+            <EmptyHint icon={Sparkles} text="Plans you create with Tony Starrk will be saved here." />
           )}
           {plans.map((p) => (
             <PlanRow key={p.id} item={p} onSelect={onSelectPlan} onDelete={deletePlan} />
@@ -236,12 +236,12 @@ function SessionRow({
   const [confirming, setConfirming] = useState(false);
   // Display title comes pre-baked from useAIHistory.
   const title = item.title || "Untitled chat";
-  // Persona styling — Omar is blue-violet (brain), Noor is rose
+  // Persona styling — Tony Starrk is blue-violet (brain), Sherlock is rose
   // (heart). The badge is a small icon chip rather than a colored
   // dot so it's identifiable at a glance even for color-blind users.
-  const isNoor = item.persona === "noor";
-  const PersonaIcon = isNoor ? Heart : Brain;
-  const accent = isNoor ? "#C23F6C" : "#5B4BF5";
+  const isSherlock = item.persona === "noor";
+  const PersonaIcon = isSherlock ? Heart : Brain;
+  const accent = isSherlock ? "#C23F6C" : "#5B4BF5";
   return (
     <div className="group relative rounded-lg hover:bg-ink/5 transition">
       <button
@@ -253,14 +253,14 @@ function SessionRow({
           <div
             className="w-5 h-5 mt-0.5 shrink-0 rounded-full inline-flex items-center justify-center"
             style={{ background: `${accent}14` }}
-            aria-label={isNoor ? "Noor chat" : "Omar chat"}
+            aria-label={isSherlock ? "Sherlock chat" : "Tony Starrk chat"}
           >
             <PersonaIcon size={10} style={{ color: accent }} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[13px] text-ink leading-snug line-clamp-2">{title}</div>
             <div className="mt-0.5 text-[10.5px] text-ink/45 inline-flex items-center gap-1.5">
-              <span className="capitalize">{isNoor ? "Noor" : item.subject}</span>
+              <span className="capitalize">{isSherlock ? "Sherlock" : item.subject}</span>
               {item.message_count > 0 && <><span>·</span><span>{item.message_count} msgs</span></>}
             </div>
           </div>

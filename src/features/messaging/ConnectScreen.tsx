@@ -67,7 +67,7 @@ type Msg =
   | { id: string; mine: boolean; kind: "voice"; durationMs: number; src?: string; waveform?: number[] }
   | { id: string; mine: boolean; kind: "file"; filename: string };
 
-// THREADS array (Algorithms finals cram, Omar Hamdan, Hanan Saleh,
+// THREADS array (Algorithms finals cram, Faris Hamdan, Hanan Saleh,
 // Yusuf Abadi, Leila Nasser) DELETED. It used to render for users
 // without a real session — but the gate now forces real auth, so
 // nobody hits the no-user path. Brand-new accounts with zero
