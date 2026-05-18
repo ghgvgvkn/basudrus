@@ -34,16 +34,19 @@ export interface ModelOption {
 
 const STORAGE_KEY = "bu:preferred-model";
 
+// Note: `id` values are stable storage keys saved to localStorage —
+// keep them as-is so returning users don't lose their preference.
+// Only `label` (the visible name in the chip + dropdown) is branded.
 const MODELS: ModelOption[] = [
   {
     id: "haiku-4.5",
-    label: "Haiku 4.5",
+    label: "Cooked 2.3",
     description: "Fast and reliable. Default for everyone.",
     badge: "Default",
   },
   {
     id: "sonnet-4.5",
-    label: "Sonnet 4.5",
+    label: "Cooking 2.9",
     description: "Smarter on hard problems. Slower, more thorough.",
     badge: "Pro",
     proRequired: true,
