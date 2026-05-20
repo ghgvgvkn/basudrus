@@ -56,8 +56,14 @@ export default function App() {
               {/* Settings cog is injected inline into AIScreen's header
                   row (after QuotaChip + Go Pro) via the headerEnd prop.
                   Bas Udrus's render of <AIScreen /> doesn't pass anything,
-                  so the cog is AI-only. */}
-              <AIScreen headerEnd={<SettingsButton />} />
+                  so the cog is AI-only.
+
+                  fillViewport claims the full dvh — Bas Udrus's AIScreen
+                  reserves 56/64px for its top bar + bottom nav, but
+                  ai-app has neither, so we close that gap so the
+                  composer sits at the real viewport bottom instead of
+                  floating 56px above it. */}
+              <AIScreen headerEnd={<SettingsButton />} fillViewport />
             </Suspense>
             {/* Modal is rendered as a portal-like overlay — its position
                 in the tree doesn't matter, it's `position: fixed`. */}

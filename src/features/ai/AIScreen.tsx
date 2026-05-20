@@ -85,14 +85,25 @@ const NOOR_PROMPTS = [
 ];
 
 /**
- * Optional render-end slot for callers that want to inject extra
- * controls into the top header row (right side, after the Go Pro
- * button / QuotaChip). The AI-only site (ai-app) uses this to
- * place its Settings cog inline next to the usage indicator
- * instead of as a free-floating top-right overlay. Bas Udrus's
- * Shell doesn't pass it — backward compatible.
+ * AIScreen props (both optional — Bas Udrus's Shell passes neither):
+ *
+ * - `headerEnd` — extra controls appended to the right side of the
+ *   top header row, after the Go Pro button / QuotaChip. The AI-only
+ *   site (ai-app) uses this to place its Settings cog inline next to
+ *   the usage indicator instead of as a free-floating overlay.
+ *
+ * - `fillViewport` — when true, AIScreen takes the FULL dynamic
+ *   viewport height. The default `calc(100dvh - 56/64px)` reserves
+ *   space for Bas Udrus's shell chrome (top bar on md+, bottom nav
+ *   on mobile). ai-app has no shell chrome, so it would otherwise
+ *   leave that subtracted height as visible empty space below the
+ *   composer. Setting fillViewport closes the gap so the composer
+ *   sits at the real viewport bottom.
  */
-export function AIScreen({ headerEnd }: { headerEnd?: React.ReactNode } = {}) {
+export function AIScreen({
+  headerEnd,
+  fillViewport = false,
+}: { headerEnd?: React.ReactNode; fillViewport?: boolean } = {}) {
   const { aiPrefill, setAIPrefill, subscription, consumeAIMessage, setScreen, profile } = useApp();
   const { dir, lang } = useLocale();
 
@@ -605,7 +616,15 @@ export function AIScreen({ headerEnd }: { headerEnd?: React.ReactNode } = {}) {
   };
 
   return (
-    <div className="relative flex flex-col h-[calc(100dvh-64px)] md:h-[calc(100dvh-56px)]" dir={dir}>
+    <div
+      className={
+        "relative flex flex-col " +
+        (fillViewport
+          ? "h-dvh"
+          : "h-[calc(100dvh-64px)] md:h-[calc(100dvh-56px)]")
+      }
+      dir={dir}
+    >
       {/* Mental-health self-screen modal (Day 13). Mounts at top so
           its own fixed-position layer doesn't fight with the chat
           tree. After a result is saved we (a) flip persona to Sherlock
