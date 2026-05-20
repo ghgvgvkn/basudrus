@@ -53,10 +53,14 @@ export default function App() {
           <SignInGate>
             <ProfileSync />
             <Suspense fallback={<LoadingShell />}>
-              <AIScreen />
+              {/* Settings cog is injected inline into AIScreen's header
+                  row (after QuotaChip + Go Pro) via the headerEnd prop.
+                  Bas Udrus's render of <AIScreen /> doesn't pass anything,
+                  so the cog is AI-only. */}
+              <AIScreen headerEnd={<SettingsButton />} />
             </Suspense>
-            {/* Floating cog + modal — AI-only, doesn't touch basudrus.com */}
-            <SettingsButton />
+            {/* Modal is rendered as a portal-like overlay — its position
+                in the tree doesn't matter, it's `position: fixed`. */}
             <SettingsModal />
           </SignInGate>
         </AppProvider>

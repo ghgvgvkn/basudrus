@@ -100,6 +100,41 @@ function SignInForm() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+
+  /**
+   * Google OAuth. Mirrors the pattern in features/onboarding/OnboardingScreen
+   * — supabase.auth.signInWithOAuth performs a full-page redirect to
+   * Google, then back to redirectTo with the code in the URL hash.
+   * The SIGNED_IN auth event fires automatically on return and our
+   * SignInGate falls through.
+   *
+   * Friendly error if the provider isn't enabled in the Supabase
+   * dashboard yet — we surface that explicitly so the user knows
+   * to fall back to email instead of getting opaque SDK jargon.
+   */
+  const signInWithGoogle = async () => {
+    setErr(null);
+    setGoogleBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/`,
+        },
+      });
+      if (error) throw error;
+      // Redirect takes over; we don't reach the line below.
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Google sign-in failed.";
+      setErr(
+        /provider.*disabled|not enabled|Unsupported provider/i.test(msg)
+          ? "Google sign-in isn't enabled yet — please use email for now."
+          : msg,
+      );
+      setGoogleBusy(false);
+    }
+  };
 
   const submit = async () => {
     setErr(null);
@@ -196,6 +231,29 @@ function SignInForm() {
           </div>
         ) : (
         <div className="space-y-4">
+          {/* Google sign-in — primary CTA in sign-in / sign-up modes.
+              Hidden in reset mode because OAuth doesn't help reset a
+              password. The "G" mark is rendered as inline SVG so we
+              don't need an external icon dependency. */}
+          {mode !== "reset" && (
+            <>
+              <button
+                type="button"
+                onClick={signInWithGoogle}
+                disabled={googleBusy || busy}
+                className="w-full h-12 rounded-full border border-ink/15 bg-bg text-ink font-medium hover:bg-ink/5 disabled:opacity-50 transition inline-flex items-center justify-center gap-2.5"
+              >
+                <GoogleMark />
+                {googleBusy ? "Redirecting…" : (mode === "up" ? "Sign up with Google" : "Continue with Google")}
+              </button>
+              <div className="flex items-center gap-3 text-[11px] text-ink/40 uppercase tracking-wider">
+                <span className="flex-1 h-px bg-ink/10" />
+                or with email
+                <span className="flex-1 h-px bg-ink/10" />
+              </div>
+            </>
+          )}
+
           <label className="block">
             <span className="block text-xs text-ink-3 mb-1.5 font-medium uppercase tracking-wide">Email</span>
             <div className="relative">
@@ -418,6 +476,22 @@ function NewPasswordForm({ onDone }: { onDone: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Google "G" mark — official multi-color logo as inline SVG so we
+ * don't pull in @react-oauth/google just for the icon. Source:
+ * Google brand guidelines, simplified path.
+ */
+function GoogleMark() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <path d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.49h4.84a4.14 4.14 0 01-1.8 2.71v2.26h2.91c1.7-1.57 2.69-3.88 2.69-6.62z" fill="#4285F4"/>
+      <path d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.91-2.26c-.81.54-1.84.86-3.05.86a5.31 5.31 0 01-4.99-3.67H.99v2.33A8.997 8.997 0 009 18z" fill="#34A853"/>
+      <path d="M4.01 10.75A5.41 5.41 0 013.72 9c0-.61.11-1.2.29-1.75V4.92H.99A8.997 8.997 0 000 9c0 1.45.35 2.83.96 4.04l3.05-2.29z" fill="#FBBC05"/>
+      <path d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A8.997 8.997 0 009 0 8.997 8.997 0 00.96 4.96l3.05 2.33A5.31 5.31 0 019 3.58z" fill="#EA4335"/>
+    </svg>
   );
 }
 

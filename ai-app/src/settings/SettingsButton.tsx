@@ -1,13 +1,14 @@
 /**
- * SettingsButton — floating cog in the corner of the AI app.
+ * SettingsButton — inline icon button sized to match QuotaChip / Go Pro.
  *
- * Anchored top-right with safe-area padding so it sits cleanly on
- * notch / Dynamic Island devices. Clicking opens the settings
- * modal on the default "Account" section.
+ * Designed to sit at the END of AIScreen's header row, immediately after
+ * "10 / 10 left today" and the "Go Pro" button. Same 32px height as the
+ * surrounding chips so the row reads as one unit.
  *
- * Kept as a separate, free-floating layer (not inside AIScreen)
- * because AIScreen is shared code with Bas Udrus — we don't want
- * a duplicate Settings button to appear on basudrus.com's AI tab.
+ * Free users see: [streak] [10/10 left today] [Go Pro] [⚙]
+ * Pro users see:  [streak] [Pro ∞]                    [⚙]
+ *
+ * Lives in ai-app/ — basudrus.com's AIScreen header doesn't render this.
  */
 import { Settings as SettingsIcon } from "lucide-react";
 import { openSettings } from "./useSettingsState";
@@ -19,16 +20,13 @@ export function SettingsButton() {
       aria-label="Open settings"
       title="Settings"
       className="
-        fixed top-3 end-3 z-40
-        h-10 w-10 grid place-items-center
-        rounded-full bg-surface-1/80 backdrop-blur-md
-        border border-line/60 shadow-sm
-        text-ink-2 hover:text-ink-1 hover:bg-surface-2
-        transition
+        h-8 w-8 shrink-0 rounded-full
+        inline-flex items-center justify-center
+        text-ink/65 hover:text-ink hover:bg-ink/5
+        transition active:scale-[0.95]
       "
-      style={{ paddingTop: "env(safe-area-inset-top, 0)" }}
     >
-      <SettingsIcon className="h-[18px] w-[18px]" />
+      <SettingsIcon className="h-[15px] w-[15px]" />
     </button>
   );
 }

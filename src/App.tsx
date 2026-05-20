@@ -50,7 +50,8 @@ import { QuizPrompt } from "@/features/match/QuizPrompt";
  * The reload is guarded by a sessionStorage flag so we never enter
  * a reload loop if the chunk genuinely 404s (e.g. CDN down).
  */
-function safeLazy<T extends { default: React.ComponentType<unknown> }>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeLazy<T extends { default: React.ComponentType<any> }>(
   loader: () => Promise<T>,
 ) {
   return lazy(async () => {

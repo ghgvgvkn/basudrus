@@ -84,7 +84,15 @@ const NOOR_PROMPTS = [
   "I feel stuck",
 ];
 
-export function AIScreen() {
+/**
+ * Optional render-end slot for callers that want to inject extra
+ * controls into the top header row (right side, after the Go Pro
+ * button / QuotaChip). The AI-only site (ai-app) uses this to
+ * place its Settings cog inline next to the usage indicator
+ * instead of as a free-floating top-right overlay. Bas Udrus's
+ * Shell doesn't pass it — backward compatible.
+ */
+export function AIScreen({ headerEnd }: { headerEnd?: React.ReactNode } = {}) {
   const { aiPrefill, setAIPrefill, subscription, consumeAIMessage, setScreen, profile } = useApp();
   const { dir, lang } = useLocale();
 
@@ -730,6 +738,10 @@ export function AIScreen() {
               <Sparkles size={12} /> Go Pro
             </button>
           )}
+          {/* Optional caller-provided slot — used by the AI-only site to
+              place its Settings cog next to QuotaChip / Go Pro. Bas Udrus
+              doesn't pass anything, so this is a no-op there. */}
+          {headerEnd}
         </div>
       </div>
 
