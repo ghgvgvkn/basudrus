@@ -63,7 +63,7 @@ const SEED_UNIS = [
 
 export function PastPapersScreen() {
   const [tab, setTab] = useState<Tab>("browse");
-  const { rows, myRows, loading, error, refresh, upload, remove } = usePastPapers();
+  const { rows, myRows, loading, error, refresh, upload, remove, setShared } = usePastPapers();
 
   return (
     <>
@@ -113,7 +113,7 @@ export function PastPapersScreen() {
           <BrowseTab rows={rows} loading={loading} />
         )}
         {tab === "mine" && (
-          <MyPapersTab rows={myRows} loading={loading} onRemove={remove} />
+          <MyPapersTab rows={myRows} loading={loading} onRemove={remove} onSetShared={setShared} />
         )}
         {tab === "upload" && (
           <UploadTab
@@ -256,14 +256,16 @@ function PaperRow({ p }: { p: PastPaperRow }) {
 // ── My Papers tab ──────────────────────────────────────────────────
 
 function MyPapersTab({
-  rows, loading, onRemove,
+  rows, loading, onRemove, onSetShared,
 }: {
   rows: PastPaperRow[];
   loading: boolean;
   onRemove: (id: string) => Promise<boolean>;
+  onSetShared: (id: string, shared: boolean) => Promise<boolean>;
 }) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -289,11 +291,44 @@ function MyPapersTab({
             <FileText className="h-5 w-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-ink-1 truncate">{p.course_name}</div>
+            <div className="text-sm font-medium text-ink-1 truncate inline-flex items-center gap-2">
+              {p.course_name}
+              <span
+                className={
+                  "text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full " +
+                  (p.shared
+                    ? "bg-accent/10 text-accent"
+                    : "bg-ink-1/5 text-ink-3")
+                }
+              >
+                {p.shared ? "Shared" : "Private"}
+              </span>
+            </div>
             <div className="text-xs text-ink-3 truncate">
               {[p.uni, p.exam_type, p.semester, p.year].filter(Boolean).join(" · ")}
             </div>
           </div>
+          {/* Share toggle — flips past_papers.shared and seeds the
+              professors cache the first time it turns ON. */}
+          <button
+            type="button"
+            onClick={async () => {
+              setTogglingId(p.id);
+              try { await onSetShared(p.id, !p.shared); } finally { setTogglingId(null); }
+            }}
+            disabled={togglingId === p.id}
+            title={p.shared ? "Make private" : "Share with classmates"}
+            className={
+              "shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium transition disabled:opacity-50 " +
+              (p.shared
+                ? "bg-accent/10 text-accent hover:bg-accent/15"
+                : "bg-surface-2 text-ink-2 hover:bg-surface-3")
+            }
+          >
+            {togglingId === p.id
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : (p.shared ? "Unshare" : "Share")}
+          </button>
           {p.file_url && (
             <a
               href={p.file_url}
@@ -357,6 +392,9 @@ function UploadTab({
   const [semester, setSemester] = useState<Semester>("fall");
   const [file, setFile] = useState<File | null>(null);
   const [agreed, setAgreed] = useState(false);
+  // Default OFF per the strategy doc §7.2 #3 — uploads are private
+  // until the contributor explicitly opts to share.
+  const [shareWithClassmates, setShareWithClassmates] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -411,16 +449,27 @@ function UploadTab({
       semester,
       file,
       rightToShareAgreed: agreed,
+      shareWithClassmates,
+      // AI-extracted topics carry through to past_papers.topics_covered
+      // AND, when sharing is on, into the professors cache so Tony's
+      // DATABASE CONTEXT block picks them up.
+      topicsCovered: analysis?.extracted.topicsCovered ?? [],
     });
     setBusy(false);
     if (out.ok) {
-      setResult({ ok: true, message: "Uploaded ✓ — appears in My Papers" });
+      setResult({
+        ok: true,
+        message: shareWithClassmates
+          ? "Uploaded ✓ — shared with your course"
+          : "Uploaded ✓ — saved to your private locker (you can share it later)",
+      });
       // Reset form for the next upload
       setFile(null);
       setCourseName("");
       setCourseCode("");
       setProfessorName("");
       setAgreed(false);
+      setShareWithClassmates(false);
       // Bounce to My Papers after a beat so the user sees confirmation
       setTimeout(() => onUploaded(), 900);
     } else {
@@ -598,6 +647,29 @@ function UploadTab({
           </div>
         )}
 
+        {/* Share toggle — strategy doc §7.2 #3: PRIVATE by default. */}
+        <div className="rounded-xl border border-line/60 bg-surface-2/40 p-3 flex items-start gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={shareWithClassmates}
+            onClick={() => setShareWithClassmates((v) => !v)}
+            className={`mt-0.5 relative h-6 w-10 rounded-full transition-colors shrink-0 ${shareWithClassmates ? "bg-accent" : "bg-surface-3"}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${shareWithClassmates ? "start-[18px]" : "start-0.5"}`} />
+          </button>
+          <div className="flex-1 min-w-0 text-xs">
+            <div className="text-sm font-medium text-ink-1 mb-0.5">
+              Share with my course's students
+            </div>
+            <div className="text-ink-3 leading-relaxed">
+              {shareWithClassmates
+                ? `Visible to other ${uni || "students"} taking ${courseName || "this course"}. Tony Starrk will fold the patterns (year, topics, professor) into his knowledge so the next student preparing for this exam benefits too.`
+                : "Default OFF. Your paper stays in your private locker — only you can see it. Turn this on whenever you're ready to help your classmates."}
+            </div>
+          </div>
+        </div>
+
         <label className="flex items-start gap-2.5 text-xs text-ink-2 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -606,10 +678,9 @@ function UploadTab({
             className="mt-0.5 h-4 w-4 rounded border-line/60 text-accent focus:ring-accent/30"
           />
           <span>
-            <strong className="text-ink-1">I confirm I have the right to share this material.</strong> Bas Udrus stores
-            this paper in a shared library that other students at this university may view. We
+            <strong className="text-ink-1">I confirm I have the right to share this material.</strong> Whether you keep it private or share it, we
             never republish exam questions verbatim — Tony Starrk learns the patterns and refers
-            students back to the original.
+            students back to the original. By submitting you confirm you're allowed to upload this file.
           </span>
         </label>
       </div>

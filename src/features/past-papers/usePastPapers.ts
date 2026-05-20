@@ -37,6 +37,10 @@ export interface PastPaperRow {
   topics_covered: string[];
   difficulty: string | null;
   verified: boolean;
+  /** Private locker default. When false, only the contributor can
+   *  see the row (RLS-enforced). The contributor flips this to true
+   *  to share with the rest of their course's students. */
+  shared: boolean;
   contributor_user_id: string | null;
   created_at: string;
   updated_at: string;
@@ -56,6 +60,15 @@ export interface UploadInput {
    *  upload completes. The component enforces it; we double-check
    *  here so a bypassed UI can't ship a row without consent. */
   rightToShareAgreed: boolean;
+  /** Strategy doc §7.2 #3: PRIVATE by default. The contributor
+   *  decides to share with classmates by ticking this. Independent
+   *  of the legal-agreement above — agreement = "I have the legal
+   *  right", share = "I want others to see it". Default: false. */
+  shareWithClassmates: boolean;
+  /** Topics extracted by the AI analyzer (optional). When the user
+   *  ran "Analyze with AI" before submitting, we carry the topics
+   *  through to the row + the professors-cache upsert below. */
+  topicsCovered?: string[];
 }
 
 export interface UploadResult {
@@ -92,6 +105,9 @@ export interface UsePastPapersResult {
   upload: (input: UploadInput) => Promise<UploadResult>;
   /** Delete a contribution this user owns. */
   remove: (id: string) => Promise<boolean>;
+  /** Flip the share toggle on a contribution this user owns. When
+   *  turning ON for the first time, also seeds the professors cache. */
+  setShared: (id: string, shared: boolean) => Promise<boolean>;
 }
 
 export function usePastPapers(): UsePastPapersResult {
@@ -173,8 +189,9 @@ export function usePastPapers(): UsePastPapersResult {
           year: input.year,
           semester: input.semester,
           file_url: fileUrl,
-          topics_covered: [],
+          topics_covered: input.topicsCovered ?? [],
           verified: false,
+          shared: input.shareWithClassmates,
           contributor_user_id: userId,
         })
         .select()
@@ -185,6 +202,26 @@ export function usePastPapers(): UsePastPapersResult {
         // orphaned file in Storage.
         await supabase.storage.from("past-papers").remove([path]).catch(() => {});
         return { ok: false, error: `Couldn't save the paper: ${insErr?.message ?? "unknown error"}` };
+      }
+
+      // ── Universal Data Layer wiring ──
+      // If a professor name is on the row (AI-extracted OR manually
+      // typed) AND the user opted to share, upsert into
+      // public.professors so Tony Starrk's DATABASE CONTEXT block on
+      // the tutor side picks up real prof metadata across all students.
+      // Private uploads are NOT folded into the cache — the rule from
+      // §7.1: only objectively shareable facts enter the universal
+      // layer; if the contributor wanted privacy, we honor it here too.
+      if (input.shareWithClassmates && input.professorName?.trim()) {
+        await upsertProfessorContribution({
+          uni: input.uni.trim(),
+          name: input.professorName.trim(),
+          courseName: input.courseName.trim(),
+          courseCode: input.courseCode?.trim() || null,
+          topics: input.topicsCovered ?? [],
+          fileUrl,
+          userId,
+        }).catch(() => { /* swallow — past_papers insert already succeeded */ });
       }
 
       // Optimistically prepend the new row instead of a full re-fetch.
@@ -224,9 +261,128 @@ export function usePastPapers(): UsePastPapersResult {
     return true;
   }, [rows, userId]);
 
+  const setShared = useCallback<UsePastPapersResult["setShared"]>(async (id, shared) => {
+    if (!userId) return false;
+    const row = rows.find((r) => r.id === id);
+    const wasShared = row?.shared ?? false;
+
+    const { error: updErr } = await supabase
+      .from("past_papers")
+      .update({ shared, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("contributor_user_id", userId);
+    if (updErr) {
+      setError(updErr.message);
+      return false;
+    }
+
+    setRows((prev) => prev.map((r) => r.id === id ? { ...r, shared } : r));
+
+    // First time turning sharing ON for a row that has a professor
+    // name → seed the universal data layer. Going from on→off does
+    // NOT pull the row back out of the professors cache (other
+    // students may already rely on it; un-sharing your file from the
+    // library is your right, but we don't retroactively scrub the
+    // pattern signal it contributed).
+    if (shared && !wasShared && row && row.professor_name && row.file_url) {
+      upsertProfessorContribution({
+        uni: row.uni,
+        name: row.professor_name,
+        courseName: row.course_name,
+        courseCode: row.course_code,
+        topics: row.topics_covered || [],
+        fileUrl: row.file_url,
+        userId,
+      }).catch(() => { /* swallow — best-effort */ });
+    }
+    return true;
+  }, [userId, rows]);
+
   const myRows = userId ? rows.filter((r) => r.contributor_user_id === userId) : [];
 
-  return { rows, myRows, loading, error, refresh, upload, remove };
+  return { rows, myRows, loading, error, refresh, upload, remove, setShared };
+}
+
+// ── Professor cache wiring ─────────────────────────────────────────
+
+/**
+ * Upsert a professor contribution into public.professors so the
+ * Universal Data Layer Tony Starrk reads from gets seeded by real
+ * student uploads. Identity = (uni, lower(name)) — same row gets
+ * its courses_taught / common_topics / past_paper_links arrays
+ * merged across multiple contributions.
+ *
+ * RLS allows authenticated users to INSERT (with their own
+ * contributor_user_id) and UPDATE any unverified row, so additive
+ * merges from later students work. Verified rows are admin-only.
+ *
+ * Errors are swallowed by the caller — the past_papers insert
+ * already succeeded, so the professor side-effect is best-effort.
+ */
+async function upsertProfessorContribution({
+  uni, name, courseName, courseCode, topics, fileUrl, userId,
+}: {
+  uni: string;
+  name: string;
+  courseName: string;
+  courseCode: string | null;
+  topics: string[];
+  fileUrl: string;
+  userId: string;
+}): Promise<void> {
+  // Strip "Dr." / "Prof." prefixes so identity comparison is stable.
+  const cleanName = name.replace(/^\s*(?:dr|prof|professor|د|أ)\.?\s*/i, "").trim();
+  if (!cleanName) return;
+
+  // Look up existing row by (uni, lower(name)). The unique index
+  // backs this lookup.
+  const { data: existing } = await supabase
+    .from("professors")
+    .select("id, courses_taught, common_topics, past_paper_links, contribution_count")
+    .eq("uni", uni)
+    .ilike("name", cleanName)
+    .maybeSingle();
+
+  // Combine the course's display label — "CS340 · Operating Systems"
+  // when we have both, otherwise just course name.
+  const courseLabel = courseCode ? `${courseCode} · ${courseName}` : courseName;
+
+  if (existing) {
+    // Merge into existing arrays — dedupe by lowercased value.
+    const existCourses: string[] = Array.isArray(existing.courses_taught) ? existing.courses_taught as string[] : [];
+    const existTopics:  string[] = Array.isArray(existing.common_topics)  ? existing.common_topics  as string[] : [];
+    const existLinks:   string[] = Array.isArray(existing.past_paper_links) ? existing.past_paper_links as string[] : [];
+    const lowerSet = (arr: string[]) => new Set(arr.map((s) => s.toLowerCase()));
+    const courseSet = lowerSet(existCourses);
+    const topicSet  = lowerSet(existTopics);
+    const linkSet   = new Set(existLinks);
+    const mergedCourses = courseSet.has(courseLabel.toLowerCase()) ? existCourses : [...existCourses, courseLabel].slice(0, 20);
+    const mergedTopics  = [...existTopics, ...topics.filter((t) => !topicSet.has(t.toLowerCase()))].slice(0, 30);
+    const mergedLinks   = linkSet.has(fileUrl) ? existLinks : [...existLinks, fileUrl].slice(0, 50);
+
+    await supabase
+      .from("professors")
+      .update({
+        courses_taught: mergedCourses,
+        common_topics: mergedTopics,
+        past_paper_links: mergedLinks,
+        contribution_count: ((existing.contribution_count as number) ?? 0) + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id as string);
+  } else {
+    await supabase.from("professors").insert({
+      uni,
+      name: cleanName,
+      courses_taught: [courseLabel],
+      common_topics: topics.slice(0, 30),
+      past_paper_links: [fileUrl],
+      student_tips: [],
+      verified: false,
+      contribution_count: 1,
+      contributor_user_id: userId,
+    });
+  }
 }
 
 // ── AI analyzer client ─────────────────────────────────────────────
