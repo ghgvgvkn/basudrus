@@ -45,7 +45,14 @@ export function UsageSection() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!user?.id) return;
+      if (!user?.id) {
+        // Signed-out state — don't spin forever. The Settings modal is
+        // gated behind SignInGate in production so we shouldn't hit
+        // this in practice, but defensive UX matters.
+        setLoading(false);
+        setStats({ today: 0, week: 0, month: 0, total: 0, byEndpoint: {} });
+        return;
+      }
       setLoading(true);
       setErr("");
       try {
