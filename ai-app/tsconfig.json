@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*":   ["../src/*"],
+      "@ai/*": ["src/*"]
+    },
+    "types": ["node", "vite/client"]
+  },
+  "//": "Include ../src so the shared Bas Udrus code participates in this app's typecheck. ai-app changes are caught during the shared-code build too.",
+  "include": ["src", "../src"]
+}

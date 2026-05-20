@@ -1,0 +1,11 @@
+# pnpm workspace — keeps deps hoisted into a single node_modules so
+# the AI-only site (ai-app) and the main site (root) share ONE copy
+# of React, Supabase, etc. Without this, hooks from shared files
+# would throw "Invalid hook call" because they'd bind to a second
+# React instance in ai-app/node_modules.
+#
+# The root package is still the main Bas Udrus app (its src/ stays
+# untouched). ai-app is the new front door.
+packages:
+  - "."
+  - "ai-app"

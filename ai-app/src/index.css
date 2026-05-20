@@ -1,0 +1,14 @@
+/* ============================================================
+   ai-app — Global stylesheet
+   Re-uses the Bas Udrus theme (../../src/index.css) verbatim so
+   colors, radii, shadows, and component classes stay 1:1 with
+   the main site. When we want the AI-only site to diverge
+   visually (immersive dark shell, Jarvis-style glow, etc.) we
+   ADD overrides below the @import — don't fork the base.
+   ============================================================ */
+@import "../../src/index.css";
+
+/* ── ai-app overrides ─────────────────────────────────────────
+   Empty for now. Add immersive-shell styles here as we build
+   them (full-bleed background, blur layers, etc.).
+   ──────────────────────────────────────────────────────────── */

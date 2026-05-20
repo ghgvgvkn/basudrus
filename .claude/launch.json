@@ -3,9 +3,15 @@
   "configurations": [
     {
       "name": "bas-udrus-dev",
-      "runtimeExecutable": "npm",
+      "runtimeExecutable": "pnpm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3000
+      "port": 5173
+    },
+    {
+      "name": "ai-app-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "basudrus-ai-app", "dev"],
+      "port": 5174
     }
   ]
 }

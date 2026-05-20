@@ -18,11 +18,79 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
+// ── Cross-subdomain SSO storage ────────────────────────────────────────────
+// We're about to launch a second front-door at ai.basudrus.com that shares
+// the same Supabase project as basudrus.com. For "sign in once, use both"
+// to work, the auth token must live in a cookie scoped to `.basudrus.com`
+// (with the leading dot), NOT in localStorage which is per-origin.
+//
+// Supabase JS by default stores the session in localStorage. Setting a
+// custom storage adapter that mirrors writes to a `.basudrus.com` cookie
+// (and still writes localStorage for backward compat) is the minimum-touch
+// way to unlock SSO without breaking the 691 existing users on the live
+// site — they keep their session through the transition.
+//
+// Behaviour:
+//   * basudrus.com / *.basudrus.com  → cookie (Domain=.basudrus.com) + localStorage
+//   * localhost / Vercel previews    → localStorage only (no cookie domain trick)
+//
+// Reads prefer the cookie when present (cross-tab and cross-subdomain
+// updates are visible immediately), fall back to localStorage for users
+// whose session predates this change.
+const COOKIE_DOMAIN = ".basudrus.com";
+const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365; // 1 year — Supabase refreshes token internally
+
+function isBasudrusHost(): boolean {
+  if (typeof window === "undefined") return false;
+  // Matches basudrus.com, www.basudrus.com, ai.basudrus.com, etc.
+  // Does NOT match localhost or *.vercel.app — those fall back to localStorage.
+  return /(^|\.)basudrus\.com$/i.test(window.location.hostname);
+}
+
+const ssoStorage: Storage | { getItem: (k: string) => string | null; setItem: (k: string, v: string) => void; removeItem: (k: string) => void } = {
+  getItem: (key: string): string | null => {
+    // Cookie first (lets ai.basudrus.com see a session set by basudrus.com)
+    if (typeof document !== "undefined") {
+      const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = document.cookie.match(new RegExp("(?:^|; )" + escaped + "=([^;]*)"));
+      if (match) {
+        try { return decodeURIComponent(match[1]); } catch { return match[1]; }
+      }
+    }
+    // Fallback: legacy localStorage (users who signed in before this change)
+    try { return typeof window !== "undefined" ? window.localStorage.getItem(key) : null; }
+    catch { return null; }
+  },
+  setItem: (key: string, value: string): void => {
+    // Always write localStorage for backward compatibility and same-tab speed
+    try { window.localStorage.setItem(key, value); } catch { /* private mode */ }
+    // Mirror into a cross-subdomain cookie when on a real basudrus host
+    if (typeof document === "undefined" || !isBasudrusHost()) return;
+    const encoded = encodeURIComponent(value);
+    // 4KB is the per-cookie browser limit; Supabase v2 sessions are typically
+    // ~1.5-2.5KB so this fits. If it ever exceeds 4KB the cookie is silently
+    // dropped — we still have localStorage as a fallback, so SSO degrades to
+    // same-origin but auth keeps working.
+    const secure = window.location.protocol === "https:" ? "; secure" : "";
+    document.cookie =
+      `${key}=${encoded}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}; ` +
+      `samesite=lax; domain=${COOKIE_DOMAIN}${secure}`;
+  },
+  removeItem: (key: string): void => {
+    try { window.localStorage.removeItem(key); } catch { /* ignore */ }
+    if (typeof document === "undefined" || !isBasudrusHost()) return;
+    document.cookie = `${key}=; path=/; max-age=0; domain=${COOKIE_DOMAIN}`;
+  },
+};
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
+    // Custom storage: cookie on *.basudrus.com (cross-subdomain SSO),
+    // localStorage on everything else. See ssoStorage above.
+    storage: ssoStorage as Storage,
   },
   realtime: {
     params: { eventsPerSecond: 10 },
