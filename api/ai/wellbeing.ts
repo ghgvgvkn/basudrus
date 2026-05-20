@@ -1976,7 +1976,10 @@ export default async function handler(req: Request) {
     // mirrors tutor.ts so the rules are identical across endpoints.
     const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
     type AllowedMedia = typeof ALLOWED_MEDIA[number];
-    const PER_FILE_MAX = 1_400_000;
+    // Per-file cap (~5.5 MB base64 = ~4 MB raw). Matches client-side
+    // MAX_PDF_BYTES so files that pass the browser check aren't
+    // surprise-rejected here.
+    const PER_FILE_MAX = 5_500_000;
     const MAX_FILES = 5;
 
     // Collect images + PDFs across legacy singular fields AND the new

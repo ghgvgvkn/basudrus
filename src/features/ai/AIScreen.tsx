@@ -370,7 +370,7 @@ export function AIScreen({
           const errName = e instanceof Error ? e.name : "";
           if (errName === "PdfTooLargeError") {
             const mb = (file.size / (1024 * 1024)).toFixed(1);
-            failReasons.push(`${file.name}: PDF is ${mb} MB — over the 1 MB upload limit. Split it into smaller chapters, or send a screenshot of the page.`);
+            failReasons.push(`${file.name}: PDF is ${mb} MB — over the 4 MB upload limit. Split it into smaller chapters, or send a screenshot of the page you want help with.`);
           } else {
             const errMsg = e instanceof Error ? (e.message || "").slice(0, 120) : "";
             failReasons.push(`${file.name}: couldn't read this PDF${errMsg ? ` — ${errMsg}` : ""}. Try a different one or send a screenshot of the page.`);

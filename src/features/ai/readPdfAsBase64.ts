@@ -14,14 +14,14 @@
  * pdfjs internals, we just hand the bytes to Claude. Same end
  * result for the student, no parser to break.
  *
- * Trade-off: Anthropic accepts up to 32 MB / 100 pages, but our
- * edge function caps requests at 1.5 MB. A 1 MB raw PDF base64-
- * encodes to ~1.33 MB, which leaves ~170 KB for the system prompt,
- * messages history, and other context. So we cap inputs at 1 MB.
- * Larger PDFs surface a friendly "split it or send a screenshot"
- * message — covers ~95% of real homework / chapter / past-paper
- * uploads. Long textbooks need to be split anyway because Claude's
- * context window benefits from focused chunks.
+ * Trade-off: Anthropic accepts up to 32 MB / 100 pages. Our edge
+ * function caps requests at 8 MB after the multi-file refactor.
+ * A 4 MB raw PDF base64-encodes to ~5.3 MB, leaving ~2.7 MB for
+ * the system prompt, history, and other attachments. So we cap
+ * inputs at 4 MB. Bigger than that, split it — Claude's context
+ * window benefits from focused chunks anyway, and trying to share
+ * a whole textbook in one turn produces worse answers than
+ * targeted page selections.
  */
 
 import { peekPdfMeta, type PdfMetaPeek } from "./pdfMetaPeek";
@@ -41,15 +41,15 @@ export interface ReadPdfResult {
   meta: PdfMetaPeek;
 }
 
-/** Hard cap on PDF input size. 1 MB raw → ~1.33 MB base64, leaving
- *  ~170 KB inside our 1.5 MB edge-function body cap for the rest
- *  of the request. Keep these numbers in sync if MAX_BODY_BYTES on
- *  the server changes. */
-export const MAX_PDF_BYTES = 1 * 1024 * 1024;
+/** Hard cap on PDF input size. 4 MB raw → ~5.3 MB base64, leaving
+ *  ~2.7 MB inside our 8 MB edge-function body cap for system prompt,
+ *  history, and any other attachments on the same turn. Keep this
+ *  in sync with PER_FILE_MAX in tutor.ts / wellbeing.ts. */
+export const MAX_PDF_BYTES = 4 * 1024 * 1024;
 
 export class PdfTooLargeError extends Error {
   constructor(public readonly sizeMb: number) {
-    super(`PDF is ${sizeMb.toFixed(1)} MB; cap is 1 MB.`);
+    super(`PDF is ${sizeMb.toFixed(1)} MB; cap is 4 MB.`);
     this.name = "PdfTooLargeError";
   }
 }

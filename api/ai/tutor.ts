@@ -2208,9 +2208,11 @@ If the student asks a question that goes beyond what's in the document, answer u
     //     already enforces total request size.
     const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
     type AllowedMedia = typeof ALLOWED_MEDIA[number];
-    // Per-file cap (~1.4 MB base64 string = ~1 MB raw). The total
-    // request is already capped by MAX_BODY_BYTES (8 MB).
-    const PER_FILE_MAX = 1_400_000;
+    // Per-file cap (~5.5 MB base64 string = ~4 MB raw). Matches the
+    // client-side MAX_PDF_BYTES so a file that passed the browser-side
+    // check isn't surprise-rejected here. Total request is capped by
+    // MAX_BODY_BYTES (8 MB).
+    const PER_FILE_MAX = 5_500_000;
     // Hard cap on number of attachments per turn. Matches the client
     // (MAX_ATTACHMENTS). Anthropic itself accepts many more, but the
     // cost + latency of large multimodal requests rises fast.
