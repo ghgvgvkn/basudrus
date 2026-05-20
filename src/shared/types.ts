@@ -11,6 +11,7 @@ export type ScreenId =
   | "ai"
   | "connect"
   | "rooms"
+  | "pastPapers"
   | "profile"
   | "notifications"
   | "settings"

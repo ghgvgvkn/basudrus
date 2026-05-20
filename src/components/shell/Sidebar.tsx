@@ -27,6 +27,7 @@ import {
   Settings as SettingsIcon,
   Plus,
   Search,
+  FileText,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { useLocale } from "@/context/LocaleContext";
@@ -57,11 +58,12 @@ export function Sidebar({
   const { unreadCount: notifUnread } = useRealNotifications();
 
   const primary: NavItem[] = [
-    { id: "home",     icon: <Home className="h-[18px] w-[18px]" />,     labelKey: "nav.home" },
-    { id: "discover", icon: <Compass className="h-[18px] w-[18px]" />,  labelKey: "nav.discover" },
-    { id: "ai",       icon: <Sparkles className="h-[18px] w-[18px]" />, labelKey: "nav.ai" },
-    { id: "connect",  icon: <MessageSquare className="h-[18px] w-[18px]" />, labelKey: "nav.connect" },
-    { id: "rooms",    icon: <Users className="h-[18px] w-[18px]" />,    labelKey: "nav.rooms" },
+    { id: "home",       icon: <Home className="h-[18px] w-[18px]" />,         labelKey: "nav.home" },
+    { id: "discover",   icon: <Compass className="h-[18px] w-[18px]" />,      labelKey: "nav.discover" },
+    { id: "ai",         icon: <Sparkles className="h-[18px] w-[18px]" />,     labelKey: "nav.ai" },
+    { id: "pastPapers", icon: <FileText className="h-[18px] w-[18px]" />,     labelKey: "nav.pastPapers" },
+    { id: "connect",    icon: <MessageSquare className="h-[18px] w-[18px]" />, labelKey: "nav.connect" },
+    { id: "rooms",      icon: <Users className="h-[18px] w-[18px]" />,        labelKey: "nav.rooms" },
   ];
 
   const secondary: NavItem[] = [

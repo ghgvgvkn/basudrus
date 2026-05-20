@@ -83,6 +83,7 @@ const DiscoverScreen      = safeLazy(() => import("@/features/discover/DiscoverS
 const AIScreen            = safeLazy(() => import("@/features/ai/AIScreen").then(m => ({ default: m.AIScreen })));
 const ConnectScreen       = safeLazy(() => import("@/features/messaging/ConnectScreen").then(m => ({ default: m.ConnectScreen })));
 const RoomsScreen         = safeLazy(() => import("@/features/rooms/RoomsScreen").then(m => ({ default: m.RoomsScreen })));
+const PastPapersScreen    = safeLazy(() => import("@/features/past-papers/PastPapersScreen").then(m => ({ default: m.PastPapersScreen })));
 const ProfileScreen       = safeLazy(() => import("@/features/profile/ProfileScreen").then(m => ({ default: m.ProfileScreen })));
 const NotificationsScreen = safeLazy(() => import("@/features/notifications/NotificationsScreen").then(m => ({ default: m.NotificationsScreen })));
 const SettingsScreen      = safeLazy(() => import("@/features/settings/SettingsScreen").then(m => ({ default: m.SettingsScreen })));
@@ -111,6 +112,7 @@ function Router() {
     case "ai":            view = <AIScreen />; break;
     case "connect":       view = <ConnectScreen />; break;
     case "rooms":         view = <RoomsScreen />; break;
+    case "pastPapers":    view = <PastPapersScreen />; break;
     case "profile":       view = <ProfileScreen />; break;
     case "notifications": view = <NotificationsScreen />; break;
     case "settings":      view = <SettingsScreen />; break;
