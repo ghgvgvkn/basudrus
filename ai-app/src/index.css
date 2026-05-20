@@ -8,6 +8,17 @@
    ============================================================ */
 @import "../../src/index.css";
 
+/* ── Tailwind v4 content scanning ────────────────────────────
+   By default Tailwind v4 only scans files INSIDE the Vite project
+   root. ai-app's root is `ai-app/`, but the actual AI/auth/profile
+   screens live at `../src/**` — outside this root — via the @ alias.
+   Without these @source declarations Tailwind doesn't see the
+   className="flex grid bg-bg ..." values on those shared components,
+   strips the utility classes, and the deployed site renders unstyled.
+   First production deploy on Vercel hit exactly this. */
+@source "../../src/**/*.{ts,tsx,html}";
+@source "./**/*.{ts,tsx,html}";
+
 /* ── ai-app overrides ─────────────────────────────────────────
    Empty for now. Add immersive-shell styles here as we build
    them (full-bleed background, blur layers, etc.).
