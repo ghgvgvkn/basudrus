@@ -23,6 +23,8 @@ import { AppProvider } from "@/context/AppContext";
 import { LocaleProvider } from "@/context/LocaleContext";
 import { SignInGate } from "@/features/auth/SignInGate";
 import { ProfileSync } from "@/features/auth/ProfileSync";
+import { SettingsButton } from "@ai/settings/SettingsButton";
+import { SettingsModal } from "@ai/settings/SettingsModal";
 
 // AIScreen is heavy (1980 LOC + artifact components). Lazy so first paint
 // is the auth gate, not the chat shell.
@@ -53,6 +55,9 @@ export default function App() {
             <Suspense fallback={<LoadingShell />}>
               <AIScreen />
             </Suspense>
+            {/* Floating cog + modal — AI-only, doesn't touch basudrus.com */}
+            <SettingsButton />
+            <SettingsModal />
           </SignInGate>
         </AppProvider>
       </LocaleProvider>
