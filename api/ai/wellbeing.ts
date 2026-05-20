@@ -22,7 +22,10 @@ const LIMITS = { daily: 30, hourly: 15, minute: 3 };
 // 1.5 MB accommodates a multimodal turn (image attachment) — pure
 // text turns are tiny. Client compresses images to ≤700 KB before
 // base64 encoding so we stay comfortably under this cap.
-const MAX_BODY_BYTES = 1536 * 1024;
+// Matches tutor.ts — bumped to 8 MB so multi-file uploads (up to 5
+// attachments per turn, each ~1 MB base64) fit comfortably alongside
+// the system prompt and conversation history.
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
 // ───────────────────────────────────────────────────────────────────
 // ETHICS CORE — non-negotiable safeguards layered on top of the
@@ -1862,9 +1865,14 @@ export default async function handler(req: Request) {
       // a photo that triggered a memory). Same Anthropic image content
       // block as the tutor.
       imageBase64?: unknown; imageMediaType?: unknown;
+      // Multi-file fields. Sherlock accepts mixed images + PDFs same
+      // as the tutor — sometimes the heavy thing a student wants to
+      // share is a doc (a journal entry, a school letter, etc.).
+      images?: unknown; pdfs?: unknown;
+      pdfBase64?: unknown; pdfName?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, name, mood, mode, uni, major, lang, memory, personality, imageBase64, imageMediaType } = body || {};
+    const { messages, name, mood, mode, uni, major, lang, memory, personality, imageBase64, imageMediaType, images, pdfs, pdfBase64, pdfName } = body || {};
 
     // Every field that flows into the system prompt is sanitized for
     // newlines/control chars + length-capped to defeat prompt-injection
@@ -1968,52 +1976,103 @@ export default async function handler(req: Request) {
     // mirrors tutor.ts so the rules are identical across endpoints.
     const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
     type AllowedMedia = typeof ALLOWED_MEDIA[number];
-    const hasImage =
+    const PER_FILE_MAX = 1_400_000;
+    const MAX_FILES = 5;
+
+    // Collect images + PDFs across legacy singular fields AND the new
+    // arrays. Same validation as tutor.ts so behaviour is identical.
+    type ImgItem = { base64: string; mediaType: AllowedMedia };
+    type PdfItem = { base64: string; name: string };
+    const collectedImages: ImgItem[] = [];
+    const collectedPdfs:   PdfItem[] = [];
+
+    const rawImages: unknown[] = Array.isArray(images) ? images : [];
+    const rawPdfs:   unknown[] = Array.isArray(pdfs) ? pdfs : [];
+
+    if (
       typeof imageBase64 === "string" &&
       imageBase64.length > 100 &&
-      imageBase64.length < 1_400_000 &&
+      imageBase64.length < PER_FILE_MAX &&
       typeof imageMediaType === "string" &&
-      (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType);
+      (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType) &&
+      !rawImages.some((it) => typeof it === "object" && it && (it as { base64?: unknown }).base64 === imageBase64)
+    ) {
+      collectedImages.push({ base64: imageBase64, mediaType: imageMediaType as AllowedMedia });
+    }
+    if (
+      typeof pdfBase64 === "string" &&
+      pdfBase64.length > 100 &&
+      pdfBase64.length < PER_FILE_MAX &&
+      !rawPdfs.some((it) => typeof it === "object" && it && (it as { base64?: unknown }).base64 === pdfBase64)
+    ) {
+      collectedPdfs.push({ base64: pdfBase64, name: typeof pdfName === "string" ? pdfName : "document.pdf" });
+    }
+    for (const raw of rawImages) {
+      if (typeof raw !== "object" || !raw) continue;
+      const b = (raw as { base64?: unknown }).base64;
+      const m = (raw as { mediaType?: unknown }).mediaType;
+      if (
+        typeof b === "string" && b.length > 100 && b.length < PER_FILE_MAX &&
+        typeof m === "string" && (ALLOWED_MEDIA as readonly string[]).includes(m)
+      ) {
+        collectedImages.push({ base64: b, mediaType: m as AllowedMedia });
+      }
+    }
+    for (const raw of rawPdfs) {
+      if (typeof raw !== "object" || !raw) continue;
+      const b = (raw as { base64?: unknown }).base64;
+      const n = (raw as { name?: unknown }).name;
+      if (typeof b === "string" && b.length > 100 && b.length < PER_FILE_MAX) {
+        collectedPdfs.push({ base64: b, name: typeof n === "string" ? n : "document.pdf" });
+      }
+    }
+    if (collectedImages.length + collectedPdfs.length > MAX_FILES) {
+      const pdfRoom = Math.min(collectedPdfs.length, MAX_FILES);
+      collectedPdfs.length = pdfRoom;
+      collectedImages.length = Math.max(0, MAX_FILES - pdfRoom);
+    }
+    const hasAnyFile = collectedImages.length > 0 || collectedPdfs.length > 0;
 
     type ContentBlock =
       | { type: "text"; text: string }
-      | { type: "image"; source: { type: "base64"; media_type: AllowedMedia; data: string } };
+      | { type: "image"; source: { type: "base64"; media_type: AllowedMedia; data: string } }
+      | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
     type AnthropicMessage = { role: "user" | "assistant"; content: string | ContentBlock[] };
 
     const finalMessages: AnthropicMessage[] = apiMessages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
-    if (hasImage) {
+    if (hasAnyFile) {
       let idx = finalMessages.length - 1;
       while (idx >= 0 && finalMessages[idx].role !== "user") idx -= 1;
       if (idx >= 0) {
         const existingText = typeof finalMessages[idx].content === "string"
           ? (finalMessages[idx].content as string)
           : "";
-        finalMessages[idx] = {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: imageMediaType as AllowedMedia,
-                data: imageBase64 as string,
-              },
-            },
-            {
-              type: "text",
-              // If they shared the image with no caption, prompt Sherlock
-              // to acknowledge the image gently rather than going
-              // silent. Sherlock reads the image AND the emotion behind
-              // sharing it without asking.
-              text: existingText.trim().length > 0
-                ? existingText
-                : "I'm sharing this with you. Please look at it and respond with care — sometimes what's in the image is what I can't put into words yet.",
-            },
-          ],
-        };
+        const blocks: ContentBlock[] = [];
+        for (const pdf of collectedPdfs) {
+          blocks.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: pdf.base64 },
+          });
+        }
+        for (const img of collectedImages) {
+          blocks.push({
+            type: "image",
+            source: { type: "base64", media_type: img.mediaType, data: img.base64 },
+          });
+        }
+        blocks.push({
+          type: "text",
+          // If they shared the file(s) with no caption, prompt
+          // Sherlock to acknowledge gently. Sherlock reads what's
+          // shared AND the emotion behind sharing it.
+          text: existingText.trim().length > 0
+            ? existingText
+            : "I'm sharing this with you. Please look at it and respond with care — sometimes what's in the file is what I can't put into words yet.",
+        });
+        finalMessages[idx] = { role: "user", content: blocks };
       }
     }
 

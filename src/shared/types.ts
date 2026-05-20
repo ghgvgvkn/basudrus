@@ -132,6 +132,26 @@ export type AISubject =
   | "wellbeing"
   | "general";
 
+/** A single file attached to a user message (one of N — see `attachments`). */
+export interface AIAttachment {
+  name: string;
+  kind: "image" | "pdf" | "doc";
+  url?: string;
+  /** When kind === "pdf": metadata extracted client-side and used
+   *  to render the smart book preview card in the user bubble. */
+  pdfMeta?: {
+    pageCount: number;
+    characterCount: number;
+    truncated: boolean;
+    /** Optional document title from PDF metadata (Info dict). */
+    title?: string | null;
+    /** Optional author from PDF metadata. */
+    author?: string | null;
+    /** Optional friendly producer label — "Microsoft Word", "LaTeX", "Google Docs". */
+    producer?: string | null;
+  };
+}
+
 /** One message in an AI thread. Server writes these once the real
  *  useAI() hook is wired; for the bundle they live in local state. */
 export interface AIMessage {
@@ -149,29 +169,16 @@ export interface AIMessage {
    *  professor emails, CVs, etc.). The renderer dispatches on
    *  artifact.kind. */
   artifact?: StudyPlanArtifact | ProfessorEmailArtifact | RelationshipMessageArtifact | CvArtifact;
-  /** Optional attachment the user sent with this message. */
-  attachment?: {
-    name: string;
-    kind: "image" | "pdf" | "doc";
-    url?: string;
-    /** When kind === "pdf": metadata extracted client-side and used
-     *  to render the smart book preview card in the user bubble. */
-    pdfMeta?: {
-      pageCount: number;
-      characterCount: number;
-      truncated: boolean;
-      /** Optional document title from PDF metadata (Info dict). When
-       *  present, the card uses this as the headline; falls back to
-       *  filename otherwise. */
-      title?: string | null;
-      /** Optional author from PDF metadata. */
-      author?: string | null;
-      /** Optional friendly producer label — "Microsoft Word", "LaTeX",
-       *  "Google Docs", etc. Mapped from the raw Producer field by
-       *  pdfMetaPeek.friendlyProducer. */
-      producer?: string | null;
-    };
-  };
+  /** Single attachment the user sent with this message — LEGACY field
+   *  preserved for older messages persisted to chat_history before the
+   *  multi-file refactor. New code reads `attachments` (plural) which
+   *  is always at least a single-element array when files are present. */
+  attachment?: AIAttachment;
+  /** All attachments (1..N) the user sent with this message. Up to 5
+   *  files can be attached in one turn (images + PDFs mixed). When this
+   *  is set, renderers iterate it; otherwise they fall back to the
+   *  singular `attachment` field for legacy messages. */
+  attachments?: AIAttachment[];
   /** When set, renders the system message as a two-button switch
    *  suggestion ("Switch to X" / "Stay with Y") instead of the
    *  small centered chip. Used to let the user EXPLICITLY choose

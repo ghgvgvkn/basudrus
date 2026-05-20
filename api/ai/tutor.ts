@@ -29,7 +29,10 @@ const LIMITS = { daily: 30, hourly: 15, minute: 3 };
 // base64 encoding inflates it ~33%). Pure-text turns are tiny (a
 // few KB), so this cap only matters for image uploads. The rate
 // limiter still controls overall cost regardless of body size.
-const MAX_BODY_BYTES = 1536 * 1024;
+// Bumped to 8 MB to accommodate multi-file uploads (up to 5 attachments
+// per turn, each capped at 1 MB raw + base64 inflation). Single-file
+// requests still fit comfortably under the old 1.5 MB ceiling.
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
 // ───────────────────────────────────────────────────────────────────
 // SYSTEM PROMPT — UPGRADE 1
@@ -1968,6 +1971,11 @@ export default async function handler(req: Request) {
       // (~1 MB raw) so it fits inside MAX_BODY_BYTES alongside
       // history + system prompt.
       pdfBase64?: unknown; pdfName?: unknown;
+      // Multi-file arrays — one Anthropic content block per item is
+      // built and hung off the last user message. Each item is
+      // validated against the same shape/size rules as the legacy
+      // singular fields. Total file count capped at MAX_FILES.
+      images?: unknown; pdfs?: unknown;
       // Plain-text document context: only used for non-PDF formats
       // (.txt, .doc) where extraction still makes sense client-side.
       // Injected as a fenced block in the system prompt.
@@ -1978,7 +1986,7 @@ export default async function handler(req: Request) {
       studySession?: unknown;
     }>(req, MAX_BODY_BYTES, sHeaders);
     if (bodyErr) return bodyErr;
-    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, studentName, imageBase64, imageMediaType, pdfBase64, pdfName, documentContext, documentLabel, studySession } = body || {};
+    const { messages, subject, major, year, uni, lang, memory, personality, mode, tutorMemory, studentName, imageBase64, imageMediaType, pdfBase64, pdfName, images, pdfs, documentContext, documentLabel, studySession } = body || {};
 
     // ── Sanitise every field flowing into the prompt (prompt-injection
     //    hardening). The system prompt is built in three layers:
@@ -2200,23 +2208,83 @@ If the student asks a question that goes beyond what's in the document, answer u
     //     already enforces total request size.
     const ALLOWED_MEDIA = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
     type AllowedMedia = typeof ALLOWED_MEDIA[number];
-    const hasImage =
+    // Per-file cap (~1.4 MB base64 string = ~1 MB raw). The total
+    // request is already capped by MAX_BODY_BYTES (8 MB).
+    const PER_FILE_MAX = 1_400_000;
+    // Hard cap on number of attachments per turn. Matches the client
+    // (MAX_ATTACHMENTS). Anthropic itself accepts many more, but the
+    // cost + latency of large multimodal requests rises fast.
+    const MAX_FILES = 5;
+
+    // Normalize legacy single-fields + new arrays into one list each.
+    // Validation runs per item — anything that fails shape/size is
+    // silently dropped (the client already showed a friendly failure
+    // notice to the user; we don't need to reject the whole request
+    // for one bad file).
+    type ImgItem  = { base64: string; mediaType: AllowedMedia };
+    type PdfItem  = { base64: string; name: string };
+
+    const rawImages: unknown[] = Array.isArray(images) ? images : [];
+    const rawPdfs:   unknown[] = Array.isArray(pdfs) ? pdfs : [];
+
+    const collectedImages: ImgItem[] = [];
+    const collectedPdfs:   PdfItem[] = [];
+
+    // Legacy singular fields → first array slot (when not already
+    // covered by the arrays above)
+    if (
       typeof imageBase64 === "string" &&
       imageBase64.length > 100 &&
-      imageBase64.length < 1_400_000 &&
+      imageBase64.length < PER_FILE_MAX &&
       typeof imageMediaType === "string" &&
-      (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType);
-
-    // PDF-as-document: Anthropic supports a `document` content block
-    // that takes a base64-encoded PDF directly. Claude reads it
-    // natively (text + figures + scans via OCR), so we never need
-    // client-side PDF parsing. Accept it on the same multimodal
-    // last-user-message as images. Same length cap as images so we
-    // stay under the edge-function body limit.
-    const hasPdf =
+      (ALLOWED_MEDIA as readonly string[]).includes(imageMediaType) &&
+      // Skip if the array already contains this exact image (the
+      // client sends both for backward compat — don't double-count).
+      !rawImages.some((it) => typeof it === "object" && it && (it as { base64?: unknown }).base64 === imageBase64)
+    ) {
+      collectedImages.push({ base64: imageBase64, mediaType: imageMediaType as AllowedMedia });
+    }
+    if (
       typeof pdfBase64 === "string" &&
       pdfBase64.length > 100 &&
-      pdfBase64.length < 1_400_000;
+      pdfBase64.length < PER_FILE_MAX &&
+      !rawPdfs.some((it) => typeof it === "object" && it && (it as { base64?: unknown }).base64 === pdfBase64)
+    ) {
+      collectedPdfs.push({ base64: pdfBase64, name: typeof pdfName === "string" ? pdfName : "document.pdf" });
+    }
+
+    // Arrays from the new multi-file path
+    for (const raw of rawImages) {
+      if (typeof raw !== "object" || !raw) continue;
+      const b = (raw as { base64?: unknown }).base64;
+      const m = (raw as { mediaType?: unknown }).mediaType;
+      if (
+        typeof b === "string" && b.length > 100 && b.length < PER_FILE_MAX &&
+        typeof m === "string" && (ALLOWED_MEDIA as readonly string[]).includes(m)
+      ) {
+        collectedImages.push({ base64: b, mediaType: m as AllowedMedia });
+      }
+    }
+    for (const raw of rawPdfs) {
+      if (typeof raw !== "object" || !raw) continue;
+      const b = (raw as { base64?: unknown }).base64;
+      const n = (raw as { name?: unknown }).name;
+      if (typeof b === "string" && b.length > 100 && b.length < PER_FILE_MAX) {
+        collectedPdfs.push({ base64: b, name: typeof n === "string" ? n : "document.pdf" });
+      }
+    }
+
+    // Cap total attachments across BOTH kinds
+    const totalCap = MAX_FILES;
+    if (collectedImages.length + collectedPdfs.length > totalCap) {
+      // PDFs first (they carry more information per file), then images,
+      // trimming from the tail of each.
+      const pdfRoom = Math.min(collectedPdfs.length, totalCap);
+      collectedPdfs.length = pdfRoom;
+      collectedImages.length = Math.max(0, totalCap - pdfRoom);
+    }
+
+    const hasAnyFile = collectedImages.length > 0 || collectedPdfs.length > 0;
 
     // Anthropic accepts a `content` field that is either a string or
     // an array of typed blocks. We only switch the LAST message into
@@ -2232,7 +2300,7 @@ If the student asks a question that goes beyond what's in the document, answer u
       role: m.role,
       content: m.content,
     }));
-    if (hasImage || hasPdf) {
+    if (hasAnyFile) {
       // Find the last user message (which should be the latest turn).
       let idx = finalMessages.length - 1;
       while (idx >= 0 && finalMessages[idx].role !== "user") idx -= 1;
@@ -2241,33 +2309,34 @@ If the student asks a question that goes beyond what's in the document, answer u
           ? (finalMessages[idx].content as string)
           : "";
         const blocks: ContentBlock[] = [];
-        if (hasPdf) {
-          // Document block — Anthropic reads the PDF directly.
+        // PDFs first so Claude reads the document context before the
+        // images that often reference it.
+        for (const pdf of collectedPdfs) {
           blocks.push({
             type: "document",
-            source: {
-              type: "base64",
-              media_type: "application/pdf",
-              data: pdfBase64 as string,
-            },
+            source: { type: "base64", media_type: "application/pdf", data: pdf.base64 },
           });
         }
-        if (hasImage) {
+        for (const img of collectedImages) {
           blocks.push({
             type: "image",
-            source: {
-              type: "base64",
-              media_type: imageMediaType as AllowedMedia,
-              data: imageBase64 as string,
-            },
+            source: { type: "base64", media_type: img.mediaType, data: img.base64 },
           });
         }
-        // If the user typed nothing alongside the attachment, prompt
-        // Bas Udros to engage with it directly via the Socratic
-        // ladder rather than going silent.
-        const fallbackText = hasPdf
-          ? `I'm sharing this PDF (${sanitizeLine(pdfName, 100) || "document.pdf"}) with you — please read it carefully and help me work through it using the Socratic method.`
-          : "I'm sharing this image with you — please look at it carefully and help me work through whatever it shows, using the Socratic method.";
+        // If the user typed nothing alongside the attachment(s),
+        // prompt Bas Udros to engage with them directly via the
+        // Socratic ladder rather than going silent. The wording
+        // adapts to single vs multiple files.
+        const totalCount = collectedImages.length + collectedPdfs.length;
+        let fallbackText: string;
+        if (totalCount === 1 && collectedPdfs.length === 1) {
+          fallbackText = `I'm sharing this PDF (${sanitizeLine(collectedPdfs[0].name, 100) || "document.pdf"}) with you — please read it carefully and help me work through it using the Socratic method.`;
+        } else if (totalCount === 1) {
+          fallbackText = "I'm sharing this image with you — please look at it carefully and help me work through whatever it shows, using the Socratic method.";
+        } else {
+          const pdfNames = collectedPdfs.map((p) => sanitizeLine(p.name, 60) || "document.pdf").join(", ");
+          fallbackText = `I'm sharing ${totalCount} files with you (${collectedPdfs.length} PDF${collectedPdfs.length === 1 ? "" : "s"}${pdfNames ? `: ${pdfNames}` : ""}, ${collectedImages.length} image${collectedImages.length === 1 ? "" : "s"}). Please look at all of them together and help me work through what they cover, using the Socratic method.`;
+        }
         blocks.push({
           type: "text",
           text: existingText.trim().length > 0 ? existingText : fallbackText,
@@ -2344,8 +2413,7 @@ If the student asks a question that goes beyond what's in the document, answer u
     // Anthropic Haiku automatically so students never see "AI down".
     const isActiveStudySession = typeof studySession === "object" && studySession !== null;
     const useGroq = !!GROQ_API_KEY
-      && !hasImage
-      && !hasPdf
+      && !hasAnyFile
       && !documentContext
       && !isActiveStudySession;
 

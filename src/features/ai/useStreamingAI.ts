@@ -82,6 +82,17 @@ export interface StreamingAIState {
       pdfBase64?: string;
       /** Original filename for display ("midterm-2024.pdf"). */
       pdfName?: string;
+      /** Multi-file uploads (1..N images and 1..N PDFs attached to the
+       *  same turn). Server builds one Anthropic content block per item
+       *  and hangs them all off the last user message. The legacy
+       *  imageBase64 / pdfBase64 fields above are kept so older API
+       *  deploys still see the first attachment during a rolling
+       *  refactor; new deploys read these arrays. */
+      images?: Array<{
+        base64: string;
+        mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+      }>;
+      pdfs?: Array<{ base64: string; name: string }>;
       /** Optional: extracted plain-text document content (.txt, .doc,
        *  etc — non-PDF formats). Injected into the system prompt as
        *  a fenced block. Empty when the upload was a PDF (use
@@ -312,10 +323,16 @@ export function useStreamingAI(): StreamingAIState {
           // PDF attached to this turn — base64-encoded. Sent directly
           // to Anthropic as a `document` content block (no client-side
           // extraction). Claude reads the PDF natively. Capped at
-          // 1 MB raw client-side so the request fits in our 1.5 MB
+          // 1 MB raw client-side so the request fits in the
           // edge-function body limit after base64 inflation.
           pdfBase64: context.pdfBase64 ?? undefined,
           pdfName:   context.pdfName   ?? undefined,
+          // Multi-file arrays — server iterates these and produces one
+          // image/document content block per item, all hanging off the
+          // last user message. Older API deploys ignore unknown fields,
+          // so passing both legacy + array forms is safe.
+          images: context.images && context.images.length > 0 ? context.images : undefined,
+          pdfs:   context.pdfs   && context.pdfs.length   > 0 ? context.pdfs   : undefined,
           // Plain-text document content (.txt, .doc — non-PDF).
           // Injected as a fenced block in the system prompt.
           documentContext: context.documentContext ?? undefined,

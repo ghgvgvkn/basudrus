@@ -84,6 +84,13 @@ const NOOR_PROMPTS = [
   "I feel stuck",
 ];
 
+/** Per-turn upload cap. Anthropic supports many content blocks per
+ *  message, but each file we send costs request bytes and Anthropic
+ *  input tokens — so we cap at 5 to keep latency, cost, and the
+ *  composer UI sensible. Picked enough that a student can share an
+ *  entire short past paper + a couple of supporting screenshots. */
+const MAX_ATTACHMENTS = 5;
+
 /**
  * AIScreen props (both optional — Bas Udrus's Shell passes neither):
  *
@@ -110,7 +117,12 @@ export function AIScreen({
   const [persona, setPersona] = useState<AIPersona>("omar");
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [attachment, setAttachment] = useState<File | null>(null);
+  // Multi-file uploads (up to MAX_ATTACHMENTS per turn). The composer
+  // accepts a mix of images and PDFs in one shot — the API turns them
+  // into multiple Anthropic content blocks on the last user message.
+  // Legacy single-file paths (sendWith(text, file)) still work for
+  // callers that pass one File; we just wrap it in an array.
+  const [attachments, setAttachments] = useState<File[]>([]);
   // Tutor mode for Tony Starrk: "homework_help" (strict Socratic, default),
   // "study_mode" (proactive teaching), or "homework_helper" (guided
   // walkthrough — student writes every line, AI confirms each step).
@@ -208,8 +220,17 @@ export function AIScreen({
 
   const over = subscription.tier === "free" && subscription.aiQuota <= 0;
 
-  const sendWith = async (body: string, file: File | null) => {
-    if (!body && !file) return;
+  const sendWith = async (body: string, filesArg: File[] | File | null) => {
+    // Accept legacy single-File callers (quick-reply chips pass null /
+    // a single File) AND the new multi-file path from the composer.
+    // Normalise to a plain array up-front so the rest of the function
+    // only deals with one shape.
+    const files: File[] = Array.isArray(filesArg)
+      ? filesArg.slice(0, MAX_ATTACHMENTS)
+      : filesArg
+        ? [filesArg]
+        : [];
+    if (!body && files.length === 0) return;
     if (over) { setScreen("subscription"); return; }
     if (!consumeAIMessage()) { setScreen("subscription"); return; }
 
@@ -253,172 +274,155 @@ export function AIScreen({
 
     const subject = inferSubject(body, activePersona);
 
-    // ── File classification (image vs PDF) using mime + extension ──
-    // We can't trust file.type alone — it's empty for some browser
-    // drag-drop sources and "application/octet-stream" for others
-    // (notably some Android keyboards). Use both: mime first, then
-    // file extension as fallback. HEIC is detected separately so we
-    // can surface a specific friendly error (browsers can't decode
-    // HEIC; the user needs to convert or take a screenshot instead).
-    const fileLower = file ? file.name.toLowerCase() : "";
-    const looksLikeImage = !!file && (
-      file.type.startsWith("image/")
-      || /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(fileLower)
-    );
-    const looksLikeHeic = !!file && (
-      file.type === "image/heic" || file.type === "image/heif"
-      || /\.(heic|heif)$/i.test(fileLower)
-    );
-    const looksLikePdf = !!file && (
-      file.type === "application/pdf"
-      || /\.pdf$/i.test(fileLower)
-    );
-
-    // ── Image compression (if the file is an image) ──
-    // We compress on the client to a JPEG ≤700 KB so the request
-    // body stays small AND the user sees the same thumbnail
-    // (dataUrl) we send to the AI.
-    //
-    // CRITICAL: failures are no longer silent. Previously, a HEIC
-    // file from iPhone would fail decode (Chrome/Firefox/Edge can't
-    // render HEIC), compressImage threw, we swallowed the error,
-    // and the message went through with NO image data — the AI
-    // would say "I don't see any image" and the student would
-    // (correctly!) think the upload was broken. Now we track the
-    // failure reason and surface it as a system notice in the chat.
-    let imagePayload: { base64: string; mediaType: "image/jpeg"; dataUrl: string } | null = null;
-    let imageFailReason: string | null = null;
-    if (file && looksLikeImage) {
-      // Reject HEIC up-front with a specific message — most browsers
-      // can't decode it, so even attempting compression wastes time.
-      if (looksLikeHeic) {
-        imageFailReason = "HEIC isn't supported by most browsers. Take a screenshot of the photo (long-press → screenshot), or change your iPhone's camera setting to JPEG (Settings → Camera → Formats → Most Compatible).";
-      } else {
-        try {
-          const compressed = await compressImage(file);
-          imagePayload = {
-            base64: compressed.base64,
-            mediaType: compressed.mediaType,
-            dataUrl: compressed.dataUrl,
-          };
-        } catch (e) {
-          // Common causes: unsupported codec, corrupted file, OOM on
-          // low-end phones. Show the user something they can act on.
-          if (import.meta.env.DEV) console.warn("[upload] compress failed:", e);
-          imageFailReason = "Couldn't read this image — please try a JPEG or PNG (under 5 MB), or send a screenshot instead.";
-        }
-      }
-    }
-
-    // ── PDF: read as base64, send directly to Anthropic ──
-    // Architecture decision (2026-05-08): we no longer parse PDFs
-    // client-side. The previous pdfjs-based extraction crashed on
-    // iOS Safari with module-worker iterable issues — chasing that
-    // through pdfjs internals was a moving target. Instead we hand
-    // the raw PDF bytes to Anthropic which reads the document
-    // natively (text + figures + scans via OCR). Same end result
-    // for the student, no parser to break.
-    //
-    // Cap: 1 MB raw client-side. Larger PDFs surface a friendly
-    // "split it or send a screenshot" message — covers ~95% of real
-    // homework / chapter / past-paper uploads. Long textbooks need
-    // to be split anyway because Claude's context window benefits
-    // from focused chunks.
-    let pdfPayload: {
+    // ── Per-file processing (image or PDF) ──
+    // Anthropic accepts multiple content blocks per message, so we
+    // loop the attached files and collect parallel arrays:
+    //   - imagePayloads — compressed JPEGs ready for `image` blocks
+    //   - pdfPayloads   — base64 PDFs ready for `document` blocks
+    //   - userAttachments — per-file render metadata for the user
+    //     message bubble (filename, thumbnail dataUrl, pageCount).
+    //   - failReasons   — per-file friendly errors that surface as a
+    //     single system notice below the user message.
+    type ImgPayload = { base64: string; mediaType: "image/jpeg"; dataUrl: string; name: string };
+    type PdfPayload = {
       base64: string;
       name: string;
       sizeBytes: number;
-      /** Lightweight metadata peeked from raw bytes — populated when
-       *  the file successfully parses; all fields null otherwise. */
       meta?: { pageCount: number | null; title: string | null; author: string | null; producer: string | null; creator: string | null };
-    } | null = null;
-    let documentFailReason: string | null = null;
-    if (file && looksLikePdf) {
-      try {
-        const mod = await import("./readPdfAsBase64");
-        const result = await mod.readPdfAsBase64(file);
-        pdfPayload = {
-          base64: result.base64,
-          name: result.filename,
-          sizeBytes: result.sizeBytes,
-          meta: result.meta,
-        };
-      } catch (e) {
-        if (import.meta.env.DEV) console.warn("[upload] pdf read failed:", e);
-        const errName = e instanceof Error ? e.name : "";
-        if (errName === "PdfTooLargeError") {
-          const mb = (file.size / (1024 * 1024)).toFixed(1);
-          documentFailReason = `This PDF is ${mb} MB — over the 1 MB upload limit. Split it into smaller chapters, or send a screenshot of the page you want help with.`;
-        } else {
-          const errMsg = e instanceof Error ? (e.message || "").slice(0, 120) : "";
-          const technical = errName || errMsg ? `\n\n[Technical: ${errName}${errMsg ? ` — ${errMsg}` : ""}]` : "";
-          documentFailReason = `Couldn't read this PDF — try a different one or send a screenshot of the page.${technical}`;
-        }
+    };
+    const imagePayloads: ImgPayload[] = [];
+    const pdfPayloads: PdfPayload[] = [];
+    const userAttachments: import("@/shared/types").AIAttachment[] = [];
+    const failReasons: string[] = [];
+
+    for (const file of files) {
+      const fileLower = file.name.toLowerCase();
+      const looksLikeImage = (
+        file.type.startsWith("image/")
+        || /\.(png|jpe?g|gif|webp|heic|heif|bmp)$/i.test(fileLower)
+      );
+      const looksLikeHeic = (
+        file.type === "image/heic" || file.type === "image/heif"
+        || /\.(heic|heif)$/i.test(fileLower)
+      );
+      const looksLikePdf = (
+        file.type === "application/pdf"
+        || /\.pdf$/i.test(fileLower)
+      );
+
+      if (looksLikeHeic) {
+        failReasons.push(
+          `${file.name}: HEIC isn't supported by most browsers. Take a screenshot of the photo (long-press → screenshot), or change your iPhone camera setting to JPEG (Settings → Camera → Formats → Most Compatible).`,
+        );
+        // Push a placeholder attachment so the user bubble still shows
+        // they attempted to attach this file — the failure notice
+        // explains what went wrong.
+        userAttachments.push({ name: file.name, kind: "image" });
+        continue;
       }
+
+      if (looksLikeImage) {
+        try {
+          const compressed = await compressImage(file);
+          imagePayloads.push({
+            base64: compressed.base64,
+            mediaType: compressed.mediaType,
+            dataUrl: compressed.dataUrl,
+            name: file.name,
+          });
+          userAttachments.push({
+            name: file.name,
+            kind: "image",
+            url: compressed.dataUrl,
+          });
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn("[upload] compress failed:", e);
+          failReasons.push(`${file.name}: couldn't read this image — try a JPEG or PNG (under 5 MB), or send a screenshot instead.`);
+          userAttachments.push({ name: file.name, kind: "image" });
+        }
+        continue;
+      }
+
+      if (looksLikePdf) {
+        try {
+          const mod = await import("./readPdfAsBase64");
+          const result = await mod.readPdfAsBase64(file);
+          pdfPayloads.push({
+            base64: result.base64,
+            name: result.filename,
+            sizeBytes: result.sizeBytes,
+            meta: result.meta,
+          });
+          userAttachments.push({
+            name: file.name,
+            kind: "pdf",
+            pdfMeta: {
+              pageCount: result.meta?.pageCount ?? 0,
+              characterCount: result.sizeBytes,
+              truncated: false,
+              title: result.meta?.title ?? null,
+              author: result.meta?.author ?? null,
+              producer: result.meta?.producer ? friendlyProducer(result.meta.producer) : null,
+            },
+          });
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn("[upload] pdf read failed:", e);
+          const errName = e instanceof Error ? e.name : "";
+          if (errName === "PdfTooLargeError") {
+            const mb = (file.size / (1024 * 1024)).toFixed(1);
+            failReasons.push(`${file.name}: PDF is ${mb} MB — over the 1 MB upload limit. Split it into smaller chapters, or send a screenshot of the page.`);
+          } else {
+            const errMsg = e instanceof Error ? (e.message || "").slice(0, 120) : "";
+            failReasons.push(`${file.name}: couldn't read this PDF${errMsg ? ` — ${errMsg}` : ""}. Try a different one or send a screenshot of the page.`);
+          }
+          userAttachments.push({ name: file.name, kind: "pdf" });
+        }
+        continue;
+      }
+
+      // Unsupported type — list explicitly so the student isn't
+      // confused why their .docx silently disappeared. Plain text /
+      // doc upload isn't wired yet; we keep these flagged so we
+      // surface a clear error instead of falling through to
+      // "Sent <filename>" with no actual content reaching the AI.
+      failReasons.push(`${file.name} isn't a supported file type yet. Use a PDF, JPEG, or PNG, or paste the text directly.`);
+      userAttachments.push({ name: file.name, kind: "doc" });
     }
+
     // Plain-text doc context (.txt / .doc) is no longer wired here —
-    // PDFs go through pdfBase64, images through imagePayload. If we
-    // add .txt support later, set these locals; for now they stay
-    // undefined and the API gets nothing in those fields.
+    // PDFs go through pdfPayloads, images through imagePayloads.
     const documentTextForApi: string | undefined = undefined;
     const documentLabelForApi: string | undefined = undefined;
 
-    // Catch-all for anything not in the supported types. The composer
-    // only accepts image/*, application/pdf, .doc/.docx/.txt, but the
-    // .doc/.docx/.txt path doesn't actually have client-side
-    // extraction yet — surface that so the student isn't confused.
-    if (file && !looksLikeImage && !looksLikePdf) {
-      documentFailReason = `${file.name} isn't a supported file type yet. Use a PDF, JPEG, PNG, or paste the text directly.`;
-    }
+    // Build a friendly summary line if the user typed nothing — names
+    // each attached file so the bubble isn't empty.
+    const bodyFallback = files.length === 1
+      ? `Sent ${files[0].name}`
+      : files.length > 1
+        ? `Sent ${files.length} files: ${files.map((f) => f.name).join(", ")}`
+        : "";
 
     const userMsg: AIMessage = {
       id: `u-${Date.now()}`,
       role: "user",
       persona: activePersona,
-      body: body || (file ? `Sent ${file.name}` : ""),
+      body: body || bodyFallback,
       subject,
       createdAt: new Date().toISOString(),
-      attachment: file
-        ? {
-            name: file.name,
-            kind: fileKind(file.name),
-            // For images, store the compressed dataUrl so the user
-            // bubble can render a thumbnail without re-reading the
-            // File. PDFs no longer carry pdfMeta (page count etc.)
-            // because we send the raw bytes to Anthropic instead of
-            // parsing client-side — the user bubble shows a simpler
-            // filename + size card now.
-            url: imagePayload?.dataUrl,
-            pdfMeta: pdfPayload
-              ? {
-                  // Page count comes from pdfMetaPeek's byte-level
-                  // regex (no parser, no iOS Safari crash). When the
-                  // peek can't find a Pages dict, we keep the legacy
-                  // sentinel value of 0 so the bubble falls back to
-                  // showing file size only — same as before this
-                  // upgrade. characterCount stores the raw byte size
-                  // so the size-label render below still works.
-                  pageCount: pdfPayload.meta?.pageCount ?? 0,
-                  characterCount: pdfPayload.sizeBytes,
-                  truncated: false,
-                  title: pdfPayload.meta?.title ?? null,
-                  author: pdfPayload.meta?.author ?? null,
-                  producer: pdfPayload.meta?.producer
-                    // Map raw producer ("Microsoft Word 2021 for Mac")
-                    // to a friendly label ("Microsoft Word") at the
-                    // origin point so the renderer stays presentational.
-                    ? friendlyProducer(pdfPayload.meta.producer)
-                    : null,
-                }
-              : undefined,
-          }
-        : undefined,
+      // Legacy single-attachment field — first attachment for back-
+      // compat with any persisted message bubble paths that still
+      // read .attachment instead of .attachments.
+      attachment: userAttachments[0],
+      // Plural array — what new renderers iterate.
+      attachments: userAttachments.length > 0 ? userAttachments : undefined,
     };
     // Push the user message immediately. Then any system notices
-    // for: (a) crisis force-switch bridge, (b) upload failures the
-    // student needs to know about (HEIC rejected, scanned PDF, etc.).
-    // Failure notices render as a centered pill via SystemNotice.
-    const uploadFailMsg = imageFailReason || documentFailReason;
+    // for: (a) crisis force-switch bridge, (b) upload failures (one
+    // friendly bullet per failed file). Failure notices render as a
+    // centered pill via SystemNotice.
+    const uploadFailMsg = failReasons.length > 0
+      ? (failReasons.length === 1 ? failReasons[0] : failReasons.map((r) => `• ${r}`).join("\n"))
+      : null;
     setMessages((m) => {
       const next = [...m, userMsg];
       if (isForceCrisis) {
@@ -442,7 +446,7 @@ export function AIScreen({
       return next;
     });
     setDraft("");
-    setAttachment(null);
+    setAttachments([]);
 
     // If the student attached a file but it didn't process AND they
     // didn't type anything — abort the send. There's no point asking
@@ -466,17 +470,20 @@ export function AIScreen({
       uni:   profile?.uni   ?? undefined,
       major: profile?.major ?? undefined,
       year:  profile?.year  ?? undefined,
-      // Image attached this turn — backend swaps the last user
-      // message into a multimodal Anthropic content block so Bas
-      // Udros / Sherlock can actually see it.
-      imageBase64:    imagePayload?.base64,
-      imageMediaType: imagePayload?.mediaType,
-      // PDF attached this turn — sent as a base64 `document` content
-      // block. Anthropic reads the PDF natively (text + figures +
-      // OCR for scans). Replaces the previous client-side text
-      // extraction path which had pdfjs/iOS Safari issues.
-      pdfBase64: pdfPayload?.base64,
-      pdfName:   pdfPayload?.name,
+      // Multi-file attachments this turn — server builds one
+      // Anthropic content block per item, all hung off the LAST user
+      // message. Images compressed to ≤700KB JPEG, PDFs sent raw so
+      // Claude reads them natively (text + figures + OCR for scans).
+      images: imagePayloads.map((ip) => ({ base64: ip.base64, mediaType: ip.mediaType })),
+      pdfs:   pdfPayloads.map((pp) => ({ base64: pp.base64, name: pp.name })),
+      // Legacy single-file fields — populated from the first item so
+      // older API deploys (during the rolling refactor) still see at
+      // least one file. After both client + server roll out the
+      // arrays-aware version we can drop these.
+      imageBase64:    imagePayloads[0]?.base64,
+      imageMediaType: imagePayloads[0]?.mediaType,
+      pdfBase64:      pdfPayloads[0]?.base64,
+      pdfName:        pdfPayloads[0]?.name,
       // documentContext stays for non-PDF text formats (.txt, .doc).
       // Currently unwired — both fields are always undefined.
       documentContext: documentTextForApi,
@@ -602,7 +609,7 @@ export function AIScreen({
     // bypass the visual disabled state and get rate-limited silently
     // (audit P1 #2).
     if (isThinking) return;
-    void sendWith(draft.trim(), attachment);
+    void sendWith(draft.trim(), attachments);
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -610,9 +617,22 @@ export function AIScreen({
   };
 
   const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) setAttachment(f);
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+    setAttachments((prev) => {
+      // Append (don't replace) so the user can hit the + multiple times
+      // to add more files before sending. Cap at MAX_ATTACHMENTS total
+      // and dedupe by (name, size) — picking the same file twice is
+      // almost always a misclick, not intent.
+      const existingKey = new Set(prev.map((f) => `${f.name}|${f.size}`));
+      const fresh = picked.filter((f) => !existingKey.has(`${f.name}|${f.size}`));
+      return [...prev, ...fresh].slice(0, MAX_ATTACHMENTS);
+    });
     e.target.value = "";
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
   };
 
   return (
@@ -933,11 +953,26 @@ export function AIScreen({
               rendered only on the LATEST AI reply so they auto-dismiss
               as soon as the student sends a follow-up. See the chips
               block in AIMessageView. */}
-          {attachment && (
-            <div className="mb-1.5 inline-flex items-center gap-2 h-8 px-3 rounded-full bg-ink/5 border border-ink/10 text-[13px]">
-              <FileText size={13} className="text-ink/60" />
-              <span className="truncate max-w-[200px]">{attachment.name}</span>
-              <button onClick={() => setAttachment(null)} className="text-ink/40 hover:text-ink"><X size={13} /></button>
+          {attachments.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1.5">
+              {attachments.map((f, i) => (
+                <div key={`${f.name}-${i}`} className="inline-flex items-center gap-2 h-8 px-3 rounded-full bg-ink/5 border border-ink/10 text-[13px]">
+                  <FileText size={13} className="text-ink/60" />
+                  <span className="truncate max-w-[180px]" title={f.name}>{f.name}</span>
+                  <button
+                    onClick={() => removeAttachment(i)}
+                    className="text-ink/40 hover:text-ink"
+                    aria-label={`Remove ${f.name}`}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+              {attachments.length >= MAX_ATTACHMENTS && (
+                <span className="self-center text-[11px] text-ink/45 px-1">
+                  Max {MAX_ATTACHMENTS} files per message
+                </span>
+              )}
             </div>
           )}
           <ComposerRow
@@ -945,7 +980,8 @@ export function AIScreen({
             onKey={onKey} onSend={send}
             over={over} busy={isThinking} persona={persona}
             onPickFile={onPickFile} fileRef={fileRef}
-            attachmentPresent={!!attachment}
+            attachmentPresent={attachments.length > 0}
+            atFileLimit={attachments.length >= MAX_ATTACHMENTS}
           />
           {/* Disclaimer — single short line. Mobile shows the trimmed
               version; on a crisis Sherlock's own response carries the
@@ -1491,7 +1527,7 @@ function QuotaChip() {
 }
 
 function ComposerRow({
-  draft, setDraft, onKey, onSend, over, busy, persona, onPickFile, fileRef, attachmentPresent,
+  draft, setDraft, onKey, onSend, over, busy, persona, onPickFile, fileRef, attachmentPresent, atFileLimit,
 }: {
   draft: string; setDraft: (s: string) => void;
   onKey: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -1505,6 +1541,9 @@ function ComposerRow({
   onPickFile: (e: ChangeEvent<HTMLInputElement>) => void;
   fileRef: React.RefObject<HTMLInputElement>;
   attachmentPresent: boolean;
+  /** When the user has already attached MAX_ATTACHMENTS files, disable
+   *  the + button so they don't click it expecting it to add another. */
+  atFileLimit: boolean;
 }) {
   return (
     // Tightened composer:
@@ -1518,11 +1557,19 @@ function ComposerRow({
     <div className={`flex items-end gap-1 rounded-2xl border p-1 bg-bg transition ${over ? "border-ink/10 opacity-60" : "border-ink/15 focus-within:border-ink/35"}`}>
       <button
         onClick={() => fileRef.current?.click()}
-        disabled={over || busy}
-        aria-label="Attach a file"
+        disabled={over || busy || atFileLimit}
+        aria-label={atFileLimit ? "Attachment limit reached" : "Attach files"}
+        title={atFileLimit ? "Max files reached" : "Attach files (images or PDFs)"}
         className="w-8 h-8 shrink-0 rounded-full inline-flex items-center justify-center text-ink/60 hover:text-ink hover:bg-ink/5 transition disabled:opacity-40 disabled:cursor-default"
       ><Plus size={15} /></button>
-      <input ref={fileRef} type="file" accept="image/*,application/pdf,.doc,.docx,.txt" className="hidden" onChange={onPickFile} />
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/*,application/pdf,.doc,.docx,.txt"
+        className="hidden"
+        onChange={onPickFile}
+      />
       <textarea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -1658,24 +1705,66 @@ function SwitchSuggestionCard({
 }
 
 function UserMessage({ msg }: { msg: AIMessage }) {
-  // Three attachment kinds, three render paths:
-  //   - image: compressed dataUrl thumbnail (already sent to vision API)
-  //   - pdf with pdfMeta: smart book preview card (page count, etc.)
-  //   - everything else: existing filename pill
-  const isImage = msg.attachment?.kind === "image" && !!msg.attachment.url;
-  const isPdfWithMeta = msg.attachment?.kind === "pdf" && !!msg.attachment.pdfMeta;
+  // Multi-file rendering: prefer `attachments` (1..N) when present,
+  // fall back to the legacy singular `attachment` field for older
+  // messages persisted before the multi-file refactor. Each item is
+  // rendered through three render paths inside UserAttachment:
+  //   - image (kind=image, has url): inline thumbnail
+  //   - pdf with pdfMeta: smart book preview card (pages / size / producer)
+  //   - everything else: filename pill
+  const atts = msg.attachments ?? (msg.attachment ? [msg.attachment] : []);
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] rounded-3xl rounded-br-lg bg-ink text-bg px-4 py-3">
-        {isImage && msg.attachment?.url && (
-          <img
-            src={msg.attachment.url}
-            alt={msg.attachment.name || "Attached image"}
-            loading="lazy"
-            className="mb-2 max-w-[280px] max-h-[280px] w-auto h-auto rounded-2xl object-contain bg-bg/5"
-          />
+        {atts.map((att, i) => (
+          <UserAttachment key={`${att.name}-${i}`} att={att} persona={msg.persona} />
+        ))}
+        {msg.body && (
+          <p className="text-[15px] leading-[1.45] whitespace-pre-wrap">{msg.body}</p>
         )}
-        {isPdfWithMeta && msg.attachment && (() => {
+      </div>
+    </div>
+  );
+}
+
+/** Single attachment renderer used inside the user message bubble. */
+function UserAttachment({
+  att, persona,
+}: {
+  att: import("@/shared/types").AIAttachment;
+  persona: AIPersona;
+}) {
+  const isImage = att.kind === "image" && !!att.url;
+  const isPdfWithMeta = att.kind === "pdf" && !!att.pdfMeta;
+  if (isImage && att.url) {
+    return (
+      <img
+        src={att.url}
+        alt={att.name || "Attached image"}
+        loading="lazy"
+        className="mb-2 max-w-[280px] max-h-[280px] w-auto h-auto rounded-2xl object-contain bg-bg/5"
+      />
+    );
+  }
+  if (isPdfWithMeta) {
+    return <PdfPreviewCard att={att} persona={persona} />;
+  }
+  return (
+    <div className="mb-2 inline-flex items-center gap-2 h-8 px-2.5 rounded-full bg-bg/10 text-xs">
+      <FileText size={12} />
+      <span className="truncate max-w-[180px]">{att.name}</span>
+    </div>
+  );
+}
+
+/** Smart PDF preview card — extracted so UserAttachment stays small. */
+function PdfPreviewCard({
+  att, persona,
+}: {
+  att: import("@/shared/types").AIAttachment;
+  persona: AIPersona;
+}) {
+  return ((() => {
           // PDF preview card. Three render layers:
           //   1. Headline: PDF-embedded title when present, otherwise
           //      filename (without the .pdf extension for cleanliness).
@@ -1688,14 +1777,14 @@ function UserMessage({ msg }: { msg: AIMessage }) {
           // Page count comes from pdfMetaPeek (byte-level regex, no
           // parser). When unknown (pageCount === 0), we just omit it
           // and fall back to size — same graceful behavior as before.
-          const meta = msg.attachment.pdfMeta!;
+          const meta = att.pdfMeta!;
           const sizeBytes = meta.characterCount; // We store raw bytes here.
           const sizeKb = sizeBytes > 0 ? Math.round(sizeBytes / 1024) : 0;
           const sizeLabel = sizeKb >= 1024
             ? `${(sizeKb / 1024).toFixed(1)} MB`
             : sizeKb > 0 ? `${sizeKb} KB` : null;
           const rawTitle = (meta.title ?? "").trim();
-          const filenameClean = (msg.attachment.name || "Document").replace(/\.pdf$/i, "");
+          const filenameClean = (att.name || "Document").replace(/\.pdf$/i, "");
           const headline = rawTitle.length > 0 ? rawTitle : filenameClean;
           // Show filename underneath as secondary info when title
           // differs from filename — useful when the PDF was saved
@@ -1707,16 +1796,12 @@ function UserMessage({ msg }: { msg: AIMessage }) {
           const producerLabel = (meta.producer || "").trim() || null;
           // Footer text — show the active persona, never the
           // deprecated "Bas Udros" / "Ustaz" names.
-          const personaLabel = msg.persona === "noor" ? "Sherlock" : "Tony Starrk";
+          const personaLabel = persona === "noor" ? "Sherlock" : "Tony Starrk";
           const subInfo = [pageLabel, sizeLabel, producerLabel].filter(Boolean).join(" · ");
           return (
             <div className="mb-2 rounded-2xl bg-bg/10 border border-bg/15 px-3.5 py-3 max-w-[320px]">
               <div className="flex items-start gap-2.5 mb-2">
-                <span className="w-9 h-11 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0 mt-0.5"
-                  // Slight book-cover proportions to read more as "document"
-                  // and less as "icon". Same color treatment as before so
-                  // it doesn't fight the bubble.
-                >
+                <span className="w-9 h-11 rounded-md bg-bg/15 inline-flex items-center justify-center shrink-0 mt-0.5">
                   <FileText size={16} />
                 </span>
                 <div className="flex-1 min-w-0">
@@ -1724,8 +1809,8 @@ function UserMessage({ msg }: { msg: AIMessage }) {
                     {headline}
                   </div>
                   {showFilenameSecondary && (
-                    <div className="text-[11px] text-bg/55 truncate mt-0.5" title={msg.attachment.name}>
-                      {msg.attachment.name}
+                    <div className="text-[11px] text-bg/55 truncate mt-0.5" title={att.name}>
+                      {att.name}
                     </div>
                   )}
                   {meta.author && meta.author.trim().length > 0 && (
@@ -1745,19 +1830,7 @@ function UserMessage({ msg }: { msg: AIMessage }) {
               </div>
             </div>
           );
-        })()}
-        {!isImage && !isPdfWithMeta && msg.attachment && (
-          <div className="mb-2 inline-flex items-center gap-2 h-8 px-2.5 rounded-full bg-bg/10 text-xs">
-            <FileText size={12} />
-            <span className="truncate max-w-[180px]">{msg.attachment.name}</span>
-          </div>
-        )}
-        {msg.body && (
-          <p className="text-[15px] leading-[1.45] whitespace-pre-wrap">{msg.body}</p>
-        )}
-      </div>
-    </div>
-  );
+        })());
 }
 
 function AIMessageView({
@@ -2008,10 +2081,7 @@ void _LegacyThinkingRow;
 
 // ───────────────────────── helpers ─────────────────────────
 
-function fileKind(name: string): "image" | "pdf" | "doc" {
-  const ext = name.toLowerCase().split(".").pop() ?? "";
-  if (["png", "jpg", "jpeg", "gif", "webp", "heic"].includes(ext)) return "image";
-  if (ext === "pdf") return "pdf";
-  return "doc";
-}
+// fileKind helper removed — the multi-file refactor classifies each
+// file inline during sendWith using mime + extension rules, so the
+// standalone helper is no longer called from anywhere.
 
