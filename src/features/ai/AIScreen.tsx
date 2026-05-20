@@ -621,7 +621,13 @@ export function AIScreen({
         "relative flex flex-col " +
         (fillViewport
           ? "h-dvh"
-          : "h-[calc(100dvh-64px)] md:h-[calc(100dvh-56px)]")
+          // Mobile reserves 64px for MobileNav; tablet (md) reserves
+          // 56px (legacy offset). Desktop (lg+) has no bottom nav and
+          // no top bar in Shell — only a fixed left sidebar — so the
+          // subtraction created an empty strip below the composer.
+          // lg:h-dvh closes that gap so the typing bar sits at the
+          // real viewport bottom on desktop, matching the AI-only site.
+          : "h-[calc(100dvh-64px)] md:h-[calc(100dvh-56px)] lg:h-dvh")
       }
       dir={dir}
     >
