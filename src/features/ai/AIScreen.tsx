@@ -764,7 +764,7 @@ export function AIScreen({ headerEnd }: { headerEnd?: React.ReactNode } = {}) {
           onClick={() => setStudyModalOpen(true)}
           className="w-full px-4 md:px-6 py-2 border-b border-[#5B4BF5]/20 bg-[#5B4BF5]/8 hover:bg-[#5B4BF5]/12 transition text-start active:scale-[0.998]"
         >
-          <div className="max-w-3xl mx-auto flex items-center gap-2 text-[12px] text-[#5B4BF5]">
+          <div className="max-w-3xl lg:max-w-5xl mx-auto flex items-center gap-2 text-[12px] text-[#5B4BF5]">
             <span className="inline-flex items-center gap-1.5 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-[#5B4BF5] animate-pulse" />
               {getBannerText(studySession)}
@@ -786,7 +786,7 @@ export function AIScreen({ headerEnd }: { headerEnd?: React.ReactNode } = {}) {
             onOpenSession={() => setStudyModalOpen(true)}
           />
         ) : (
-          <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
+          <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 md:px-6 py-6 space-y-6">
             {(() => {
               // Find the index of the LATEST AI message so we can
               // attach the always-available quick-action chips
@@ -882,7 +882,7 @@ export function AIScreen({ headerEnd }: { headerEnd?: React.ReactNode } = {}) {
           viewport on mobile. Tap targets stay at 40 px (iOS minimum)
           so we don't sacrifice accessibility for compactness. */}
       <div className="border-t border-ink/8 bg-bg">
-        <div className="max-w-3xl mx-auto px-4 md:px-6 py-2">
+        <div className="max-w-3xl lg:max-w-5xl mx-auto px-4 md:px-6 py-2">
           {/* Tutor-mode picker (Tony Starrk only). Four modes now:
               · Auto — Tony Starrk picks the right approach per question (default)
               · Hints — strict Socratic
