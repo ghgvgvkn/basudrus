@@ -12,16 +12,19 @@
  * paper, automatic extraction of professor name + course code +
  * topics, AI-validated university auto-add, professor cache wiring.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TopBar } from "@/components/shell/TopBar";
 import { useApp } from "@/context/AppContext";
 import { FileText, Plus, Search, Trash2, Upload, ExternalLink, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { useCourseSearch } from "@/features/discover/useCourseSearch";
 import {
   usePastPapers,
+  analyzePastPaper,
   type ExamType,
   type Semester,
   type PastPaperRow,
 } from "./usePastPapers";
+import { Sparkles } from "lucide-react";
 
 type Tab = "browse" | "mine" | "upload";
 
@@ -357,6 +360,40 @@ function UploadTab({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // AI-analyzer state (Phase 2b). Runs against Claude Sonnet to
+  // (a) verify the file actually looks like an exam paper and
+  // (b) pre-fill metadata fields. Always optional — the user can
+  // skip and submit manually.
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<import("./usePastPapers").AnalyzeOutput | null>(null);
+  // Resets whenever the file changes — stale analysis would confuse
+  // (e.g. user picks file A, runs analyze, then swaps to file B).
+  useEffect(() => { setAnalysis(null); }, [file?.name, file?.size]);
+
+  const runAnalyze = async () => {
+    if (!file) return;
+    setAnalyzing(true);
+    setAnalysis(null);
+    try {
+      const hint = [uni && `University: ${uni}`, courseName && `Course: ${courseName}`].filter(Boolean).join(" · ");
+      const out = await analyzePastPaper({ file, hint });
+      setAnalysis(out);
+      // Pre-fill any field the user hasn't already typed. Don't
+      // overwrite — they may have entered something more accurate.
+      if (out.ok) {
+        const ex = out.extracted;
+        if (ex.courseName && !courseName.trim())       setCourseName(ex.courseName);
+        if (ex.courseCode && !courseCode.trim())       setCourseCode(ex.courseCode);
+        if (ex.professorName && !professorName.trim()) setProfessorName(ex.professorName);
+        if (ex.year)                                    setYear(ex.year);
+        if (ex.semester)                                setSemester(ex.semester);
+        if (ex.examType)                                setExamType(ex.examType);
+      }
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const canSubmit = !!file && !!uni.trim() && !!courseName.trim() && agreed && !busy;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -401,30 +438,19 @@ function UploadTab({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="bu-card p-4 sm:p-5 space-y-4">
         <FieldLabel label="University">
-          <select
+          <UniversityField
             value={uni}
-            onChange={(e) => setUni(e.target.value)}
-            required
-            className="w-full h-11 px-3 rounded-xl border border-line/60 bg-surface-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
-          >
-            <option value="">Pick your university</option>
-            {SEED_UNIS.map((u) => (
-              <option key={u} value={u}>{u}</option>
-            ))}
-            {uni && !SEED_UNIS.includes(uni) && (
-              <option value={uni}>{uni}</option>
-            )}
-          </select>
+            onChange={setUni}
+            placeholder="Type your university (any in the world)"
+          />
         </FieldLabel>
 
         <div className="grid sm:grid-cols-[2fr_1fr] gap-3">
-          <FieldLabel label="Course name">
-            <input
+          <FieldLabel label="Course">
+            <CourseField
               value={courseName}
-              onChange={(e) => setCourseName(e.target.value)}
-              required
-              placeholder="e.g. Operating Systems"
-              className="w-full h-11 px-3 rounded-xl border border-line/60 bg-surface-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
+              onChange={setCourseName}
+              placeholder="Search 5,770 courses — Operating Systems, Calculus, Anatomy…"
             />
           </FieldLabel>
           <FieldLabel label="Course code (optional)">
@@ -511,6 +537,67 @@ function UploadTab({
           </label>
         </FieldLabel>
 
+        {/* AI analyzer — verifies the file is a past paper + pre-fills
+            metadata. Optional; the user can still submit manually. */}
+        {file && (
+          <div className="rounded-xl bg-accent/5 border border-accent/20 p-3 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={runAnalyze}
+                disabled={analyzing}
+                className="h-9 px-3.5 rounded-full bg-ink-1 text-surface-1 text-sm font-medium hover:bg-ink-2 disabled:opacity-40 disabled:cursor-not-allowed transition inline-flex items-center gap-1.5"
+              >
+                {analyzing
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Analyzing…</>
+                  : <><Sparkles className="h-3.5 w-3.5" /> {analysis ? "Re-analyze" : "Analyze with AI"}</>}
+              </button>
+              <span className="text-[11px] text-ink-3">
+                Optional — Tony reads the file and auto-fills the fields below.
+              </span>
+            </div>
+
+            {analysis && (
+              <div className="text-xs leading-relaxed">
+                {analysis.error ? (
+                  <div className="text-red-700 dark:text-red-300">
+                    Analysis failed: {analysis.error}
+                  </div>
+                ) : analysis.isPastPaper ? (
+                  <div className="text-emerald-800 dark:text-emerald-300">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Looks like a past paper
+                      <span className="text-ink-3 font-normal">
+                        (confidence {Math.round(analysis.confidence * 100)}%)
+                      </span>
+                    </span>
+                    <div className="text-ink-2 mt-1">{analysis.reasoning}</div>
+                    {analysis.extracted.topicsCovered.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {analysis.extracted.topicsCovered.map((t, i) => (
+                          <span key={i} className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-accent/10 text-accent">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-amber-800 dark:text-amber-300">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <AlertCircle className="h-3.5 w-3.5" /> This doesn't look like a past paper
+                    </span>
+                    <div className="text-ink-2 mt-1">{analysis.reasoning}</div>
+                    <div className="text-ink-3 mt-1.5">
+                      You can still upload it, but if it's not actually an exam paper, please pick a different file.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <label className="flex items-start gap-2.5 text-xs text-ink-2 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -553,7 +640,7 @@ function UploadTab({
       </div>
 
       <p className="text-[11px] text-ink-3 leading-relaxed">
-        Phase 2 will add AI validation that automatically extracts the professor name, exam type, year, and topics from your upload — and verifies the file actually looks like a past paper. For now, fill in what you know above.
+        Tip: hit "Analyze with AI" after picking a file — Tony reads it and pre-fills the professor name, year, semester, exam type, and topics. You can edit anything before submitting.
       </p>
     </form>
   );
@@ -584,6 +671,148 @@ function EmptyState({
       </div>
       <div className="text-sm font-medium text-ink-1 mb-1">{title}</div>
       <div className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed">{body}</div>
+    </div>
+  );
+}
+
+// ── Field components ──────────────────────────────────────────────
+
+/**
+ * UniversityField — free-text input accepting ANY university in the
+ * world. Suggests common Jordanian unis as you type for quick
+ * selection, but doesn't restrict to them. Phase 2b will run AI
+ * validation server-side to confirm new uni names are real
+ * institutions before they're inserted into `public.universities`.
+ */
+function UniversityField({
+  value, onChange, placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click — same pattern used in the Discover
+  // course filter. Clicks inside the wrap (including the dropdown)
+  // don't close it.
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const suggestions = useMemo(() => {
+    const q = value.trim().toLowerCase();
+    if (!q) return SEED_UNIS.slice(0, 6);
+    return SEED_UNIS.filter((u) => u.toLowerCase().includes(q)).slice(0, 8);
+  }, [value]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        required
+        className="w-full h-11 px-3 rounded-xl border border-line/60 bg-surface-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
+      />
+      {open && suggestions.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full max-h-[280px] overflow-y-auto rounded-xl border border-line/60 bg-surface-1 shadow-lg">
+          {suggestions.map((u) => (
+            <button
+              key={u}
+              type="button"
+              onClick={() => { onChange(u); setOpen(false); }}
+              className="block w-full text-start px-3 py-2 text-sm text-ink-1 hover:bg-surface-2 transition"
+            >
+              <span className="inline-flex items-center gap-2">
+                <span className="text-ink-3">🏫</span>
+                {u}
+              </span>
+            </button>
+          ))}
+          <div className="px-3 py-2 text-[11px] text-ink-3 border-t border-line/60">
+            Don't see it? Just type the full name — any university worldwide is accepted.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * CourseField — autocomplete input wired to the canonical
+ * course_catalog (5,770 courses). Debounced via useCourseSearch.
+ * User can pick from the list OR type a course not in our catalog
+ * (free-text fallback — we save whatever they typed). Phase 2b
+ * will AI-validate brand-new course names before inserting them
+ * into the catalog for future students.
+ */
+function CourseField({
+  value, onChange, placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const { results, loading } = useCourseSearch(value);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        required
+        className="w-full h-11 px-3 rounded-xl border border-line/60 bg-surface-1 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"
+      />
+      {open && (results.length > 0 || loading) && (
+        <div className="absolute z-20 mt-1 w-full max-h-[320px] overflow-y-auto rounded-xl border border-line/60 bg-surface-1 shadow-lg">
+          {loading && (
+            <div className="px-3 py-2 text-[11px] text-ink-3 inline-flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" /> Searching…
+            </div>
+          )}
+          {results.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => { onChange(c.name); setOpen(false); }}
+              className="block w-full text-start px-3 py-2 text-sm text-ink-1 hover:bg-surface-2 transition"
+            >
+              <span className="inline-flex items-center gap-2">
+                <span className="text-ink-3">📚</span>
+                {c.name}
+              </span>
+            </button>
+          ))}
+          {!loading && (
+            <div className="px-3 py-2 text-[11px] text-ink-3 border-t border-line/60">
+              Don't see it? Type the full course name and submit — we'll add it.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

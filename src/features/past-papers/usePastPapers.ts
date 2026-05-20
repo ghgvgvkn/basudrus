@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * usePastPapers — data hook for the Past Papers feature.
  *
@@ -226,4 +227,105 @@ export function usePastPapers(): UsePastPapersResult {
   const myRows = userId ? rows.filter((r) => r.contributor_user_id === userId) : [];
 
   return { rows, myRows, loading, error, refresh, upload, remove };
+}
+
+// ── AI analyzer client ─────────────────────────────────────────────
+
+export interface AnalyzeOutput {
+  ok: boolean;
+  isPastPaper: boolean;
+  confidence: number;
+  extracted: {
+    courseName?: string;
+    courseCode?: string;
+    professorName?: string;
+    year?: number;
+    semester?: Semester;
+    examType?: ExamType;
+    topicsCovered: string[];
+    difficulty?: "easy" | "medium" | "hard";
+  };
+  reasoning: string;
+  error?: string;
+}
+
+/** Read a File into base64 + mime metadata. Handles both images
+ *  (passed as `image` content blocks) and PDFs (passed as
+ *  `document` content blocks) — matches the existing tutor.ts API
+ *  contract so we share the same Anthropic payload shape. */
+async function fileToBase64(file: File): Promise<{ base64: string; mediaType: string; kind: "image" | "pdf" | "other" }> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  // Chunked base64 to avoid argument-length blowups on iOS Safari.
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, Math.min(i + CHUNK, bytes.length))));
+  }
+  const base64 = btoa(bin);
+  const t = (file.type || "").toLowerCase();
+  const name = file.name.toLowerCase();
+  if (t === "application/pdf" || name.endsWith(".pdf")) return { base64, mediaType: "application/pdf", kind: "pdf" };
+  if (t.startsWith("image/")) {
+    // Sonnet vision accepts jpeg/png/webp/gif. Map heic to "image/jpeg"
+    // by best effort — most browsers will refuse heic outright before
+    // we get here, but the type might lie.
+    const safe = ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(t) ? t : "image/jpeg";
+    return { base64, mediaType: safe, kind: "image" };
+  }
+  return { base64, mediaType: t || "application/octet-stream", kind: "other" };
+}
+
+/** Call the server-side AI analyzer with the user's file. */
+export async function analyzePastPaper({
+  file, hint,
+}: {
+  file: File;
+  hint?: string;
+}): Promise<AnalyzeOutput> {
+  const empty: AnalyzeOutput = {
+    ok: false,
+    isPastPaper: false,
+    confidence: 0,
+    extracted: { topicsCovered: [] },
+    reasoning: "Analysis not run.",
+  };
+  if (!file) return { ...empty, error: "No file" };
+
+  // Get the current session token — required by the rate limiter.
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return { ...empty, error: "Sign in to analyze uploads." };
+
+  const encoded = await fileToBase64(file);
+  if (encoded.kind === "other") {
+    return { ...empty, error: "Only PDF or image files can be analyzed." };
+  }
+
+  const body: Record<string, unknown> = { hint };
+  if (encoded.kind === "pdf") {
+    body.pdfBase64 = encoded.base64;
+    body.pdfName = file.name;
+  } else {
+    body.imageBase64 = encoded.base64;
+    body.imageMediaType = encoded.mediaType;
+  }
+
+  try {
+    const res = await fetch("/api/past-papers/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json) {
+      return { ...empty, error: `Analysis failed (${res.status})` };
+    }
+    return json as AnalyzeOutput;
+  } catch (e) {
+    return { ...empty, error: e instanceof Error ? e.message : "Network error" };
+  }
 }
