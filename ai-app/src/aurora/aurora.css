@@ -671,6 +671,305 @@ body.aurora-active .aurora-app .aurora-status {
   border-radius: 50%;
 }
 
+/* ── Photo avatar (when user has a profile photo) ───────────────── */
+.aurora-app .aurora-avatar.aurora-avatar-photo {
+  background: transparent;
+  padding: 0;
+  overflow: hidden;
+}
+.aurora-app .aurora-avatar.aurora-avatar-photo img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── Pro pill — active state when subscription.tier === "pro" ────── */
+.aurora-app .aurora-pro-pill.aurora-pro-active {
+  background: linear-gradient(135deg, rgba(255,138,166,0.40), rgba(196,184,255,0.30));
+  border-color: rgba(255,138,166,0.55);
+  color: #ffe6ed;
+  cursor: default;
+  font-family: 'Geist Mono', monospace;
+  letter-spacing: 0.12em;
+}
+.aurora-app .aurora-pro-pill.aurora-pro-active:hover {
+  transform: none;
+}
+
+/* ── Left rail: conversation history ─────────────────────────────── */
+body.aurora-rail-hidden .aurora-chat-rail {
+  transform: translateX(-280px);
+  opacity: 0;
+  pointer-events: none;
+}
+.aurora-app .aurora-chat-rail {
+  position: absolute;
+  top: 80px;
+  bottom: 110px;
+  left: 28px;
+  width: 248px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  animation: aurora-fadeIn 1.4s 0.9s forwards;
+  transition: transform 400ms cubic-bezier(.2,.7,.2,1), opacity 360ms;
+  z-index: 4;
+}
+.aurora-app .aurora-rail-card {
+  background: rgba(255,255,255,0.04);
+  border: 0.5px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.12);
+  padding: 14px;
+  flex-shrink: 0;
+}
+.aurora-app .aurora-rail-card h3 {
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.aurora-app .aurora-count {
+  color: rgba(255,255,255,0.22);
+}
+.aurora-app .aurora-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 0.5px solid rgba(255,255,255,0.24);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 160ms;
+  width: 100%;
+  font-family: 'Urbanist', sans-serif;
+}
+.aurora-app .aurora-new-chat:hover {
+  background: rgba(255,255,255,0.10);
+}
+.aurora-app .aurora-new-chat svg {
+  width: 18px;
+  height: 18px;
+}
+.aurora-app .aurora-rail-close {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+  border: none;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  transition: background 160ms, color 160ms, transform 200ms;
+}
+.aurora-app .aurora-rail-close:hover {
+  background: rgba(255,255,255,0.14);
+  color: #fff;
+  transform: translateX(-2px);
+}
+.aurora-app .aurora-rail-close svg {
+  width: 12px;
+  height: 12px;
+}
+.aurora-app .aurora-history {
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+}
+.aurora-app .aurora-history::-webkit-scrollbar {
+  width: 4px;
+}
+.aurora-app .aurora-history::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+}
+.aurora-app .aurora-h-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: rgba(255,255,255,0.45);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 140ms, color 140ms;
+  text-align: left;
+  background: transparent;
+  border: none;
+  width: 100%;
+  font-family: 'Urbanist', sans-serif;
+}
+.aurora-app .aurora-h-item:hover {
+  background: rgba(255,255,255,0.045);
+  color: #ffffff;
+}
+.aurora-app .aurora-h-item.aurora-h-active {
+  background: rgba(255,255,255,0.07);
+  color: #ffffff;
+}
+.aurora-app .aurora-dotmark {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.22);
+  flex-shrink: 0;
+}
+.aurora-app .aurora-h-item.aurora-h-active .aurora-dotmark {
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255,255,255,0.8);
+}
+.aurora-app .aurora-h-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aurora-app .aurora-h-when {
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(255,255,255,0.22);
+  text-transform: uppercase;
+}
+.aurora-app .aurora-h-divider {
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.22);
+  padding: 10px 10px 4px;
+}
+
+/* ── Top widget shelf (Quota + Streak) ──────────────────────────── */
+.aurora-app .aurora-widgets {
+  position: absolute;
+  top: 80px;
+  right: 28px;
+  display: flex;
+  gap: 12px;
+  opacity: 0;
+  animation: aurora-fadeIn 1.4s 0.7s forwards;
+  transition: opacity 400ms;
+  z-index: 2;
+}
+.aurora-app .aurora-widget {
+  width: 170px;
+  min-height: 132px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.05);
+  border: 0.5px solid rgba(255,255,255,0.24);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.20),
+    inset 0 -0.5px 0 rgba(255,255,255,0.04),
+    0 20px 60px rgba(0,0,0,0.55);
+  padding: 14px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 240ms cubic-bezier(.2,.7,.2,1), border-color 200ms;
+  color: #ffffff;
+}
+.aurora-app .aurora-widget:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.40);
+}
+.aurora-app .aurora-w-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.aurora-app .aurora-w-big {
+  font-size: 44px;
+  font-weight: 200;
+  letter-spacing: -0.04em;
+  margin-top: 6px;
+  line-height: 1.05;
+}
+.aurora-app .aurora-w-sub {
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.65);
+  margin-top: 2px;
+}
+.aurora-app .aurora-w-bar {
+  margin-top: 14px;
+  height: 4px;
+  width: 100%;
+  background: rgba(255,255,255,0.10);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.aurora-app .aurora-w-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #b8f5d1, #c4b8ff);
+  border-radius: 2px;
+  transition: width 600ms cubic-bezier(.2,.7,.2,1);
+}
+.aurora-app .aurora-w-foot {
+  margin-top: 10px;
+}
+
+/* ── Typing-bubble inline variant ───────────────────────────────── */
+.aurora-app .aurora-bubble.aurora-typing-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 16px 20px;
+}
+.aurora-app .aurora-bubble.aurora-typing-bubble i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0A0A36;
+  opacity: 0.45;
+  animation: aurora-pipBlink 1.3s ease-in-out infinite;
+}
+.aurora-app .aurora-bubble.aurora-typing-bubble i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.aurora-app .aurora-bubble.aurora-typing-bubble i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+/* ── Mobile responsive — hide rail/widgets, narrow chrome ───────── */
+@media (max-width: 900px) {
+  .aurora-app .aurora-chat-rail,
+  .aurora-app .aurora-widgets {
+    display: none;
+  }
+  .aurora-app .aurora-top-left .aurora-logo-text small {
+    display: none;
+  }
+  .aurora-app .aurora-top-right .aurora-pro-pill {
+    display: none;
+  }
+}
+
 /* ── Focus mode (after first send) ──────────────────────────────── */
 .aurora-app .aurora-matrix,
 .aurora-app .aurora-vignette {
