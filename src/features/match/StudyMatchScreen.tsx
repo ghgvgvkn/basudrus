@@ -1,29 +1,23 @@
 /**
  * StudyMatchScreen — the AI-to-AI Study Match feature.
  *
- * UX flow:
- *   1. Show eligibility check. If user is missing uni/year on their
- *      profile, surface a friendly "complete profile" CTA. No
- *      candidate list, no API calls.
- *   2. Otherwise show a candidate list: same uni + year ±1 + has
- *      profile data. Each candidate has a "Run AI match" button.
- *   3. Tapping "Run AI match" hits /api/ai/study-match. Loading
- *      state replaces the card with an inline shimmer + the line
- *      "Tony and {name}'s Tony are talking…" — sells the AI-to-AI
- *      framing even though the server uses one LLM with two personas.
- *   4. Verdict card appears with score + summary + strengths +
- *      concerns + suggested plan + two actions:
- *        - "Send a study request" → existing startConversation flow
- *          → bounces to Connect screen
- *        - "Try another candidate" → clears verdict, returns to list
+ * Three entry points to picking a candidate (one tab each):
+ *   - Suggested: students at your uni in your year ±1 (default)
+ *   - Search:    type their email → server looks them up via the
+ *                Supabase Admin API (privacy-careful, rate-limited)
+ *   - From Chats: people you already DM
  *
- * NOT in this MVP (future passes):
+ * Once a candidate is picked from ANY tab, the rest of the flow is
+ * shared: "Run AI match" → server runs the AI-to-AI verdict → verdict
+ * card → optional "Send a study request" → existing Connect flow.
+ *
+ * NOT in this revision (intentional):
  *   - Match history / no-repeat (would need a study_matches table)
- *   - Premium gating (cost is low enough today)
- *   - Auto-ranked candidate (run AI on top 3 silently, surface best)
- *   - Multi-turn streamed AI-to-AI dialogue UI (the actual two Tonys
- *     "speaking" with a transcript shown live — that's the YC demo
- *     polish step)
+ *   - Premium gating (cost still low enough today)
+ *   - Multi-turn streamed AI-to-AI dialogue UI (the YC demo polish)
+ *   - Search by name (only by email today — name search would be
+ *     basically the same as Discover, and emails are how students
+ *     actually identify their peers in WhatsApp / Telegram contacts)
  */
 import { useState } from "react";
 import { TopBar } from "@/components/shell/TopBar";
@@ -45,14 +39,49 @@ import {
   MessageSquare,
   Brain,
   Heart,
+  Search,
+  Mail,
+  UserPlus,
 } from "lucide-react";
+
+type Tab = "suggested" | "search" | "chats";
 
 export function StudyMatchScreen() {
   const { profile, setScreen } = useApp();
   const eligibility = checkStudyMatchEligibility(profile);
-  const { loading, candidates, error, refresh, matching, runMatch, lastVerdict, clearVerdict } = useStudyMatch();
-  // Which candidate's card is currently spinning (only one at a time).
+  const sm = useStudyMatch();
+  const [tab, setTab] = useState<Tab>("suggested");
+  // Which candidate's "Run AI match" button is currently spinning.
+  // Tracked at the screen level (not the hook) because the active
+  // candidate UX is per-tab and per-row.
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
+
+  // When the user clicks "Run AI match" on any tab, the candidate is
+  // resolved to its row from whichever list contains it. The verdict
+  // card needs the candidate's profile to render avatar + name; we
+  // stash a copy here when we run the match because the
+  // suggested/search/chats lists each own their own row.
+  const [verdictCandidate, setVerdictCandidate] = useState<CandidateRow | null>(null);
+
+  const onRunMatch = async (candidate: CandidateRow) => {
+    setActiveCandidateId(candidate.id);
+    setVerdictCandidate(candidate);
+    await sm.runMatch(candidate.id);
+    // If matching failed, sm.error will be set and sm.lastVerdict
+    // stays null — the verdict card won't render. The error banner
+    // shows above the tabs instead.
+    setActiveCandidateId(null);
+  };
+
+  const onConnect = async () => {
+    if (!verdictCandidate) return;
+    const out = await startConversation({
+      id: verdictCandidate.id,
+      name: verdictCandidate.name,
+      avatar_color: verdictCandidate.avatar_color ?? null,
+    });
+    if (out.ok) setScreen("connect");
+  };
 
   return (
     <>
@@ -68,46 +97,67 @@ export function StudyMatchScreen() {
             message={eligibility.message ?? "Complete your profile to use Study Match."}
             onGo={() => setScreen("profile")}
           />
-        ) : lastVerdict ? (
+        ) : sm.lastVerdict && verdictCandidate ? (
           <VerdictCard
-            verdict={lastVerdict}
-            candidate={candidates.find((c) => c.id === lastVerdict.candidateId) ?? null}
-            onBack={() => { clearVerdict(); setActiveCandidateId(null); }}
-            onConnect={async () => {
-              const c = candidates.find((c) => c.id === lastVerdict.candidateId);
-              if (!c) return;
-              const out = await startConversation({
-                id: c.id,
-                name: c.name,
-                avatar_color: c.avatar_color ?? null,
-              });
-              if (out.ok) setScreen("connect");
+            verdict={sm.lastVerdict}
+            candidate={verdictCandidate}
+            onBack={() => {
+              sm.clearVerdict();
+              setActiveCandidateId(null);
+              setVerdictCandidate(null);
             }}
+            onConnect={onConnect}
           />
         ) : (
-          <CandidatesList
-            loading={loading}
-            error={error}
-            candidates={candidates}
-            matching={matching}
-            activeCandidateId={activeCandidateId}
-            onRetry={() => void refresh()}
-            onRunMatch={async (candidate) => {
-              setActiveCandidateId(candidate.id);
-              await runMatch(candidate.id);
-              // The runMatch state machine puts the verdict in
-              // lastVerdict; if the call failed, the error banner
-              // shows above and we go back to the list view.
-              setActiveCandidateId(null);
-            }}
-          />
+          <>
+            <TabBar tab={tab} onTab={setTab} />
+
+            {sm.error && (
+              <div className="mb-4 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 text-red-700 dark:text-red-300 text-sm">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{sm.error}</span>
+              </div>
+            )}
+
+            {tab === "suggested" && (
+              <SuggestedTab
+                loading={sm.loading}
+                candidates={sm.candidates}
+                matching={sm.matching}
+                activeCandidateId={activeCandidateId}
+                onRetry={() => void sm.refresh()}
+                onRunMatch={onRunMatch}
+              />
+            )}
+            {tab === "search" && (
+              <SearchTab
+                loading={sm.emailLookupLoading}
+                result={sm.emailLookupResult}
+                matching={sm.matching}
+                activeCandidateId={activeCandidateId}
+                onSearch={(email) => void sm.searchByEmail(email)}
+                onClear={() => sm.clearEmailLookup()}
+                onRunMatch={onRunMatch}
+              />
+            )}
+            {tab === "chats" && (
+              <ChatsTab
+                loading={sm.chatPartnersLoading}
+                partners={sm.chatPartners}
+                matching={sm.matching}
+                activeCandidateId={activeCandidateId}
+                onRetry={() => void sm.refreshChatPartners()}
+                onRunMatch={onRunMatch}
+              />
+            )}
+          </>
         )}
       </div>
     </>
   );
 }
 
-// ── Header ─────────────────────────────────────────────────────────
+// ── Header + tab bar ───────────────────────────────────────────────
 
 function Header() {
   return (
@@ -137,34 +187,47 @@ function Header() {
   );
 }
 
-// ── Eligibility block ──────────────────────────────────────────────
-
-function EligibilityBlocker({ message, onGo }: { message: string; onGo: () => void }) {
+function TabBar({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
-    <div className="bu-card p-6 text-center">
-      <div className="mx-auto h-12 w-12 grid place-items-center rounded-2xl bg-accent/10 text-accent mb-3">
-        <AlertCircle className="h-5 w-5" />
-      </div>
-      <div className="text-sm font-medium text-ink-1 mb-1">A few profile bits missing</div>
-      <p className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed mb-4">{message}</p>
-      <button
-        type="button"
-        onClick={onGo}
-        className="h-10 px-5 rounded-full bg-ink-1 text-surface-1 text-sm font-medium hover:bg-ink-2 transition"
-      >
-        Go to Profile
-      </button>
+    <div className="mb-5 inline-flex p-1 bg-surface-2/60 rounded-full border border-line/60">
+      <TabButton active={tab === "suggested"} onClick={() => onTab("suggested")}>
+        <Sparkles className="h-3.5 w-3.5" />
+        Suggested
+      </TabButton>
+      <TabButton active={tab === "search"} onClick={() => onTab("search")}>
+        <Mail className="h-3.5 w-3.5" />
+        By email
+      </TabButton>
+      <TabButton active={tab === "chats"} onClick={() => onTab("chats")}>
+        <MessageSquare className="h-3.5 w-3.5" />
+        From chats
+      </TabButton>
     </div>
   );
 }
 
-// ── Candidate list ─────────────────────────────────────────────────
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium transition " +
+        (active
+          ? "bg-surface-1 text-ink-1 shadow-sm border border-line/60"
+          : "text-ink-3 hover:text-ink-1")
+      }
+    >
+      {children}
+    </button>
+  );
+}
 
-function CandidatesList({
-  loading, error, candidates, matching, activeCandidateId, onRetry, onRunMatch,
+// ── Suggested tab (same as before, slightly refactored) ───────────
+
+function SuggestedTab({
+  loading, candidates, matching, activeCandidateId, onRetry, onRunMatch,
 }: {
   loading: boolean;
-  error: string | null;
   candidates: CandidateRow[];
   matching: boolean;
   activeCandidateId: string | null;
@@ -178,29 +241,13 @@ function CandidatesList({
       </div>
     );
   }
-  if (error) {
-    return (
-      <div className="mb-4 flex items-start gap-2 p-3 rounded-xl bg-red-500/10 text-red-700 dark:text-red-300 text-sm">
-        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-        <div className="flex-1">
-          <div>{error}</div>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-1 text-xs underline opacity-80 hover:opacity-100"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
   if (candidates.length === 0) {
     return (
       <EmptyState
         icon={<Users2 className="h-6 w-6 text-ink-3" />}
         title="No candidates near you yet"
-        body="We look for students at your university in roughly the same year. As more students join from your campus, this list grows."
+        body="We look for students at your university in roughly the same year. As more students join from your campus, this list grows. Meanwhile, try Search by Email if you know someone who's already on Bas Udrus."
+        action={{ label: "Refresh", onClick: onRetry }}
       />
     );
   }
@@ -221,6 +268,150 @@ function CandidatesList({
         ))}
       </ul>
     </>
+  );
+}
+
+// ── Search-by-email tab ────────────────────────────────────────────
+
+function SearchTab({
+  loading, result, matching, activeCandidateId, onSearch, onClear, onRunMatch,
+}: {
+  loading: boolean;
+  result: CandidateRow | null;
+  matching: boolean;
+  activeCandidateId: string | null;
+  onSearch: (email: string) => void;
+  onClear: () => void;
+  onRunMatch: (c: CandidateRow) => void;
+}) {
+  const [email, setEmail] = useState("");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || loading) return;
+    onSearch(email.trim().toLowerCase());
+  };
+
+  return (
+    <div>
+      <form onSubmit={submit} className="mb-4">
+        <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-surface-2/40 border border-line/60 focus-within:ring-2 focus-within:ring-accent/30">
+          <Search className="h-4 w-4 text-ink-3 ms-2" />
+          <input
+            type="email"
+            inputMode="email"
+            autoComplete="off"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); if (result) onClear(); }}
+            placeholder="friend@example.com"
+            className="flex-1 h-10 px-2 bg-transparent text-sm focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!email.trim() || loading}
+            className="h-9 px-4 rounded-full bg-ink-1 text-surface-1 text-sm font-medium hover:bg-ink-2 disabled:opacity-40 disabled:cursor-not-allowed transition inline-flex items-center gap-1.5"
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            {loading ? "Searching" : "Search"}
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-ink-3 leading-relaxed">
+          Look up a specific student by their Bas Udrus account email — the email they signed up with. We don't tell them they were searched. Limited to 10 lookups per hour to keep things polite.
+        </p>
+      </form>
+
+      {result && (
+        <>
+          <div className="text-xs text-ink-3 mb-3">Match found:</div>
+          <ul>
+            <CandidateRowView
+              c={result}
+              isActive={activeCandidateId === result.id}
+              disabled={matching && activeCandidateId !== result.id}
+              onRunMatch={() => onRunMatch(result)}
+            />
+          </ul>
+        </>
+      )}
+
+      {!result && !loading && (
+        <EmptyState
+          icon={<UserPlus className="h-6 w-6 text-ink-3" />}
+          title="Know someone specifically?"
+          body="Enter the email they signed up with. If they're on Bas Udrus with a complete profile, we'll find them and you can run an AI compatibility check."
+        />
+      )}
+    </div>
+  );
+}
+
+// ── From-chats tab ─────────────────────────────────────────────────
+
+function ChatsTab({
+  loading, partners, matching, activeCandidateId, onRetry, onRunMatch,
+}: {
+  loading: boolean;
+  partners: CandidateRow[];
+  matching: boolean;
+  activeCandidateId: string | null;
+  onRetry: () => void;
+  onRunMatch: (c: CandidateRow) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="grid place-items-center py-16 text-ink-3">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
+  if (partners.length === 0) {
+    return (
+      <EmptyState
+        icon={<MessageSquare className="h-6 w-6 text-ink-3" />}
+        title="No chats yet"
+        body="Start a conversation in Messages, then come back here to AI-match against people you already know."
+        action={{ label: "Reload", onClick: onRetry }}
+      />
+    );
+  }
+  return (
+    <>
+      <div className="text-xs text-ink-3 mb-3">
+        {partners.length} {partners.length === 1 ? "person" : "people"} you've messaged
+      </div>
+      <ul className="space-y-2">
+        {partners.map((c) => (
+          <CandidateRowView
+            key={c.id}
+            c={c}
+            isActive={activeCandidateId === c.id}
+            disabled={matching && activeCandidateId !== c.id}
+            onRunMatch={() => onRunMatch(c)}
+          />
+        ))}
+      </ul>
+    </>
+  );
+}
+
+// ── Shared bits ────────────────────────────────────────────────────
+
+function EligibilityBlocker({ message, onGo }: { message: string; onGo: () => void }) {
+  return (
+    <div className="bu-card p-6 text-center">
+      <div className="mx-auto h-12 w-12 grid place-items-center rounded-2xl bg-accent/10 text-accent mb-3">
+        <AlertCircle className="h-5 w-5" />
+      </div>
+      <div className="text-sm font-medium text-ink-1 mb-1">A few profile bits missing</div>
+      <p className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed mb-4">{message}</p>
+      <button
+        type="button"
+        onClick={onGo}
+        className="h-10 px-5 rounded-full bg-ink-1 text-surface-1 text-sm font-medium hover:bg-ink-2 transition"
+      >
+        Go to Profile
+      </button>
+    </div>
   );
 }
 
@@ -319,7 +510,7 @@ function VerdictCard({
   verdict, candidate, onBack, onConnect,
 }: {
   verdict: StudyMatchVerdict;
-  candidate: CandidateRow | null;
+  candidate: CandidateRow;
   onBack: () => void;
   onConnect: () => void;
 }) {
@@ -331,19 +522,16 @@ function VerdictCard({
         onClick={onBack}
         className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-1 transition"
       >
-        <ArrowLeft className="h-3 w-3" /> Back to candidates
+        <ArrowLeft className="h-3 w-3" /> Back
       </button>
 
-      {/* Score + summary */}
       <div className={`bu-card ${style.ring} ring-1 p-4 sm:p-5`}>
         <div className="flex items-center gap-3 mb-3">
-          {candidate ? <Avatar c={candidate} /> : null}
+          <Avatar c={candidate} />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-ink-1 truncate">
-              {candidate?.name ?? "Match"}
-            </div>
+            <div className="text-sm font-medium text-ink-1 truncate">{candidate.name}</div>
             <div className="text-xs text-ink-3 truncate">
-              {candidate ? [candidate.major, candidate.year ? `Year ${candidate.year}` : null].filter(Boolean).join(" · ") : ""}
+              {[candidate.major, candidate.year ? `Year ${candidate.year}` : null].filter(Boolean).join(" · ")}
             </div>
           </div>
           <div className={`shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-full ${style.bg} ${style.text} text-xs font-semibold`}>
@@ -356,7 +544,6 @@ function VerdictCard({
         )}
       </div>
 
-      {/* Strengths */}
       {verdict.strengths.length > 0 && (
         <div className="bu-card p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-2">
@@ -376,7 +563,6 @@ function VerdictCard({
         </div>
       )}
 
-      {/* Concerns */}
       {verdict.concerns.length > 0 && (
         <div className="bu-card p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-2">
@@ -396,7 +582,6 @@ function VerdictCard({
         </div>
       )}
 
-      {/* Suggested plan */}
       {verdict.suggestedPlan && (
         <div className="bu-card p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-2">
@@ -409,14 +594,13 @@ function VerdictCard({
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex items-center justify-end gap-2 pt-1">
         <button
           type="button"
           onClick={onBack}
           className="h-10 px-4 rounded-full text-sm text-ink-2 hover:bg-surface-2 transition"
         >
-          Try another candidate
+          Try another
         </button>
         <button
           type="button"
@@ -435,11 +619,12 @@ function VerdictCard({
 // ── Empty state ────────────────────────────────────────────────────
 
 function EmptyState({
-  icon, title, body,
+  icon, title, body, action,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
+  action?: { label: string; onClick: () => void };
 }) {
   return (
     <div className="text-center py-12 px-6">
@@ -447,7 +632,16 @@ function EmptyState({
         {icon}
       </div>
       <div className="text-sm font-medium text-ink-1 mb-1">{title}</div>
-      <div className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed">{body}</div>
+      <div className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed mb-3">{body}</div>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="h-9 px-4 rounded-full bg-surface-2 hover:bg-surface-3 text-xs text-ink-2 transition"
+        >
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

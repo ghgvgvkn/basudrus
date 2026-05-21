@@ -58,9 +58,9 @@ export interface StudyMatchVerdict {
 export interface UseStudyMatchResult {
   /** True while the candidate list is loading. */
   loading: boolean;
-  /** The candidates (already filtered + sorted). */
+  /** The Suggested-tab candidates (same uni + year ±1). */
   candidates: CandidateRow[];
-  /** Last error from either candidate fetch or a match run. */
+  /** Last error from candidate fetch / lookup / match run. */
   error: string | null;
   /** Re-pull the candidate list. */
   refresh: () => Promise<void>;
@@ -76,6 +76,21 @@ export interface UseStudyMatchResult {
   lastVerdict: StudyMatchVerdict | null;
   /** Clear the verdict card (e.g. when user goes back to candidates). */
   clearVerdict: () => void;
+
+  /** Search by email — calls /api/ai/match-lookup. Returns the
+   *  candidate when found + eligible; null with `error` set otherwise.
+   *  Hard rate-limited server-side to deter enumeration; UI surfaces
+   *  errors directly via the `error` state. */
+  emailLookupLoading: boolean;
+  emailLookupResult: CandidateRow | null;
+  searchByEmail: (email: string) => Promise<CandidateRow | null>;
+  clearEmailLookup: () => void;
+
+  /** People the user has an existing connection with. Sourced from
+   *  the `connections` table, same query shape as Messages. */
+  chatPartnersLoading: boolean;
+  chatPartners: CandidateRow[];
+  refreshChatPartners: () => Promise<void>;
 }
 
 /** Tightness of the year-proximity filter. Same uni + year diff <= 1
@@ -93,6 +108,16 @@ export function useStudyMatch(): UseStudyMatchResult {
   const [error, setError] = useState<string | null>(null);
   const [matching, setMatching] = useState(false);
   const [lastVerdict, setLastVerdict] = useState<StudyMatchVerdict | null>(null);
+  // Email-search tab state — kept separate from the Suggested list
+  // so a failed lookup doesn't blow away the browse experience.
+  const [emailLookupLoading, setEmailLookupLoading] = useState(false);
+  const [emailLookupResult, setEmailLookupResult] = useState<CandidateRow | null>(null);
+  // Chat-partners tab state — lazily loaded the first time the user
+  // opens that tab to avoid pulling the connections list on every
+  // Study Match visit.
+  const [chatPartners, setChatPartners] = useState<CandidateRow[]>([]);
+  const [chatPartnersLoading, setChatPartnersLoading] = useState(false);
+  const [chatPartnersLoaded, setChatPartnersLoaded] = useState(false);
 
   /**
    * Pull candidates from public.profiles filtered for same uni +
@@ -225,6 +250,118 @@ export function useStudyMatch(): UseStudyMatchResult {
 
   const clearVerdict = useCallback(() => setLastVerdict(null), []);
 
+  /** Search-by-email tab: POST to /api/ai/match-lookup. Returns
+   *  candidate or null. We DON'T throw — errors land on `error`. */
+  const searchByEmail = useCallback<UseStudyMatchResult["searchByEmail"]>(async (email) => {
+    setError(null);
+    setEmailLookupLoading(true);
+    setEmailLookupResult(null);
+    try {
+      const trimmed = email.trim().toLowerCase();
+      if (!trimmed || !trimmed.includes("@")) {
+        setError("Please enter a valid email.");
+        return null;
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setError("Sign in to search by email.");
+        return null;
+      }
+      const res = await fetch("/api/ai/match-lookup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const json = await res.json().catch(() => null) as null | {
+        ok: boolean;
+        candidate?: CandidateRow;
+        error?: string;
+      };
+      if (!res.ok || !json) {
+        setError(json?.error || `Lookup failed (${res.status})`);
+        return null;
+      }
+      if (!json.ok || !json.candidate) {
+        setError(json.error || "No eligible match found.");
+        return null;
+      }
+      setEmailLookupResult(json.candidate);
+      return json.candidate;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Network error");
+      return null;
+    } finally {
+      setEmailLookupLoading(false);
+    }
+  }, []);
+
+  const clearEmailLookup = useCallback(() => {
+    setEmailLookupResult(null);
+    setError(null);
+  }, []);
+
+  /** From-chats tab: load people from `connections` where the
+   *  current user is on either side. Same FK-aliased query the
+   *  Messages screen uses (so RLS / FK constraints already work).
+   *  Lazy — only runs when the user first opens the tab, then
+   *  caches in state. */
+  const refreshChatPartners = useCallback<UseStudyMatchResult["refreshChatPartners"]>(async () => {
+    if (!profile?.id) return;
+    setError(null);
+    setChatPartnersLoading(true);
+    try {
+      const { data, error: qErr } = await supabase
+        .from("connections")
+        .select("partner_id, partner:profiles!connections_partner_id_fkey(id,name,uni,major,year,bio,avatar_color,photo_url,photo_mode)")
+        .eq("user_id", profile.id);
+      if (qErr) {
+        setError(qErr.message);
+        setChatPartners([]);
+        return;
+      }
+      // Supabase types FK joins as arrays (because they could match
+      // multiple rows in theory, even though the FK constraint
+      // ensures 1:1 in practice). Normalize via `unknown` then
+      // pick the first element if needed.
+      const rows = (data ?? []) as unknown as Array<{
+        partner_id: string;
+        partner: CandidateRow | CandidateRow[] | null;
+      }>;
+      // Filter to eligible candidates only (uni + year set); dedupe
+      // by partner id in case duplicate connections snuck in.
+      const seen = new Set<string>();
+      const result: CandidateRow[] = [];
+      for (const r of rows) {
+        const partner = Array.isArray(r.partner) ? r.partner[0] : r.partner;
+        if (!partner) continue;
+        if (!partner.uni || partner.year === null) continue;
+        if (seen.has(partner.id)) continue;
+        seen.add(partner.id);
+        result.push(partner);
+      }
+      setChatPartners(result);
+      setChatPartnersLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load chat partners");
+      setChatPartners([]);
+    } finally {
+      setChatPartnersLoading(false);
+    }
+  }, [profile?.id]);
+
+  // Auto-load chat partners the first time profile becomes available
+  // (i.e. they're signed in) — so when the user opens the From Chats
+  // tab there's no spinner delay.
+  useEffect(() => {
+    if (profile?.id && !chatPartnersLoaded && !chatPartnersLoading) {
+      void refreshChatPartners();
+    }
+  }, [profile?.id, chatPartnersLoaded, chatPartnersLoading, refreshChatPartners]);
+
   return {
     loading,
     candidates,
@@ -234,6 +371,13 @@ export function useStudyMatch(): UseStudyMatchResult {
     runMatch,
     lastVerdict,
     clearVerdict,
+    emailLookupLoading,
+    emailLookupResult,
+    searchByEmail,
+    clearEmailLookup,
+    chatPartnersLoading,
+    chatPartners,
+    refreshChatPartners,
   };
 }
 
