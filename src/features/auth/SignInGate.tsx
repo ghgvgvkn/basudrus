@@ -52,6 +52,44 @@ export function SignInGate({
   // who was in bypass mode now sees the real sign-in form.
   useEffect(() => { clearLegacyBypass(); }, []);
 
+  /**
+   * Cross-subdomain OAuth bounce-back.
+   *
+   * When a user starts Google sign-in on ai.basudrus.com but Supabase's
+   * Redirect URL allowlist doesn't whitelist that origin, Supabase
+   * silently redirects them to the Site URL (basudrus.com) after the
+   * OAuth handshake. The session DOES get established (cookie scoped
+   * to .basudrus.com is set), but the user lands on the wrong domain.
+   *
+   * Before signing in, signInWithGoogle stores window.location.origin
+   * in localStorage. On the page that ACTUALLY receives the callback,
+   * we check that flag — if a session exists AND the saved origin
+   * doesn't match current origin AND the entry is fresh (< 5 min),
+   * we redirect there so the user lands back where they started.
+   *
+   * The session cookie is .basudrus.com-scoped, so it travels.
+   *
+   * Once the bounce completes (or doesn't apply), we clear the flag.
+   */
+  useEffect(() => {
+    if (!user) return;
+    let raw: string | null = null;
+    try { raw = localStorage.getItem("bu:oauth-origin"); } catch { /* noop */ }
+    if (!raw) return;
+    let parsed: { origin?: string; ts?: number } | null = null;
+    try { parsed = JSON.parse(raw); } catch { /* noop */ }
+    // Clear the flag regardless — it's single-use.
+    try { localStorage.removeItem("bu:oauth-origin"); } catch { /* noop */ }
+    if (!parsed?.origin || !parsed.ts) return;
+    // Expire after 5 minutes — anything older was a stale attempt.
+    if (Date.now() - parsed.ts > 5 * 60 * 1000) return;
+    // Already on the right origin? Nothing to do.
+    if (parsed.origin === window.location.origin) return;
+    // Bounce. Use window.location so the new page does a full
+    // session-cookie read (instead of soft-routing inside the SPA).
+    try { window.location.replace(parsed.origin + "/"); } catch { /* noop */ }
+  }, [user]);
+
   // Listen once for PASSWORD_RECOVERY. Doesn't fire on regular sign-in,
   // only after the magic-link click from a reset email.
   useEffect(() => {
@@ -109,6 +147,15 @@ function SignInForm() {
    * The SIGNED_IN auth event fires automatically on return and our
    * SignInGate falls through.
    *
+   * CROSS-SUBDOMAIN SAFETY NET:
+   * Supabase ignores the redirectTo we pass if the URL isn't in the
+   * project's Redirect URL allowlist — it silently falls back to the
+   * Site URL. If a user signs in from ai.basudrus.com but the Supabase
+   * dashboard doesn't whitelist that origin yet, they'd land on
+   * basudrus.com after Google auth. We remember the original origin
+   * in localStorage and, after the SIGNED_IN event fires elsewhere,
+   * bounce the user back to where they started.
+   *
    * Friendly error if the provider isn't enabled in the Supabase
    * dashboard yet — we surface that explicitly so the user knows
    * to fall back to email instead of getting opaque SDK jargon.
@@ -117,6 +164,16 @@ function SignInForm() {
     setErr(null);
     setGoogleBusy(true);
     try {
+      // Remember where we started so we can bounce back after OAuth.
+      // 5 min TTL — guards against stale localStorage entries from
+      // abandoned sign-in attempts.
+      try {
+        localStorage.setItem("bu:oauth-origin", JSON.stringify({
+          origin: window.location.origin,
+          ts: Date.now(),
+        }));
+      } catch { /* localStorage unavailable, no-op */ }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
