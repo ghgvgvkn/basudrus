@@ -75,6 +75,39 @@ const LIMITS = { daily: 100, hourly: 25, minute: 5 };
 // PostgREST URL.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * `profiles.year` is stored as TEXT in the database (legacy decision —
+ * the column was added before we knew students might want to enter
+ * "Year 2" or "Foundation Year" alongside plain numerics). The Profile
+ * type in TypeScript declares `year: number | null` but the actual
+ * row payload arrives as a string. This parser bridges that gap so
+ * the eligibility check ("does this student have a year set?") works
+ * regardless of how the user entered it.
+ *
+ * Handles:
+ *   - 3                  → 3        (already a number)
+ *   - "3"                → 3        (numeric string)
+ *   - "Year 2"           → 2        (text with embedded number)
+ *   - "2nd"              → 2
+ *   - ""                 → null     (genuinely empty)
+ *   - null / undefined   → null
+ *   - "Foundation"       → null     (no extractable number)
+ *
+ * Returns null for years that fall outside 1..11 so a typo like
+ * "Year 99" doesn't pass eligibility.
+ */
+function parseYearText(val: unknown): number | null {
+  if (typeof val === "number" && Number.isFinite(val) && val >= 1 && val <= 11) {
+    return val;
+  }
+  if (typeof val !== "string") return null;
+  const m = val.match(/\d+/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  if (!Number.isFinite(n) || n < 1 || n > 11) return null;
+  return n;
+}
+
 // Memory categories we DO include in the AI-to-AI prompt. Anything
 // outside this list is filtered out as too personal for matchmaking.
 // "uncategorized" is included because most legacy memories don't have
@@ -171,7 +204,8 @@ async function fetchProfileServiceRole(userId: string): Promise<Omit<StudentProf
       name?: string | null;
       uni?: string | null;
       major?: string | null;
-      year?: number | null;
+      // DB stores year as text — parser below normalizes to number|null.
+      year?: unknown;
       bio?: string | null;
       subjects?: string[] | null;
     }>;
@@ -180,9 +214,10 @@ async function fetchProfileServiceRole(userId: string): Promise<Omit<StudentProf
     return {
       id: row.id,
       name: row.name ?? "Student",
-      uni: row.uni ?? null,
-      major: row.major ?? null,
-      year: typeof row.year === "number" ? row.year : null,
+      // Treat empty-string uni as missing — same UX intent as null.
+      uni: row.uni && row.uni.trim().length > 0 ? row.uni : null,
+      major: row.major && row.major.trim().length > 0 ? row.major : null,
+      year: parseYearText(row.year),
       bio: row.bio ?? null,
       subjects: Array.isArray(row.subjects) ? row.subjects.filter((s) => typeof s === "string") : null,
     };

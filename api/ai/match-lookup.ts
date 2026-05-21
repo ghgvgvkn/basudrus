@@ -77,6 +77,18 @@ interface CandidateRow {
   photo_mode: "avatar" | "photo" | null;
 }
 
+/** profiles.year is TEXT in the DB even though the Profile type says
+ *  number|null. See study-match.ts parseYearText for the rationale. */
+function parseYearText(val: unknown): number | null {
+  if (typeof val === "number" && Number.isFinite(val) && val >= 1 && val <= 11) return val;
+  if (typeof val !== "string") return null;
+  const m = val.match(/\d+/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  if (!Number.isFinite(n) || n < 1 || n > 11) return null;
+  return n;
+}
+
 interface LookupResponse {
   ok: boolean;
   /** Present iff the email maps to an eligible candidate. */
@@ -154,8 +166,24 @@ async function fetchCandidate(userId: string): Promise<CandidateRow | null> {
       },
     });
     if (!res.ok) return null;
-    const rows = await res.json() as CandidateRow[];
-    return rows?.[0] ?? null;
+    const rawRows = await res.json() as Array<Record<string, unknown>>;
+    const row = rawRows?.[0];
+    if (!row) return null;
+    // Normalize: parse year text, treat empty-string uni/major as null.
+    const uni = typeof row.uni === "string" && row.uni.trim() ? row.uni : null;
+    const major = typeof row.major === "string" && row.major.trim() ? row.major : null;
+    const candidate: CandidateRow = {
+      id: typeof row.id === "string" ? row.id : "",
+      name: typeof row.name === "string" && row.name ? row.name : "Student",
+      uni,
+      major,
+      year: parseYearText(row.year),
+      bio: typeof row.bio === "string" ? row.bio : null,
+      avatar_color: typeof row.avatar_color === "string" ? row.avatar_color : null,
+      photo_url: typeof row.photo_url === "string" ? row.photo_url : null,
+      photo_mode: row.photo_mode === "photo" || row.photo_mode === "avatar" ? row.photo_mode : null,
+    };
+    return candidate;
   } catch {
     return null;
   }

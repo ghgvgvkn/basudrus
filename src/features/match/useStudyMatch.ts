@@ -132,6 +132,21 @@ function sharedSubjectsCount(a: string[] | null | undefined, b: string[] | null 
   return n;
 }
 
+/** profiles.year is stored as TEXT in the database. The Profile type
+ *  says number|null but the row payload can arrive as "1", "Year 2",
+ *  or "" depending on how the user entered it. Normalize defensively
+ *  so the eligibility check works regardless. Returns null for empty
+ *  or unparseable values. */
+function parseYearText(val: unknown): number | null {
+  if (typeof val === "number" && Number.isFinite(val) && val >= 1 && val <= 11) return val;
+  if (typeof val !== "string") return null;
+  const m = val.match(/\d+/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  if (!Number.isFinite(n) || n < 1 || n > 11) return null;
+  return n;
+}
+
 export function useStudyMatch(): UseStudyMatchResult {
   const { profile } = useApp();
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
@@ -160,28 +175,29 @@ export function useStudyMatch(): UseStudyMatchResult {
     setError(null);
     setLoading(true);
     try {
-      const myUni = profile?.uni ?? null;
-      const myYear = typeof profile?.year === "number" ? profile.year : null;
+      const myUni = profile?.uni && profile.uni.trim() ? profile.uni : null;
+      const myYear = parseYearText(profile?.year);
       if (!myUni || myYear === null) {
         setCandidates([]);
         setLoading(false);
         return;
       }
+      // Because `profiles.year` is TEXT in the DB, we can't gte/lte
+      // directly on a numeric range. Pull the broader uni-wide pool
+      // and filter by year proximity in memory.
       const minYear = myYear - YEAR_PROXIMITY;
       const maxYear = myYear + YEAR_PROXIMITY;
 
       // RLS on profiles must allow authenticated SELECT for the
       // public columns; that's the same pattern Discover uses.
       // We pull `subjects` too so we can rank by shared-course count.
+      // Year filter is applied client-side (column is TEXT, not int).
       const { data, error: qErr } = await supabase
         .from("profiles")
         .select("id,name,uni,major,year,bio,avatar_color,photo_url,photo_mode,subjects")
         .eq("uni", myUni)
-        .gte("year", minYear)
-        .lte("year", maxYear)
         .neq("id", profile?.id ?? "00000000-0000-0000-0000-000000000000")
-        .not("year", "is", null)
-        .limit(MAX_CANDIDATES * 3);
+        .limit(MAX_CANDIDATES * 4);
 
       if (qErr) {
         setError(qErr.message);
@@ -190,7 +206,25 @@ export function useStudyMatch(): UseStudyMatchResult {
         return;
       }
 
-      const rows = (data ?? []) as CandidateRow[];
+      // Normalize each row: parse the text `year` to number|null
+      // and treat empty-string uni/major as missing.
+      const rawRows = (data ?? []) as Array<Record<string, unknown>>;
+      const rows: CandidateRow[] = rawRows.map((r) => ({
+        id: typeof r.id === "string" ? r.id : "",
+        name: typeof r.name === "string" && r.name ? r.name : "Student",
+        uni: typeof r.uni === "string" && r.uni.trim() ? r.uni : null,
+        major: typeof r.major === "string" && r.major.trim() ? r.major : null,
+        year: parseYearText(r.year),
+        bio: typeof r.bio === "string" ? r.bio : null,
+        avatar_color: typeof r.avatar_color === "string" ? r.avatar_color : null,
+        photo_url: typeof r.photo_url === "string" ? r.photo_url : null,
+        photo_mode: r.photo_mode === "photo" || r.photo_mode === "avatar"
+          ? (r.photo_mode as "photo" | "avatar")
+          : null,
+        subjects: Array.isArray(r.subjects)
+          ? (r.subjects as unknown[]).filter((s): s is string => typeof s === "string")
+          : null,
+      }));
       const myMajor = profile?.major ?? null;
       // Viewer subjects: we don't have a viewer-subjects field on the
       // AppContext profile shape, so we'd need a separate fetch to
@@ -215,8 +249,10 @@ export function useStudyMatch(): UseStudyMatchResult {
       // This means a Year-4 CS-major student taking 2 of your courses
       // ranks ABOVE a Year-3 CS-major student taking none, which is
       // the right intent: shared courses = real study reason.
+      // We also apply the year-proximity window here (instead of in
+      // the DB query) because `year` is stored as TEXT — see above.
       const ranked = rows
-        .filter((r) => r.id && r.uni && r.year !== null)
+        .filter((r) => r.id && r.uni && r.year !== null && r.year >= minYear && r.year <= maxYear)
         .map((r) => ({
           ...r,
           sharedSubjects: sharedSubjectsCount(mySubjects, r.subjects ?? null),
@@ -445,15 +481,21 @@ export function useStudyMatch(): UseStudyMatchResult {
 
 /** Eligibility helper — surfaces a friendly "what's missing" message
  *  the screen can render BEFORE the user attempts a match. Mirrors
- *  the server-side check so the UI doesn't make a doomed API call. */
+ *  the server-side check so the UI doesn't make a doomed API call.
+ *
+ *  `profile.year` may be stored as text on the backend (legacy schema),
+ *  so we parse via parseYearText rather than `=== null` strict check —
+ *  otherwise "1" or "Year 2" would look "missing" client-side. */
 export function checkStudyMatchEligibility(profile: Profile | null | undefined): {
   ready: boolean;
   blocker?: "no_uni" | "no_year" | "no_profile";
   message?: string;
 } {
   if (!profile) return { ready: false, blocker: "no_profile", message: "Complete your profile first." };
-  if (!profile.uni) return { ready: false, blocker: "no_uni", message: "Add your university to your profile to use Study Match." };
-  if (profile.year === null || profile.year === undefined) {
+  if (!profile.uni || (typeof profile.uni === "string" && !profile.uni.trim())) {
+    return { ready: false, blocker: "no_uni", message: "Add your university to your profile to use Study Match." };
+  }
+  if (parseYearText(profile.year) === null) {
     return { ready: false, blocker: "no_year", message: "Add your academic year to your profile to use Study Match." };
   }
   return { ready: true };
