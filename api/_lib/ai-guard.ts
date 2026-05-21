@@ -399,6 +399,17 @@ export function rateLimitResponse(
 export const ALLOWED_ORIGINS = [
   "https://basudrus.com",
   "https://www.basudrus.com",
+  // ai.basudrus.com is a separate Vercel project (basudrus-ai) that
+  // rewrites /api/* → https://basudrus.com/api/* (see ai-app/vercel.json).
+  // The Vercel proxy preserves the Origin header from the browser, so
+  // requests originating from ai.basudrus.com arrive here with that
+  // Origin set. We must allow it explicitly or the CORS preflight /
+  // securityHeaders helper rejects the request as cross-origin.
+  "https://ai.basudrus.com",
   "https://basudrus.vercel.app",
   "https://basudrus-redesign.vercel.app",
+  // basudrus-ai Vercel deploys also serve under their default .vercel.app
+  // hostnames before the production domain is reached — needed for
+  // preview-deploy testing too.
+  "https://basudrus-ai.vercel.app",
 ];
