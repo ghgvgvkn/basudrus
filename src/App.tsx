@@ -91,6 +91,13 @@ const SettingsScreen      = safeLazy(() => import("@/features/settings/SettingsS
 const SubscriptionScreen  = safeLazy(() => import("@/features/subscription/SubscriptionScreen").then(m => ({ default: m.SubscriptionScreen })));
 const OnboardingScreen    = safeLazy(() => import("@/features/onboarding/OnboardingScreen").then(m => ({ default: m.OnboardingScreen })));
 
+// VoiceDock — floating ElevenLabs voice control. Lazy-loaded so
+// users who never visit AI (Past Papers / Discover / Connect / etc.)
+// don't download the ~7 KB voice client. Only rendered when the
+// active route is the AI screen — putting a floating mic on the
+// Past Papers upload form would be confusing.
+const VoiceDock = safeLazy(() => import("@/features/ai/voice/VoiceDock").then(m => ({ default: m.VoiceDock })));
+
 /** Tiny inline fallback shown for the ~50–200ms gap while a route's
  *  chunk downloads. Centered brand wordmark — matches the SignInGate
  *  loading state so transitions feel coherent. */
@@ -127,6 +134,22 @@ function Router() {
   return <Suspense fallback={<RouteFallback />}>{view}</Suspense>;
 }
 
+/**
+ * VoiceGate — mounts the lazy <VoiceDock /> only when the user is on
+ * the AI screen. Pulled out as its own component (rather than inlined
+ * in AppGate) so the useApp() subscription is narrow — re-renders
+ * here don't cascade through the entire app tree.
+ */
+function VoiceGate() {
+  const { screen } = useApp();
+  if (screen !== "ai") return null;
+  return (
+    <Suspense fallback={null}>
+      <VoiceDock />
+    </Suspense>
+  );
+}
+
 function AppGate() {
   const { onboardingComplete } = useApp();
   // New user: run onboarding (which includes the auth step). After
@@ -157,6 +180,16 @@ function AppGate() {
       <Shell>
         <Router />
       </Shell>
+      {/* Voice dock — only mounted while the user is on the AI screen.
+          Floating mic at bottom-right (or bottom-left in RTL); writes
+          transcribed speech into aiPrefill so the existing composer
+          picks it up. Lazy + conditional means zero bundle cost for
+          users on Past Papers, Discover, Rooms, etc.
+
+          Wrapped in its own Suspense (not the route Suspense) so the
+          chat content doesn't flash a fallback while the voice chunk
+          loads on first AI-screen visit. */}
+      <VoiceGate />
     </SignInGate>
   );
 }

@@ -26,7 +26,7 @@ import { SignInGate } from "@/features/auth/SignInGate";
 import { ProfileSync } from "@/features/auth/ProfileSync";
 import { SettingsButton } from "@ai/settings/SettingsButton";
 import { SettingsModal } from "@ai/settings/SettingsModal";
-import { VoiceDock } from "./voice/VoiceDock";
+import { VoiceDock } from "@/features/ai/voice/VoiceDock";
 
 // AIScreen is heavy (1980 LOC + artifact components). Lazy so first paint
 // is the auth gate, not the chat shell.
