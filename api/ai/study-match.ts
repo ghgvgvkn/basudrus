@@ -129,6 +129,14 @@ interface MatchVerdict {
   suggested_plan?: string;
   /** UX label the client maps to a color treatment. */
   verdict?: "excellent" | "good" | "fair" | "poor";
+  /** Short staged dialogue between Tony-A (caller's tutor) and Tony-B
+   *  (candidate's tutor). 4-6 alternating messages, each 1-2 sentences,
+   *  referencing specific academic details about the two students.
+   *  This is presentation theater that lets the user SEE the AIs
+   *  "talking" — under the hood it's still one LLM call producing the
+   *  full transcript at once, but UX-wise it animates in like real
+   *  back-and-forth. Same single-call cost as before. */
+  dialogue?: Array<{ speaker: "tony_a" | "tony_b"; text: string }>;
   error?: string;
 }
 
@@ -289,9 +297,26 @@ VERDICT SCORE GUIDE:
 - 40-64 (fair): Limited overlap; could work for general motivation/accountability but won't dramatically help each other on coursework.
 - 0-39 (poor): No meaningful academic overlap, or styles clearly clash. Politely steer them apart.
 
+DIALOGUE — also produce a SHORT staged conversation between the two AI tutors:
+- 4 to 6 messages total, alternating speakers
+- Each message 1-2 sentences max, conversational tone
+- speaker "tony_a" = Student A's tutor (the caller)
+- speaker "tony_b" = Student B's tutor (the candidate)
+- Reference SPECIFIC academic details — course names, year, complementary strengths, exam timing if known. Vague generalities ("they study together") are forbidden.
+- Sound like real colleagues comparing notes — natural conversational cues are welcome ("oh, that's interesting", "wait, then...", "hmm, but...", "I think they could...")
+- They can disagree, build on each other's points, or revise
+- The dialogue should naturally arrive at the score you assigned — the final message should signal the conclusion
+- Same PRIVACY RULES as the verdict: NEVER quote private memory verbatim; translate to academic framing; omit deeply personal facts entirely
+
 OUTPUT — JSON ONLY, no commentary, no code fences:
 
 {
+  "dialogue": [
+    { "speaker": "tony_a", "text": "..." },
+    { "speaker": "tony_b", "text": "..." },
+    { "speaker": "tony_a", "text": "..." },
+    { "speaker": "tony_b", "text": "..." }
+  ],
   "score": integer 0-100,
   "summary": "one sentence the user reads first — what's the gist",
   "strengths": ["specific reason this could work", "another specific reason"],
@@ -299,9 +324,9 @@ OUTPUT — JSON ONLY, no commentary, no code fences:
   "suggested_plan": "one short paragraph: IF they study together, what should it look like? Topics, frequency, format."
 }
 
-If you have very little data on one or both students, lower the confidence (score 30-50), be honest in the summary ("limited data so far — both new to the platform"), and keep strengths/concerns short.
+If you have very little data on one or both students, lower the confidence (score 30-50), be honest in the summary ("limited data so far — both new to the platform"), and keep strengths/concerns short. The dialogue should also reflect the limited data — the tutors should acknowledge it.
 
-Be specific. "They both study CS" is weak. "They're both in CS340 Operating Systems with Prof. Hamdan and the midterm is in 11 days" is what you should aim for. Same for concerns.`;
+Be specific. "They both study CS" is weak. "They're both in CS340 Operating Systems with Prof. Hamdan and the midterm is in 11 days" is what you should aim for. Same for the dialogue — concrete references, not platitudes.`;
 
 function extractJson(raw: string): unknown {
   let s = raw.trim();
@@ -448,8 +473,13 @@ export default async function handler(req: Request): Promise<Response> {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 700,
-        temperature: 0.2,
+        // Bumped from 700 → 1100 to fit the dialogue (~400 tokens
+        // typical) + the verdict body. Still cheap at Haiku rates.
+        max_tokens: 1100,
+        // Slightly higher temp than verdict-only because the dialogue
+        // benefits from conversational variety; verdict scoring is
+        // still anchored by the strict score guide above.
+        temperature: 0.35,
         messages: [{ role: "user", content: userPrompt }],
       }),
     });
@@ -504,6 +534,23 @@ export default async function handler(req: Request): Promise<Response> {
         .map((s) => sanitizeLine(s, 240))
     : [];
 
+  // Parse + sanitize the dialogue. Each turn must have a recognized
+  // speaker and non-empty text. Cap to 8 turns defensively (the
+  // prompt asks for 4-6, but be robust to over-generation).
+  const dialogue = Array.isArray(parsed.dialogue)
+    ? (parsed.dialogue as unknown[])
+        .map((m): { speaker: "tony_a" | "tony_b"; text: string } | null => {
+          if (!m || typeof m !== "object") return null;
+          const obj = m as Record<string, unknown>;
+          const sp = obj.speaker;
+          if (sp !== "tony_a" && sp !== "tony_b") return null;
+          if (typeof obj.text !== "string" || obj.text.length === 0) return null;
+          return { speaker: sp, text: sanitizeLine(obj.text, 400) };
+        })
+        .filter((m): m is { speaker: "tony_a" | "tony_b"; text: string } => m !== null)
+        .slice(0, 8)
+    : [];
+
   return jsonResponse(200, {
     ok: true,
     score,
@@ -512,5 +559,6 @@ export default async function handler(req: Request): Promise<Response> {
     strengths,
     concerns,
     suggested_plan,
+    dialogue,
   } satisfies MatchVerdict, sHeaders);
 }

@@ -39,6 +39,17 @@ export interface CandidateRow {
   avatar_color: string | null;
   photo_url: string | null;
   photo_mode: "avatar" | "photo" | null;
+  /** Optional — included in the Suggested ranking when present so
+   *  candidates sharing actual courses with the viewer surface first. */
+  subjects?: string[] | null;
+  /** Computed client-side after ranking; surfaces in the UI as a
+   *  "3 shared courses" hint on each row. Not from the DB. */
+  sharedSubjects?: number;
+}
+
+export interface StudyMatchDialogueMessage {
+  speaker: "tony_a" | "tony_b";
+  text: string;
 }
 
 export interface StudyMatchVerdict {
@@ -49,6 +60,10 @@ export interface StudyMatchVerdict {
   strengths: string[];
   concerns: string[];
   suggestedPlan: string;
+  /** Short staged dialogue (4-6 messages) that animates in the
+   *  chat-theater UI before the verdict card is shown. Server always
+   *  returns this; UI gracefully handles an empty array. */
+  dialogue: StudyMatchDialogueMessage[];
   /** UUID of the candidate this verdict is about — surfaces in the
    *  UI so "Send a study request" wires to the right person. */
   candidateId: string;
@@ -93,13 +108,29 @@ export interface UseStudyMatchResult {
   refreshChatPartners: () => Promise<void>;
 }
 
-/** Tightness of the year-proximity filter. Same uni + year diff <= 1
- *  catches the most useful matches (same year + neighbors). Loosen
- *  later if candidate pool is thin. */
-const YEAR_PROXIMITY = 1;
+/** Year-proximity bound. Widened from the original ±1 so the
+ *  Suggested list isn't empty when the user is in a year with few
+ *  registered peers. The ranking step still surfaces close-year
+ *  candidates first.
+ *  Cross-year + cross-major matching is still the email-tab's job
+ *  — Suggested stays anchored to same uni. */
+const YEAR_PROXIMITY = 3;
 /** Cap candidates to keep the list scannable; the AI is the heavy
  *  call, not the list query. */
 const MAX_CANDIDATES = 24;
+
+/** Count how many subjects the two arrays share, comparing
+ *  case-insensitively. Used to surface peers actually taking the
+ *  same courses as the viewer above peers who just share a uni. */
+function sharedSubjectsCount(a: string[] | null | undefined, b: string[] | null | undefined): number {
+  if (!a || !b || a.length === 0 || b.length === 0) return 0;
+  const aSet = new Set(a.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  let n = 0;
+  for (const s of b) {
+    if (aSet.has((s || "").trim().toLowerCase())) n++;
+  }
+  return n;
+}
 
 export function useStudyMatch(): UseStudyMatchResult {
   const { profile } = useApp();
@@ -140,17 +171,17 @@ export function useStudyMatch(): UseStudyMatchResult {
       const maxYear = myYear + YEAR_PROXIMITY;
 
       // RLS on profiles must allow authenticated SELECT for the
-      // public columns (id, name, uni, major, year, bio, avatar);
-      // that's already the case in the existing Discover query.
+      // public columns; that's the same pattern Discover uses.
+      // We pull `subjects` too so we can rank by shared-course count.
       const { data, error: qErr } = await supabase
         .from("profiles")
-        .select("id,name,uni,major,year,bio,avatar_color,photo_url,photo_mode")
+        .select("id,name,uni,major,year,bio,avatar_color,photo_url,photo_mode,subjects")
         .eq("uni", myUni)
         .gte("year", minYear)
         .lte("year", maxYear)
         .neq("id", profile?.id ?? "00000000-0000-0000-0000-000000000000")
         .not("year", "is", null)
-        .limit(MAX_CANDIDATES * 2);
+        .limit(MAX_CANDIDATES * 3);
 
       if (qErr) {
         setError(qErr.message);
@@ -160,17 +191,46 @@ export function useStudyMatch(): UseStudyMatchResult {
       }
 
       const rows = (data ?? []) as CandidateRow[];
-      // Sort: exact year first, then by major match, then by name.
       const myMajor = profile?.major ?? null;
+      // Viewer subjects: we don't have a viewer-subjects field on the
+      // AppContext profile shape, so we'd need a separate fetch to
+      // include shared-subject ranking for the viewer. For now we
+      // gracefully degrade — if the viewer has no subjects in their
+      // profile, ranking falls back to year+major sort.
+      const myProfileSubjectsReq = supabase
+        .from("profiles")
+        .select("subjects")
+        .eq("id", profile?.id ?? "00000000-0000-0000-0000-000000000000")
+        .maybeSingle();
+      const myProfileRes = await myProfileSubjectsReq;
+      const mySubjects: string[] | null = Array.isArray(myProfileRes.data?.subjects)
+        ? (myProfileRes.data!.subjects as string[]).filter((s) => typeof s === "string")
+        : null;
+
+      // Rank candidates by (in order):
+      //   1. shared subjects with the viewer (descending — most overlap first)
+      //   2. major match (same major beats different major)
+      //   3. year proximity (closer to viewer's year beats further)
+      //   4. name (stable tiebreak)
+      // This means a Year-4 CS-major student taking 2 of your courses
+      // ranks ABOVE a Year-3 CS-major student taking none, which is
+      // the right intent: shared courses = real study reason.
       const ranked = rows
         .filter((r) => r.id && r.uni && r.year !== null)
+        .map((r) => ({
+          ...r,
+          sharedSubjects: sharedSubjectsCount(mySubjects, r.subjects ?? null),
+        }))
         .sort((a, b) => {
-          const yA = Math.abs((a.year ?? 0) - myYear);
-          const yB = Math.abs((b.year ?? 0) - myYear);
-          if (yA !== yB) return yA - yB;
+          if ((a.sharedSubjects ?? 0) !== (b.sharedSubjects ?? 0)) {
+            return (b.sharedSubjects ?? 0) - (a.sharedSubjects ?? 0);
+          }
           const mA = myMajor && a.major && a.major === myMajor ? 0 : 1;
           const mB = myMajor && b.major && b.major === myMajor ? 0 : 1;
           if (mA !== mB) return mA - mB;
+          const yA = Math.abs((a.year ?? 0) - myYear);
+          const yB = Math.abs((b.year ?? 0) - myYear);
+          if (yA !== yB) return yA - yB;
           return (a.name || "").localeCompare(b.name || "");
         })
         .slice(0, MAX_CANDIDATES);
@@ -215,6 +275,7 @@ export function useStudyMatch(): UseStudyMatchResult {
         strengths?: string[];
         concerns?: string[];
         suggested_plan?: string;
+        dialogue?: StudyMatchDialogueMessage[];
         error?: string;
       };
 
@@ -237,6 +298,7 @@ export function useStudyMatch(): UseStudyMatchResult {
         strengths: Array.isArray(json.strengths) ? json.strengths : [],
         concerns: Array.isArray(json.concerns) ? json.concerns : [],
         suggestedPlan: json.suggested_plan ?? "",
+        dialogue: Array.isArray(json.dialogue) ? json.dialogue : [],
       };
       setLastVerdict(verdict);
       return verdict;

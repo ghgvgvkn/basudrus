@@ -2,24 +2,29 @@
  * StudyMatchScreen — the AI-to-AI Study Match feature.
  *
  * Three entry points to picking a candidate (one tab each):
- *   - Suggested: students at your uni in your year ±1 (default)
- *   - Search:    type their email → server looks them up via the
- *                Supabase Admin API (privacy-careful, rate-limited)
- *   - From Chats: people you already DM
+ *   - Suggested: students at your uni (year ±3), ranked by shared
+ *                subjects → same major → year proximity. Shared
+ *                courses surface peers who'd ACTUALLY benefit from
+ *                studying with you, above peers who just share a uni.
+ *   - Search:    type their email → server resolves via Supabase
+ *                Admin API (rate-limited + anti-enumeration)
+ *   - From chats: people you already DM
  *
- * Once a candidate is picked from ANY tab, the rest of the flow is
- * shared: "Run AI match" → server runs the AI-to-AI verdict → verdict
- * card → optional "Send a study request" → existing Connect flow.
+ * Match runtime — four-phase state machine per click:
+ *   1. browsing  — tabs + candidate lists visible
+ *   2. matching  — Run AI match clicked, API call in flight
+ *   3. theater   — verdict arrived w/ dialogue; messages animate in
+ *                  one by one with typing-dot pauses (this is the
+ *                  YC demo moment — "two AIs talking about you")
+ *   4. verdict   — full verdict card with score + strengths +
+ *                  concerns + suggested plan + Connect CTA
  *
- * NOT in this revision (intentional):
- *   - Match history / no-repeat (would need a study_matches table)
- *   - Premium gating (cost still low enough today)
- *   - Multi-turn streamed AI-to-AI dialogue UI (the YC demo polish)
- *   - Search by name (only by email today — name search would be
- *     basically the same as Discover, and emails are how students
- *     actually identify their peers in WhatsApp / Telegram contacts)
+ * Once a candidate is picked from ANY tab, phases 2-4 are shared.
+ * The chat theater is presentation — the underlying server call is
+ * still a single LLM round-trip producing the full dialogue + verdict
+ * at once. The animation makes it FEEL like real back-and-forth.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TopBar } from "@/components/shell/TopBar";
 import { useApp } from "@/context/AppContext";
 import {
@@ -27,6 +32,7 @@ import {
   checkStudyMatchEligibility,
   type CandidateRow,
   type StudyMatchVerdict,
+  type StudyMatchDialogueMessage,
 } from "./useStudyMatch";
 import { startConversation } from "@/features/messaging/connectActions";
 import {
@@ -42,43 +48,50 @@ import {
   Search,
   Mail,
   UserPlus,
+  BookOpen,
 } from "lucide-react";
 
 type Tab = "suggested" | "search" | "chats";
+type Phase = "browsing" | "matching" | "theater" | "verdict";
 
 export function StudyMatchScreen() {
   const { profile, setScreen } = useApp();
   const eligibility = checkStudyMatchEligibility(profile);
   const sm = useStudyMatch();
-  const [tab, setTab] = useState<Tab>("suggested");
-  // Which candidate's "Run AI match" button is currently spinning.
-  // Tracked at the screen level (not the hook) because the active
-  // candidate UX is per-tab and per-row.
-  const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
 
-  // When the user clicks "Run AI match" on any tab, the candidate is
-  // resolved to its row from whichever list contains it. The verdict
-  // card needs the candidate's profile to render avatar + name; we
-  // stash a copy here when we run the match because the
-  // suggested/search/chats lists each own their own row.
-  const [verdictCandidate, setVerdictCandidate] = useState<CandidateRow | null>(null);
+  const [tab, setTab] = useState<Tab>("suggested");
+  const [phase, setPhase] = useState<Phase>("browsing");
+  /** The candidate whose match we're currently running / showing. */
+  const [activeCandidate, setActiveCandidate] = useState<CandidateRow | null>(null);
 
   const onRunMatch = async (candidate: CandidateRow) => {
-    setActiveCandidateId(candidate.id);
-    setVerdictCandidate(candidate);
-    await sm.runMatch(candidate.id);
-    // If matching failed, sm.error will be set and sm.lastVerdict
-    // stays null — the verdict card won't render. The error banner
-    // shows above the tabs instead.
-    setActiveCandidateId(null);
+    setActiveCandidate(candidate);
+    setPhase("matching");
+    const verdict = await sm.runMatch(candidate.id);
+    if (!verdict) {
+      // sm.error is already set; bail back to browsing so the error
+      // banner is visible above the tabs.
+      setPhase("browsing");
+      setActiveCandidate(null);
+      return;
+    }
+    // If the model didn't produce a dialogue (very rare, but
+    // possible), skip straight to verdict.
+    setPhase(verdict.dialogue.length > 0 ? "theater" : "verdict");
+  };
+
+  const backToBrowsing = () => {
+    sm.clearVerdict();
+    setActiveCandidate(null);
+    setPhase("browsing");
   };
 
   const onConnect = async () => {
-    if (!verdictCandidate) return;
+    if (!activeCandidate) return;
     const out = await startConversation({
-      id: verdictCandidate.id,
-      name: verdictCandidate.name,
-      avatar_color: verdictCandidate.avatar_color ?? null,
+      id: activeCandidate.id,
+      name: activeCandidate.name,
+      avatar_color: activeCandidate.avatar_color ?? null,
     });
     if (out.ok) setScreen("connect");
   };
@@ -97,15 +110,26 @@ export function StudyMatchScreen() {
             message={eligibility.message ?? "Complete your profile to use Study Match."}
             onGo={() => setScreen("profile")}
           />
-        ) : sm.lastVerdict && verdictCandidate ? (
-          <VerdictCard
+        ) : phase === "matching" && activeCandidate ? (
+          <MatchingScreen candidate={activeCandidate} onCancel={backToBrowsing} />
+        ) : phase === "theater" && activeCandidate && sm.lastVerdict ? (
+          <DialogueTheater
+            candidate={activeCandidate}
+            viewerName={profile?.name ?? "You"}
+            viewerAvatarColor={profile?.avatar_color ?? null}
+            viewerPhotoUrl={profile?.photo_url ?? null}
+            dialogue={sm.lastVerdict.dialogue}
+            onComplete={() => setPhase("verdict")}
+            onBack={backToBrowsing}
+          />
+        ) : phase === "verdict" && activeCandidate && sm.lastVerdict ? (
+          <VerdictView
             verdict={sm.lastVerdict}
-            candidate={verdictCandidate}
-            onBack={() => {
-              sm.clearVerdict();
-              setActiveCandidateId(null);
-              setVerdictCandidate(null);
-            }}
+            candidate={activeCandidate}
+            viewerName={profile?.name ?? "You"}
+            viewerAvatarColor={profile?.avatar_color ?? null}
+            viewerPhotoUrl={profile?.photo_url ?? null}
+            onBack={backToBrowsing}
             onConnect={onConnect}
           />
         ) : (
@@ -124,7 +148,7 @@ export function StudyMatchScreen() {
                 loading={sm.loading}
                 candidates={sm.candidates}
                 matching={sm.matching}
-                activeCandidateId={activeCandidateId}
+                activeCandidateId={activeCandidate?.id ?? null}
                 onRetry={() => void sm.refresh()}
                 onRunMatch={onRunMatch}
               />
@@ -134,7 +158,7 @@ export function StudyMatchScreen() {
                 loading={sm.emailLookupLoading}
                 result={sm.emailLookupResult}
                 matching={sm.matching}
-                activeCandidateId={activeCandidateId}
+                activeCandidateId={activeCandidate?.id ?? null}
                 onSearch={(email) => void sm.searchByEmail(email)}
                 onClear={() => sm.clearEmailLookup()}
                 onRunMatch={onRunMatch}
@@ -145,7 +169,7 @@ export function StudyMatchScreen() {
                 loading={sm.chatPartnersLoading}
                 partners={sm.chatPartners}
                 matching={sm.matching}
-                activeCandidateId={activeCandidateId}
+                activeCandidateId={activeCandidate?.id ?? null}
                 onRetry={() => void sm.refreshChatPartners()}
                 onRunMatch={onRunMatch}
               />
@@ -176,7 +200,7 @@ function Header() {
         </span>
         <div className="flex-1 min-w-0">
           <p>
-            Tony reads what we already know about you and another student, then talks to <em>their</em> Tony to figure out if you two would actually study well together. You see a compatibility verdict — they don't know they were considered.
+            Tony reads what we already know about you and another student, then talks to <em>their</em> Tony to figure out if you two would actually study well together. You see the conversation as it happens — and then a verdict.
           </p>
           <p className="mt-2 text-xs text-ink-3">
             No raw memories are shared between you. The AIs reason privately and surface only academic-fit conclusions.
@@ -222,7 +246,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-// ── Suggested tab (same as before, slightly refactored) ───────────
+// ── Suggested tab ──────────────────────────────────────────────────
 
 function SuggestedTab({
   loading, candidates, matching, activeCandidateId, onRetry, onRunMatch,
@@ -246,7 +270,7 @@ function SuggestedTab({
       <EmptyState
         icon={<Users2 className="h-6 w-6 text-ink-3" />}
         title="No candidates near you yet"
-        body="We look for students at your university in roughly the same year. As more students join from your campus, this list grows. Meanwhile, try Search by Email if you know someone who's already on Bas Udrus."
+        body="We look for students at your university in roughly your year, ranked by shared courses and major. As more students join from your campus, this list grows. Meanwhile, try Search by Email if you already know someone who's on Bas Udrus."
         action={{ label: "Refresh", onClick: onRetry }}
       />
     );
@@ -254,7 +278,7 @@ function SuggestedTab({
   return (
     <>
       <div className="text-xs text-ink-3 mb-3">
-        {candidates.length} {candidates.length === 1 ? "student" : "students"} near you
+        {candidates.length} {candidates.length === 1 ? "student" : "students"} near you — best fits first
       </div>
       <ul className="space-y-2">
         {candidates.map((c) => (
@@ -316,7 +340,7 @@ function SearchTab({
           </button>
         </div>
         <p className="mt-2 text-[11px] text-ink-3 leading-relaxed">
-          Look up a specific student by their Bas Udrus account email — the email they signed up with. We don't tell them they were searched. Limited to 10 lookups per hour to keep things polite.
+          Look up a specific student by their Bas Udrus account email — works across universities and majors. We don't tell them they were searched. Limited to 10 lookups per hour to keep things polite.
         </p>
       </form>
 
@@ -338,7 +362,7 @@ function SearchTab({
         <EmptyState
           icon={<UserPlus className="h-6 w-6 text-ink-3" />}
           title="Know someone specifically?"
-          body="Enter the email they signed up with. If they're on Bas Udrus with a complete profile, we'll find them and you can run an AI compatibility check."
+          body="Enter the email they signed up with — even if they're at a different university or major, you can still run an AI compatibility check."
         />
       )}
     </div>
@@ -394,90 +418,267 @@ function ChatsTab({
   );
 }
 
-// ── Shared bits ────────────────────────────────────────────────────
+// ── Matching (API call in flight) ─────────────────────────────────
 
-function EligibilityBlocker({ message, onGo }: { message: string; onGo: () => void }) {
+function MatchingScreen({ candidate, onCancel }: { candidate: CandidateRow; onCancel: () => void }) {
   return (
     <div className="bu-card p-6 text-center">
-      <div className="mx-auto h-12 w-12 grid place-items-center rounded-2xl bg-accent/10 text-accent mb-3">
-        <AlertCircle className="h-5 w-5" />
+      <div className="flex flex-col items-center gap-3">
+        <Avatar c={candidate} size={56} />
+        <div className="text-sm font-medium text-ink-1">{candidate.name}</div>
+        <div className="text-xs text-ink-3">
+          {[candidate.major, candidate.year ? `Year ${candidate.year}` : null].filter(Boolean).join(" · ") || candidate.uni}
+        </div>
+        <div className="mt-4 inline-flex items-center gap-2 text-sm text-ink-2">
+          <Loader2 className="h-4 w-4 animate-spin text-accent" />
+          Two Tonys are getting ready to talk…
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mt-3 text-xs text-ink-3 hover:text-ink-1 transition"
+        >
+          Cancel
+        </button>
       </div>
-      <div className="text-sm font-medium text-ink-1 mb-1">A few profile bits missing</div>
-      <p className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed mb-4">{message}</p>
-      <button
-        type="button"
-        onClick={onGo}
-        className="h-10 px-5 rounded-full bg-ink-1 text-surface-1 text-sm font-medium hover:bg-ink-2 transition"
-      >
-        Go to Profile
-      </button>
     </div>
   );
 }
 
-function CandidateRowView({
-  c, isActive, disabled, onRunMatch,
+// ── Dialogue theater ──────────────────────────────────────────────
+
+const TYPING_MS = 800;       // dots phase before each message reveals
+const POST_DIALOGUE_MS = 900; // pause after last message before verdict slides in
+
+function DialogueTheater({
+  candidate, viewerName, viewerAvatarColor, viewerPhotoUrl, dialogue, onComplete, onBack,
 }: {
-  c: CandidateRow;
-  isActive: boolean;
-  disabled: boolean;
-  onRunMatch: () => void;
+  candidate: CandidateRow;
+  viewerName: string;
+  viewerAvatarColor: string | null;
+  viewerPhotoUrl: string | null;
+  dialogue: StudyMatchDialogueMessage[];
+  onComplete: () => void;
+  onBack: () => void;
 }) {
-  const subtitle = [c.major, c.year ? `Year ${c.year}` : null].filter(Boolean).join(" · ");
+  // Index of the message that's CURRENTLY being typed (or shown).
+  // 0..dialogue.length means N messages already shown.
+  const [shown, setShown] = useState(0);
+  const [typing, setTyping] = useState(true);
+
+  useEffect(() => {
+    // All messages shown — fire onComplete after a short pause so the
+    // verdict card has a graceful entrance.
+    if (shown >= dialogue.length) {
+      const t = setTimeout(onComplete, POST_DIALOGUE_MS);
+      return () => clearTimeout(t);
+    }
+    // Show typing indicator for TYPING_MS, then reveal next message.
+    setTyping(true);
+    const t = setTimeout(() => {
+      setTyping(false);
+      setShown((s) => s + 1);
+    }, TYPING_MS);
+    return () => clearTimeout(t);
+  }, [shown, dialogue.length, onComplete]);
+
+  const nextSpeaker = dialogue[shown]?.speaker;
+
   return (
-    <li className="bu-card flex items-center gap-3 px-4 py-3">
-      <Avatar c={c} />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-ink-1 truncate">{c.name || "Student"}</div>
-        <div className="text-xs text-ink-3 truncate">{subtitle || c.uni}</div>
-      </div>
+    <div className="space-y-3">
       <button
         type="button"
-        onClick={onRunMatch}
-        disabled={disabled || isActive}
-        className={
-          "shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed " +
-          (isActive
-            ? "bg-accent/10 text-accent"
-            : "bg-ink-1 text-surface-1 hover:bg-ink-2")
-        }
+        onClick={onBack}
+        className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-1 transition"
       >
-        {isActive
-          ? <><Loader2 className="h-3 w-3 animate-spin" /> Tonys talking…</>
-          : <><Sparkles className="h-3 w-3" /> Run AI match</>}
+        <ArrowLeft className="h-3 w-3" /> Cancel
       </button>
+
+      <div className="bu-card p-4 sm:p-5">
+        <div className="text-[11px] uppercase tracking-wider font-semibold text-ink-3 mb-3">
+          Two Tonys, comparing notes about you and {candidate.name.split(/\s+/)[0]}
+        </div>
+
+        <ol className="space-y-3">
+          {dialogue.slice(0, shown).map((msg, i) => (
+            <DialogueBubble
+              key={i}
+              msg={msg}
+              candidate={candidate}
+              viewerName={viewerName}
+              viewerAvatarColor={viewerAvatarColor}
+              viewerPhotoUrl={viewerPhotoUrl}
+            />
+          ))}
+          {typing && shown < dialogue.length && (
+            <DialogueBubble
+              typing
+              msg={{ speaker: nextSpeaker ?? "tony_a", text: "" }}
+              candidate={candidate}
+              viewerName={viewerName}
+              viewerAvatarColor={viewerAvatarColor}
+              viewerPhotoUrl={viewerPhotoUrl}
+            />
+          )}
+        </ol>
+
+        <div className="mt-4 text-[11px] text-ink-3 text-center">
+          {shown < dialogue.length
+            ? "Listening in…"
+            : "Verdict in a moment."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Static, non-animated rendering of the same dialogue — used in the
+ * verdict view so the user can re-read the conversation without it
+ * re-playing the typing animation. `collapsed` collapses by default
+ * to a small "Show conversation" disclosure to keep the verdict
+ * cards as the visual focus.
+ */
+function DialogueTranscript({
+  candidate, viewerName, viewerAvatarColor, viewerPhotoUrl, dialogue, collapsed = false,
+}: {
+  candidate: CandidateRow;
+  viewerName: string;
+  viewerAvatarColor: string | null;
+  viewerPhotoUrl: string | null;
+  dialogue: StudyMatchDialogueMessage[];
+  collapsed?: boolean;
+}) {
+  const [open, setOpen] = useState(!collapsed);
+  return (
+    <div className="bu-card p-4 sm:p-5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-start"
+      >
+        <span className="text-[11px] uppercase tracking-wider font-semibold text-ink-3">
+          The conversation
+        </span>
+        <span className="text-[11px] text-ink-3 hover:text-ink-1 transition">
+          {open ? "Hide" : `Show (${dialogue.length})`}
+        </span>
+      </button>
+      {open && (
+        <ol className="mt-3 space-y-3">
+          {dialogue.map((msg, i) => (
+            <DialogueBubble
+              key={i}
+              msg={msg}
+              candidate={candidate}
+              viewerName={viewerName}
+              viewerAvatarColor={viewerAvatarColor}
+              viewerPhotoUrl={viewerPhotoUrl}
+            />
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function DialogueBubble({
+  msg, candidate, viewerName, viewerAvatarColor, viewerPhotoUrl, typing,
+}: {
+  msg: StudyMatchDialogueMessage;
+  candidate: CandidateRow;
+  viewerName: string;
+  viewerAvatarColor: string | null;
+  viewerPhotoUrl: string | null;
+  typing?: boolean;
+}) {
+  // tony_a = the caller's tutor → render on the START (left in LTR).
+  // tony_b = the candidate's tutor → render on the END (right in LTR).
+  const isCaller = msg.speaker === "tony_a";
+  const personName = isCaller ? viewerName : candidate.name;
+  const personColor = isCaller ? viewerAvatarColor : candidate.avatar_color;
+  const personPhoto = isCaller ? viewerPhotoUrl : candidate.photo_url;
+
+  return (
+    <li className={`flex gap-2 ${isCaller ? "justify-start" : "justify-end"}`}>
+      {isCaller && (
+        <AvatarSmall name={personName} color={personColor} photoUrl={personPhoto} />
+      )}
+      <div className={`max-w-[78%] ${isCaller ? "" : "items-end"}`}>
+        <div className={`text-[10px] uppercase tracking-wider font-semibold mb-0.5 ${isCaller ? "text-accent text-start" : "text-ink-3 text-end"}`}>
+          Tony · {personName.split(/\s+/)[0]}{isCaller ? " (you)" : ""}
+        </div>
+        <div
+          className={
+            "px-3 py-2 rounded-2xl text-sm leading-relaxed shadow-sm " +
+            (isCaller
+              ? "bg-accent/10 text-ink-1 rounded-ss-sm"
+              : "bg-surface-2 text-ink-1 rounded-se-sm")
+          }
+        >
+          {typing
+            ? <TypingDots />
+            : msg.text}
+        </div>
+      </div>
+      {!isCaller && (
+        <AvatarSmall name={personName} color={personColor} photoUrl={personPhoto} />
+      )}
     </li>
   );
 }
 
-function Avatar({ c }: { c: CandidateRow }) {
-  if (c.photo_mode === "photo" && c.photo_url) {
-    return (
-      <img
-        src={c.photo_url}
-        alt={c.name || "Student"}
-        className="h-10 w-10 rounded-xl object-cover shrink-0"
-      />
-    );
-  }
-  const initials = (c.name || "S")
-    .split(/\s+/)
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+function TypingDots() {
   return (
-    <div
-      className="h-10 w-10 grid place-items-center rounded-xl text-white text-sm font-semibold shrink-0"
-      style={{ background: c.avatar_color ?? "#5B4BF5" }}
-    >
-      {initials}
-    </div>
+    <span className="inline-flex items-center gap-1 py-0.5" aria-label="Typing">
+      <span className="h-1.5 w-1.5 rounded-full bg-ink-2/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+      <span className="h-1.5 w-1.5 rounded-full bg-ink-2/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+      <span className="h-1.5 w-1.5 rounded-full bg-ink-2/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+    </span>
   );
 }
 
-// ── Verdict card ───────────────────────────────────────────────────
+// ── Verdict (after dialogue) ──────────────────────────────────────
+
+function VerdictView({
+  verdict, candidate, viewerName, viewerAvatarColor, viewerPhotoUrl, onBack, onConnect,
+}: {
+  verdict: StudyMatchVerdict;
+  candidate: CandidateRow;
+  viewerName: string;
+  viewerAvatarColor: string | null;
+  viewerPhotoUrl: string | null;
+  onBack: () => void;
+  onConnect: () => void;
+}) {
+  // Keep the dialogue visible above the verdict — so the user can
+  // scroll back up to re-read what the Tonys said. Re-rendered with
+  // shown = dialogue.length so it's instantly fully expanded.
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-1 transition"
+      >
+        <ArrowLeft className="h-3 w-3" /> Back
+      </button>
+
+      {verdict.dialogue.length > 0 && (
+        <DialogueTranscript
+          candidate={candidate}
+          viewerName={viewerName}
+          viewerAvatarColor={viewerAvatarColor}
+          viewerPhotoUrl={viewerPhotoUrl}
+          dialogue={verdict.dialogue}
+          collapsed
+        />
+      )}
+
+      <VerdictCards verdict={verdict} candidate={candidate} onBack={onBack} onConnect={onConnect} />
+    </div>
+  );
+}
 
 const VERDICT_STYLES: Record<StudyMatchVerdict["verdict"], { label: string; bg: string; text: string; ring: string; }> = {
   excellent: {
@@ -506,7 +707,7 @@ const VERDICT_STYLES: Record<StudyMatchVerdict["verdict"], { label: string; bg: 
   },
 };
 
-function VerdictCard({
+function VerdictCards({
   verdict, candidate, onBack, onConnect,
 }: {
   verdict: StudyMatchVerdict;
@@ -516,15 +717,7 @@ function VerdictCard({
 }) {
   const style = VERDICT_STYLES[verdict.verdict];
   return (
-    <div className="space-y-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-1 transition"
-      >
-        <ArrowLeft className="h-3 w-3" /> Back
-      </button>
-
+    <>
       <div className={`bu-card ${style.ring} ring-1 p-4 sm:p-5`}>
         <div className="flex items-center gap-3 mb-3">
           <Avatar c={candidate} />
@@ -612,6 +805,126 @@ function VerdictCard({
           Send a study request
         </button>
       </div>
+    </>
+  );
+}
+
+// ── Shared bits ────────────────────────────────────────────────────
+
+function EligibilityBlocker({ message, onGo }: { message: string; onGo: () => void }) {
+  return (
+    <div className="bu-card p-6 text-center">
+      <div className="mx-auto h-12 w-12 grid place-items-center rounded-2xl bg-accent/10 text-accent mb-3">
+        <AlertCircle className="h-5 w-5" />
+      </div>
+      <div className="text-sm font-medium text-ink-1 mb-1">A few profile bits missing</div>
+      <p className="text-xs text-ink-3 max-w-md mx-auto leading-relaxed mb-4">{message}</p>
+      <button
+        type="button"
+        onClick={onGo}
+        className="h-10 px-5 rounded-full bg-ink-1 text-surface-1 text-sm font-medium hover:bg-ink-2 transition"
+      >
+        Go to Profile
+      </button>
+    </div>
+  );
+}
+
+function CandidateRowView({
+  c, isActive, disabled, onRunMatch,
+}: {
+  c: CandidateRow;
+  isActive: boolean;
+  disabled: boolean;
+  onRunMatch: () => void;
+}) {
+  const subtitle = [c.major, c.year ? `Year ${c.year}` : null].filter(Boolean).join(" · ");
+  const sharedCount = c.sharedSubjects ?? 0;
+  return (
+    <li className="bu-card flex items-center gap-3 px-4 py-3">
+      <Avatar c={c} />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-ink-1 truncate flex items-center gap-2">
+          <span className="truncate">{c.name || "Student"}</span>
+          {sharedCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+              <BookOpen className="h-2.5 w-2.5" />
+              {sharedCount} shared
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-ink-3 truncate">{subtitle || c.uni}</div>
+      </div>
+      <button
+        type="button"
+        onClick={onRunMatch}
+        disabled={disabled || isActive}
+        className={
+          "shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed " +
+          (isActive
+            ? "bg-accent/10 text-accent"
+            : "bg-ink-1 text-surface-1 hover:bg-ink-2")
+        }
+      >
+        {isActive
+          ? <><Loader2 className="h-3 w-3 animate-spin" /> Tonys talking…</>
+          : <><Sparkles className="h-3 w-3" /> Run AI match</>}
+      </button>
+    </li>
+  );
+}
+
+function Avatar({ c, size = 40 }: { c: CandidateRow; size?: number }) {
+  if (c.photo_mode === "photo" && c.photo_url) {
+    return (
+      <img
+        src={c.photo_url}
+        alt={c.name || "Student"}
+        className="rounded-xl object-cover shrink-0"
+        style={{ height: size, width: size }}
+      />
+    );
+  }
+  const initials = (c.name || "S")
+    .split(/\s+/)
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  return (
+    <div
+      className="grid place-items-center rounded-xl text-white text-sm font-semibold shrink-0"
+      style={{ background: c.avatar_color ?? "#5B4BF5", height: size, width: size }}
+    >
+      {initials}
+    </div>
+  );
+}
+
+function AvatarSmall({ name, color, photoUrl }: { name: string; color: string | null; photoUrl: string | null }) {
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={name}
+        className="h-7 w-7 rounded-full object-cover shrink-0 mt-0.5"
+      />
+    );
+  }
+  const initials = (name || "?")
+    .split(/\s+/)
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  return (
+    <div
+      className="h-7 w-7 grid place-items-center rounded-full text-white text-[10px] font-semibold shrink-0 mt-0.5"
+      style={{ background: color ?? "#5B4BF5" }}
+    >
+      {initials}
     </div>
   );
 }
