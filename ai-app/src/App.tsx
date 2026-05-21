@@ -18,6 +18,7 @@
  * incrementally. The base case (this file) ships a working chat now.
  */
 import { Suspense, lazy } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { ErrorBoundary } from "@/shared/ErrorBoundary";
 import { AppProvider } from "@/context/AppContext";
 import { LocaleProvider } from "@/context/LocaleContext";
@@ -25,6 +26,7 @@ import { SignInGate } from "@/features/auth/SignInGate";
 import { ProfileSync } from "@/features/auth/ProfileSync";
 import { SettingsButton } from "@ai/settings/SettingsButton";
 import { SettingsModal } from "@ai/settings/SettingsModal";
+import { VoiceDock } from "./voice/VoiceDock";
 
 // AIScreen is heavy (1980 LOC + artifact components). Lazy so first paint
 // is the auth gate, not the chat shell.
@@ -68,9 +70,21 @@ export default function App() {
             {/* Modal is rendered as a portal-like overlay — its position
                 in the tree doesn't matter, it's `position: fixed`. */}
             <SettingsModal />
+            {/* ElevenLabs voice dock — bottom-right floating control.
+                Owns the useVoice() hook and writes transcribed speech
+                into aiPrefill on AppContext, which AIScreen's existing
+                useEffect consumes to populate the composer draft.
+                Doesn't modify AIScreen — voice ships TODAY as a clean
+                add-on, future inline-per-message + auto-speak features
+                can be wired in once we've validated the foundation. */}
+            <VoiceDock />
           </SignInGate>
         </AppProvider>
       </LocaleProvider>
+      {/* Vercel Speed Insights — Core Web Vitals on ai.basudrus.com.
+          Outside SignInGate so we still capture LCP/TTFB for the
+          auth-gate paint (which IS the first paint for new visitors). */}
+      <SpeedInsights />
     </ErrorBoundary>
   );
 }

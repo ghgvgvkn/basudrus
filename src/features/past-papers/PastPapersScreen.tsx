@@ -1,16 +1,24 @@
 /**
- * PastPapersScreen — Phase 1 of the Past Papers feature.
+ * PastPapersScreen — Past Papers feature.
  *
  * Tabs: Browse + My Papers + Upload.
  *
- * Phase 1 (this commit): visible foundation. Browse and My Papers
- * just list rows. Upload accepts the file + manual metadata (uni,
- * course, year, semester, exam type) with the legal-agreement
- * checkbox required before submit. NO AI validation yet.
- *
- * Phase 2 (next): AI validation that the upload looks like an exam
- * paper, automatic extraction of professor name + course code +
- * topics, AI-validated university auto-add, professor cache wiring.
+ * Phase 1: foundation — list rows + manual-metadata upload + legal
+ *   agreement checkbox.
+ * Phase 2a: free-text uni input (any uni in the world) + course
+ *   autocomplete wired to the canonical course_catalog.
+ * Phase 2b: AI file analyzer — Claude Sonnet verifies the file
+ *   looks like an exam paper and pre-fills metadata fields.
+ * Phase 2c: PRIVATE-by-default locker — uploads default to
+ *   contributor-only; share toggle on My Papers + upload form. The
+ *   share action ALSO seeds public.professors so Tony Starrk's
+ *   DATABASE CONTEXT block picks up real professor metadata across
+ *   all students (see upsertProfessorContribution in usePastPapers).
+ * Phase 2d: AI-validated university auto-add — successful uploads
+ *   fire a background call to /api/past-papers/validate-university
+ *   (Tavily + Claude Haiku) that inserts new uni names into
+ *   public.universities for future students. Idempotent + rate-limited;
+ *   the upload itself never blocks on it.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TopBar } from "@/components/shell/TopBar";

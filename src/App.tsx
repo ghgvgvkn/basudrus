@@ -16,6 +16,7 @@
  * that case we skip onboarding but still force sign-in before Shell.
  */
 import { lazy, Suspense } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { LocaleProvider } from "@/context/LocaleContext";
 import { ErrorBoundary } from "@/shared/ErrorBoundary";
@@ -168,6 +169,12 @@ export default function App() {
           <AppGate />
         </AppProvider>
       </LocaleProvider>
+      {/* Vercel Speed Insights — Core Web Vitals (LCP/CLS/INP/FID/TTFB)
+          reported to the Vercel dashboard. Outside the providers so it
+          stays mounted even when a gate (Onboarding, SignIn) is rendering
+          its own subtree, and so a provider crash doesn't take it down
+          with it. No PII collected. */}
+      <SpeedInsights />
     </ErrorBoundary>
   );
 }

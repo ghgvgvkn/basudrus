@@ -224,6 +224,21 @@ export function usePastPapers(): UsePastPapersResult {
         }).catch(() => { /* swallow — past_papers insert already succeeded */ });
       }
 
+      // ── University auto-add (Phase 2d) ──
+      // Fire-and-forget: ask the server to verify this uni name
+      // (Tavily + Claude Haiku) and INSERT it into public.universities
+      // for the next student. The past_papers row already saved
+      // with whatever the user typed, so this is purely additive —
+      // it builds the canonical catalog without ever blocking an
+      // upload. The endpoint is idempotent (catalog hit → returns
+      // "match", skips the AI call) and rate-limited at 30/day per
+      // user, so spamming it is harmless.
+      //
+      // We deliberately do NOT await this and do NOT surface errors
+      // — the user's contribution is already saved; whether the
+      // canonical catalog grows is a background concern.
+      void verifyAndCatalogUniversity(input.uni.trim()).catch(() => {});
+
       // Optimistically prepend the new row instead of a full re-fetch.
       setRows((prev) => [inserted as PastPaperRow, ...prev]);
       return { ok: true, id: (inserted as PastPaperRow).id, fileUrl };
@@ -383,6 +398,45 @@ async function upsertProfessorContribution({
       contributor_user_id: userId,
     });
   }
+}
+
+// ── University auto-add (Phase 2d) ─────────────────────────────────
+
+/**
+ * Background call to /api/past-papers/validate-university so a uni
+ * name typed by a student gets verified (Tavily + Claude Haiku) and
+ * INSERTed into the canonical public.universities table for future
+ * students. See validate-university.ts for the verdict routing —
+ * the only thing this client cares about is "fire the call." We
+ * don't care about the response; the past_papers row already saved.
+ *
+ * Errors are swallowed by the caller — the upload already succeeded
+ * and the canonical catalog growing in the background is best-effort.
+ *
+ * Auth header is required by the server-side rate limiter; without
+ * a session token the call would 401 silently which is the right
+ * outcome (anonymous uploads shouldn't exist in the first place
+ * because the upload path itself requires a userId).
+ */
+async function verifyAndCatalogUniversity(name: string): Promise<void> {
+  if (!name || name.length < 3) return;
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) return;
+  // No await on the fetch's body — we don't need the verdict.
+  await fetch("/api/past-papers/validate-university", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name }),
+    // keepalive lets the call survive a page navigation if the user
+    // bounces to My Papers right after upload (we setTimeout 900ms
+    // in PastPapersScreen.tsx → onUploaded). 8 KB request body is
+    // well under the keepalive limit.
+    keepalive: true,
+  });
 }
 
 // ── AI analyzer client ─────────────────────────────────────────────
