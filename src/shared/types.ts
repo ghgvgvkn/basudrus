@@ -12,6 +12,7 @@ export type ScreenId =
   | "connect"
   | "rooms"
   | "pastPapers"
+  | "studyMatch"
   | "profile"
   | "notifications"
   | "settings"
