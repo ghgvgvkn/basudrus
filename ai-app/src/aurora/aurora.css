@@ -1,0 +1,717 @@
+/**
+ * Aurora UI styles — ported from design/Aurora-AI.html.
+ *
+ * Scoping: everything inside `.aurora-app` so it doesn't bleed into
+ * the rest of the codebase (Tailwind-driven shared components).
+ *
+ * The Aurora design uses classic CSS — keeping it that way (rather
+ * than translating to Tailwind utility classes) preserves the
+ * design's fidelity and makes it easy to compare against the source.
+ */
+
+/* Fonts loaded from Google Fonts via <link> in index.html */
+
+.aurora-app {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse at 50% 30%, #14143F 0%, #0A0A36 55%, #050524 100%);
+  color: #ffffff;
+  font-family: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  cursor: default;
+}
+
+.aurora-app * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.aurora-app .mono {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+}
+
+/* ── Canvas + vignette ──────────────────────────────────────────── */
+.aurora-app .aurora-matrix {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+}
+.aurora-app .aurora-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(80% 70% at 50% 35%, transparent 0%, rgba(0,0,0,0.55) 95%),
+    radial-gradient(50% 40% at 50% 100%, rgba(0,0,0,0.6), transparent 70%);
+}
+
+/* ── UI layer ───────────────────────────────────────────────────── */
+.aurora-app .aurora-ui {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.aurora-app .aurora-ui > * {
+  pointer-events: auto;
+}
+
+/* ── Active (voice) mode visibility ─────────────────────────────── */
+body.aurora-active .aurora-top-bar,
+body.aurora-active .aurora-chat-rail,
+body.aurora-active .aurora-top-right,
+body.aurora-active .aurora-top-left {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 600ms ease;
+}
+body.aurora-active .aurora-chat-bar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(40px);
+  transition: opacity 500ms, transform 600ms cubic-bezier(.2,.7,.2,1);
+}
+body.aurora-active .aurora-footer-info {
+  opacity: 0;
+  transition: opacity 400ms;
+}
+body.aurora-active .aurora-chat-thread {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 500ms;
+}
+body.aurora-active .aurora-widgets {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 600ms ease;
+}
+
+/* ── Back button (visible in voice mode) ────────────────────────── */
+.aurora-app .aurora-back-btn {
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px 12px 14px;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 0.5px solid rgba(255,255,255,0.24);
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-12px);
+  transition: opacity 500ms 400ms, transform 600ms 400ms cubic-bezier(.2,.7,.2,1);
+  z-index: 5;
+}
+body.aurora-active .aurora-back-btn {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.aurora-app .aurora-back-btn:hover {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.35);
+}
+.aurora-app .aurora-back-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.aurora-app .aurora-back-btn .aurora-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+}
+
+/* ── Top bar (meta strip) ───────────────────────────────────────── */
+.aurora-app .aurora-top-bar {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-shadow: 0 0 18px rgba(255,255,255,0.35);
+  opacity: 0;
+  animation: aurora-fadeIn 1.4s 0.4s forwards;
+  transition: opacity 400ms;
+}
+.aurora-app .aurora-top-bar .aurora-sep {
+  width: 18px;
+  height: 0.5px;
+  background: rgba(255,255,255,0.5);
+}
+.aurora-app .aurora-top-bar .aurora-live {
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.aurora-app .aurora-top-bar .aurora-live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #871A11;
+  box-shadow: 0 0 10px #871A11;
+  animation: aurora-livePulse 2.2s ease-in-out infinite;
+}
+
+/* ── Top-left brand ─────────────────────────────────────────────── */
+.aurora-app .aurora-top-left {
+  position: absolute;
+  top: 22px;
+  left: 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  animation: aurora-fadeIn 1.4s 0.4s forwards;
+}
+.aurora-app .aurora-logo-mark {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.aurora-app .aurora-logo-mark .aurora-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 14px rgba(255,255,255,0.9);
+  animation: aurora-breathePip 2.6s ease-in-out infinite;
+}
+.aurora-app .aurora-logo-mark .aurora-ring {
+  position: absolute;
+  inset: 0;
+  border: 0.5px solid rgba(255,255,255,0.30);
+  border-radius: 50%;
+  animation: aurora-ringExp 2.6s ease-out infinite;
+}
+.aurora-app .aurora-logo-mark .aurora-ring.aurora-d {
+  animation-delay: 1.3s;
+}
+.aurora-app .aurora-logo-text {
+  line-height: 1.1;
+}
+.aurora-app .aurora-logo-text b {
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  display: block;
+}
+.aurora-app .aurora-logo-text small {
+  display: block;
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+}
+
+/* ── Top-right (Pro / settings / avatar) ────────────────────────── */
+.aurora-app .aurora-top-right {
+  position: absolute;
+  top: 22px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  animation: aurora-fadeIn 1.4s 0.6s forwards;
+  transition: opacity 400ms;
+}
+.aurora-app .aurora-pro-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, rgba(255,138,166,0.18), rgba(196,184,255,0.10));
+  border: 0.5px solid rgba(255,138,166,0.35);
+  border-radius: 999px;
+  color: #ffd6e0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 24px rgba(255,138,166,0.12);
+  cursor: pointer;
+  transition: transform 180ms, box-shadow 180ms;
+  font-family: inherit;
+}
+.aurora-app .aurora-pro-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(255,138,166,0.22);
+}
+.aurora-app .aurora-pro-pill .aurora-star {
+  width: 12px;
+  height: 12px;
+}
+.aurora-app .aurora-icon-btn {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.045);
+  border: 0.5px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  cursor: pointer;
+  transition: background 180ms, border-color 180ms;
+  color: rgba(255,255,255,0.45);
+}
+.aurora-app .aurora-icon-btn:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.24);
+  color: #ffffff;
+}
+.aurora-app .aurora-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.aurora-app .aurora-quota-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(255,255,255,0.045);
+  border: 0.5px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  color: rgba(255,255,255,0.65);
+  font-size: 11px;
+  font-family: 'Geist Mono', monospace;
+  letter-spacing: 0.08em;
+}
+.aurora-app .aurora-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,138,166,0.7), rgba(196,184,255,0.3) 60%, transparent 100%),
+    linear-gradient(135deg, #ff8aa6, #c4b8ff);
+  border: 0.5px solid rgba(255,255,255,0.24);
+  box-shadow: 0 8px 24px rgba(196,184,255,0.18), inset 0 0.5px 0 rgba(255,255,255,0.3);
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: 13px;
+  color: rgba(0,0,0,0.55);
+  cursor: pointer;
+  position: relative;
+  font-family: inherit;
+}
+.aurora-app .aurora-avatar::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6ee7a7;
+  box-shadow: 0 0 6px #6ee7a7;
+  border: 2px solid #000;
+}
+
+/* ── Bottom chat bar ────────────────────────────────────────────── */
+.aurora-app .aurora-chat-bar {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(780px, calc(100% - 56px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 18px;
+  background: rgba(255,255,255,0.14);
+  backdrop-filter: blur(34px) saturate(200%);
+  -webkit-backdrop-filter: blur(34px) saturate(200%);
+  border: 0.5px solid rgba(255,255,255,0.45);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.55),
+    inset 0 -0.5px 0 rgba(255,255,255,0.08),
+    0 30px 80px rgba(0,0,0,0.55),
+    0 0 80px rgba(255,255,255,0.10);
+  opacity: 0;
+  animation: aurora-rise 1.2s 0.6s cubic-bezier(.2,.7,.2,1) forwards;
+  z-index: 4;
+  transition: width 400ms cubic-bezier(.2,.7,.2,1), background 200ms, border-color 200ms;
+}
+body.aurora-typing .aurora-app .aurora-chat-bar {
+  background: rgba(255,255,255,0.20);
+  border-color: rgba(255,255,255,0.65);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.70),
+    0 30px 80px rgba(0,0,0,0.55),
+    0 0 100px rgba(255,255,255,0.18);
+}
+.aurora-app .aurora-pip-mark {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.aurora-app .aurora-pip-mark .aurora-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 14px rgba(255,255,255,0.9);
+  animation: aurora-breathePip 2.6s ease-in-out infinite;
+}
+.aurora-app .aurora-pip-mark .aurora-ring {
+  position: absolute;
+  inset: 0;
+  border: 0.5px solid rgba(255,255,255,0.30);
+  border-radius: 50%;
+  animation: aurora-ringExp 2.6s ease-out infinite;
+}
+.aurora-app .aurora-pip-mark .aurora-ring.aurora-d {
+  animation-delay: 1.3s;
+}
+.aurora-app .aurora-chat-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-family: 'Urbanist', sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  height: 36px;
+}
+.aurora-app .aurora-chat-input::placeholder {
+  color: rgba(255,255,255,0.55);
+}
+.aurora-app .aurora-chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.aurora-app .aurora-send-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #871A11;
+  color: #D5D1D1;
+  box-shadow: 0 4px 14px rgba(135,26,17,0.5);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 180ms, transform 180ms;
+}
+.aurora-app .aurora-send-btn:hover {
+  background: rgba(255,255,255,0.20);
+  transform: rotate(-8deg);
+}
+.aurora-app .aurora-send-btn:disabled {
+  background: rgba(255,255,255,0.10);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.aurora-app .aurora-send-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.aurora-app .aurora-mic-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(255,255,255,0.24);
+  background:
+    linear-gradient(135deg, rgba(255,138,166,0.30), rgba(196,184,255,0.20)),
+    rgba(255,255,255,0.06);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 180ms, box-shadow 180ms;
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.30),
+    0 8px 24px rgba(255,138,166,0.18);
+}
+.aurora-app .aurora-mic-btn:hover {
+  transform: scale(1.06);
+  box-shadow: 0 12px 32px rgba(255,138,166,0.30);
+}
+.aurora-app .aurora-mic-btn svg {
+  width: 16px;
+  height: 16px;
+}
+body.aurora-active .aurora-app .aurora-mic-btn {
+  background:
+    linear-gradient(135deg, rgba(255,138,166,0.55), rgba(196,184,255,0.40)),
+    rgba(255,255,255,0.10);
+}
+
+/* ── Chat thread ────────────────────────────────────────────────── */
+.aurora-app .aurora-chat-thread {
+  position: absolute;
+  left: 50%;
+  bottom: 110px;
+  transform: translateX(-50%);
+  width: min(780px, calc(100% - 56px));
+  max-height: calc(100vh - 280px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+  pointer-events: auto;
+  z-index: 4;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 100%);
+}
+.aurora-app .aurora-chat-thread::-webkit-scrollbar {
+  width: 4px;
+}
+.aurora-app .aurora-chat-thread::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+}
+.aurora-app .aurora-msg {
+  max-width: 78%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: aurora-msgIn 600ms cubic-bezier(.2,.7,.2,1) both;
+}
+.aurora-app .aurora-msg.aurora-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.aurora-app .aurora-msg.aurora-ai {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.aurora-app .aurora-msg .aurora-who {
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-shadow: 0 0 12px rgba(255,255,255,0.45);
+  padding: 0 4px;
+}
+.aurora-app .aurora-msg .aurora-who .aurora-pip-mini {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255,255,255,0.9);
+  margin-right: 8px;
+  animation: aurora-livePulse 2.4s ease-in-out infinite;
+  vertical-align: 1px;
+}
+.aurora-app .aurora-msg .aurora-bubble {
+  padding: 14px 18px;
+  border-radius: 18px;
+  font-size: 14.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #0A0A36;
+  backdrop-filter: blur(34px) saturate(200%);
+  -webkit-backdrop-filter: blur(34px) saturate(200%);
+  border: 0.5px solid rgba(213,209,209,0.85);
+  background: rgba(213,209,209,0.94);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.6),
+    inset 0 -0.5px 0 rgba(255,255,255,0.10),
+    0 18px 40px rgba(0,0,0,0.45);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.aurora-app .aurora-msg.aurora-user .aurora-bubble {
+  background: #D5D1D1;
+  color: #0A0A36;
+  border-radius: 18px 18px 4px 18px;
+}
+.aurora-app .aurora-msg.aurora-ai .aurora-bubble {
+  border-radius: 18px 18px 18px 4px;
+}
+.aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 16px 20px;
+  background: rgba(213,209,209,0.94);
+}
+.aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0A0A36;
+  opacity: 0.45;
+  animation: aurora-pipBlink 1.3s ease-in-out infinite;
+}
+.aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+/* ── Status pill (active mode) ──────────────────────────────────── */
+.aurora-app .aurora-status {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-10px);
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 0.5px solid rgba(255,255,255,0.24);
+  border-radius: 999px;
+  color: white;
+  font-size: 13.5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 500ms 200ms, transform 600ms 200ms cubic-bezier(.2,.7,.2,1);
+  z-index: 4;
+}
+body.aurora-active .aurora-app .aurora-status {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.aurora-app .aurora-pips {
+  display: inline-flex;
+  gap: 5px;
+}
+.aurora-app .aurora-pips i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255,255,255,0.7);
+  animation: aurora-pipBlink 1.3s ease-in-out infinite;
+}
+.aurora-app .aurora-pips i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.aurora-app .aurora-pips i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+.aurora-app .aurora-dismiss {
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-left: 0.5px solid rgba(255,255,255,0.12);
+  padding-left: 14px;
+  transition: color 160ms;
+}
+.aurora-app .aurora-dismiss:hover {
+  color: #fff;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+.aurora-app .aurora-footer-info {
+  position: absolute;
+  bottom: 28px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  opacity: 0;
+  animation: aurora-fadeIn 1.4s 1s forwards;
+}
+.aurora-app .aurora-footer-info .aurora-dot {
+  width: 4px;
+  height: 4px;
+  background: rgba(255,255,255,0.22);
+  border-radius: 50%;
+}
+
+/* ── Focus mode (after first send) ──────────────────────────────── */
+.aurora-app .aurora-matrix,
+.aurora-app .aurora-vignette {
+  transition: transform 1400ms cubic-bezier(.2,.7,.2,1), opacity 1400ms;
+  transform-origin: 50% 50%;
+}
+body.aurora-focus-mode .aurora-app .aurora-matrix {
+  transform: scale(1.06);
+}
+body.aurora-focus-mode .aurora-app .aurora-vignette {
+  opacity: 1.2;
+  background:
+    radial-gradient(60% 50% at 50% 50%, transparent 0%, rgba(0,0,0,0.78) 95%),
+    radial-gradient(50% 40% at 50% 100%, rgba(0,0,0,0.6), transparent 60%);
+}
+
+/* ── Animations ─────────────────────────────────────────────────── */
+@keyframes aurora-fadeIn {
+  to { opacity: 1; }
+}
+@keyframes aurora-livePulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@keyframes aurora-breathePip {
+  0%, 100% { transform: scale(0.85); opacity: 0.85; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+@keyframes aurora-ringExp {
+  0% { transform: scale(0.4); opacity: 0.7; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+@keyframes aurora-rise {
+  from { opacity: 0; transform: translateX(-50%) translateY(28px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes aurora-msgIn {
+  from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes aurora-pipBlink {
+  0%, 100% { opacity: 0.25; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
