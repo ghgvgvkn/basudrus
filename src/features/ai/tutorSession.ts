@@ -35,6 +35,7 @@
  * block on memory persistence.
  */
 import { supabase } from "@/lib/supabase";
+import { apiUrl } from "@/lib/apiBase";
 
 // ─────────────────────────────────────────────────────────────────
 // Types
@@ -430,7 +431,7 @@ export async function analyzeAndCloseSession(
 ): Promise<void> {
   if (!sessionId || !accessToken) return;
   try {
-    await fetch("/api/ai/analyze-session", {
+    await fetch(apiUrl("/api/ai/analyze-session"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -458,7 +459,7 @@ export async function extractMemoryFromSession(
 ): Promise<void> {
   if (!sessionId || !accessToken) return;
   try {
-    await fetch("/api/ai/extract-memory", {
+    await fetch(apiUrl("/api/ai/extract-memory"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

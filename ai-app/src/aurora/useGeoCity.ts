@@ -13,6 +13,7 @@
  * UI should default to a sensible label ("AURORA", "BAS UDRUS", etc.).
  */
 import { useEffect, useState } from "react";
+import { apiUrl } from "@/lib/apiBase";
 
 const CACHE_KEY = "bu:aurora:geo:v1";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -73,7 +74,7 @@ export function useGeoCity(): UseGeoCityResult {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/geo", { method: "GET" });
+        const res = await fetch(apiUrl("/api/geo"), { method: "GET" });
         if (!res.ok) {
           if (!cancelled) setLoading(false);
           return;

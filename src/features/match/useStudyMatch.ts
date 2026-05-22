@@ -26,6 +26,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { apiUrl } from "@/lib/apiBase";
 import { useApp } from "@/context/AppContext";
 import type { Profile } from "@/shared/types";
 
@@ -295,7 +296,7 @@ export function useStudyMatch(): UseStudyMatchResult {
         setError("Sign in to run a match.");
         return null;
       }
-      const res = await fetch("/api/ai/study-match", {
+      const res = await fetch(apiUrl("/api/ai/study-match"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -366,7 +367,7 @@ export function useStudyMatch(): UseStudyMatchResult {
         setError("Sign in to search by email.");
         return null;
       }
-      const res = await fetch("/api/ai/match-lookup", {
+      const res = await fetch(apiUrl("/api/ai/match-lookup"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

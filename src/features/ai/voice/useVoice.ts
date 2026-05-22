@@ -25,8 +25,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { apiUrl } from "@/lib/apiBase";
 
-// API endpoints — same-origin in production, proxied through Vite in dev.
+// API endpoints — same-origin in production on basudrus.com, but the
+// ai-app deployment (basudrus-ai.vercel.app) calls them cross-origin
+// via VITE_API_BASE. apiUrl() handles both modes — see src/lib/apiBase.ts
+// for the full explanation.
 const SPEAK_URL = "/api/ai/voice/speak";
 const TRANSCRIBE_URL = "/api/ai/voice/transcribe";
 
@@ -215,7 +219,7 @@ export function useVoice(): UseVoiceResult {
 
     let res: Response;
     try {
-      res = await fetch(SPEAK_URL, {
+      res = await fetch(apiUrl(SPEAK_URL), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -424,7 +428,7 @@ export function useVoice(): UseVoiceResult {
       // server allowlist is matched against both with-/without-codec
       // variants anyway.
       const mediaType = blob.type || "audio/webm";
-      const res = await fetch(TRANSCRIBE_URL, {
+      const res = await fetch(apiUrl(TRANSCRIBE_URL), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

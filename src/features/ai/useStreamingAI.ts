@@ -25,6 +25,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSessionCached } from "@/lib/supabase";
+import { apiUrl } from "@/lib/apiBase";
 import { useApp } from "@/context/AppContext";
 import type { AIPersona } from "@/shared/types";
 import { useViewerPersonality } from "@/features/match/useViewerPersonality";
@@ -283,7 +284,7 @@ export function useStreamingAI(): StreamingAIState {
       const apiMsgs = [...history, { role: "user" as const, content: body }];
 
       abortRef.current = new AbortController();
-      const res = await fetch(endpoint, {
+      const res = await fetch(apiUrl(endpoint), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
