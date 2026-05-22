@@ -38,6 +38,7 @@ import { useVoice } from "@/features/ai/voice/useVoice";
 import { useAIHistory, fetchSessionById, type SessionListItem } from "@/features/ai/useAIHistory";
 import { useStreak } from "@/features/ai/useStreak";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
+import { supabase } from "@/lib/supabase";
 import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
@@ -66,6 +67,58 @@ export function AuroraAIScreen() {
   // those actions open the sign-up modal instead when user is null.
   const { user } = useSupabaseSession();
   const isAuthed = !!user;
+
+  /**
+   * Cross-subdomain session refresh — keeps the cookie hot.
+   *
+   * The auth cookie is scoped to .basudrus.com so a user signed in on
+   * basudrus.com should automatically appear authed here. In practice
+   * we've seen cases where the initial cookie read by the supabase
+   * client misses it (timing, browser cookie policies, etc.) and the
+   * user looks unauthed even though their session is valid.
+   *
+   * This effect:
+   *   1. On mount, force a refreshSession() — re-reads the cookie
+   *      and revalidates the token with Supabase.
+   *   2. On tab focus / visibility-change-to-visible, refresh again
+   *      so a user who signed in on another tab/site sees their
+   *      session here without needing to manually reload.
+   *
+   * Safe to run unconditionally — refreshSession is idempotent and
+   * cheap (one short network call to Supabase auth). If there's no
+   * session at all, it silently no-ops.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        // supabase.auth.refreshSession() forces a re-read of the
+        // stored token + revalidation. The auth-state-change listener
+        // in useSupabaseSession picks up the result, so we don't
+        // need to set state here directly.
+        await supabase.auth.refreshSession();
+      } catch { /* silent — auth flows handle their own errors */ }
+    };
+    if (!cancelled) void refresh();
+    // Schedule three retry passes in the first 4 seconds — handles
+    // browsers where the initial cookie read lags the page paint.
+    const retries = [800, 2000, 4000].map((delay) =>
+      window.setTimeout(refresh, delay),
+    );
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const onFocus = () => void refresh();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      retries.forEach((id) => clearTimeout(id));
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
 
   const auroraRef = useRef<AuroraHandle>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -238,10 +291,23 @@ export function AuroraAIScreen() {
     const text = input.trim();
     if (!text || loading) return;
 
-    // Anonymous user → stash the message, open the modal. The modal
-    // shows the queued message back to the user so they know what
-    // they were about to ask. After auth, runSendForText fires.
+    // Defensive: if useSupabaseSession is still resolving (cookie
+    // read in flight), force a refresh + re-check before showing the
+    // modal. This catches the case where the user IS authed cross-
+    // subdomain but our local state hasn't caught up.
     if (!isAuthed) {
+      try {
+        const { data } = await supabase.auth.refreshSession();
+        if (data?.session) {
+          // The auth-state-change listener will update isAuthed on
+          // the next render; for THIS turn we know we're good now.
+          await runSendForText(text);
+          return;
+        }
+      } catch { /* fall through to modal */ }
+
+      // Still no session after a fresh refresh — they're genuinely
+      // anonymous. Stash the message and open the modal.
       setPendingMessage(text);
       setSignUpOpen(true);
       return;
