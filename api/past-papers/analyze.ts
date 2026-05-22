@@ -297,46 +297,65 @@ export default async function handler(req: Request): Promise<Response> {
     : EXTRACTION_PROMPT;
   blocks.push({ type: "text", text: userText });
 
+  // Retry on Anthropic transient overload (529 / 503 / 502 / 504).
+  // Schedule: 3 attempts total with exponential backoff. 529s on
+  // upload-extraction calls are particularly painful because the user
+  // already waited for the upload + has invested effort; surfacing
+  // a transient error feels much worse than waiting 2 extra seconds.
+  const RETRYABLE = new Set([502, 503, 504, 529]);
+  const BACKOFF_MS = [0, 700, 1700];
   let modelText = "";
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        // Sonnet because precision matters here — wrong professor /
-        // year persists in the shared library. Cost (~$0.005/call) is
-        // acceptable for the upload path which is rare per-user.
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 800,
-        // Lower temperature → more conservative extraction. Important
-        // for is_past_paper / confidence honesty.
-        temperature: 0.2,
-        messages: [{ role: "user", content: blocks }],
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return jsonResponse(502, {
-        ok: false,
-        error: `Analysis failed (${res.status})`,
-        detail: text.slice(0, 300),
-      }, sHeaders);
+  let lastStatus = 0;
+  let lastDetail = "";
+  let networkErr: string | null = null;
+
+  for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+    if (BACKOFF_MS[attempt] > 0) await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          // Sonnet because precision matters here — wrong professor /
+          // year persists in the shared library. Cost (~$0.005/call) is
+          // acceptable for the upload path which is rare per-user.
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: 800,
+          temperature: 0.2,
+          messages: [{ role: "user", content: blocks }],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
+        modelText = (json.content || [])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text ?? "")
+          .join("\n")
+          .trim();
+        networkErr = null;
+        lastStatus = 200;
+        break;
+      }
+      lastStatus = res.status;
+      lastDetail = await res.text().catch(() => "");
+      if (!RETRYABLE.has(res.status)) break;
+    } catch (e) {
+      networkErr = e instanceof Error ? e.message : "Network error reaching the analyzer";
     }
-    const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
-    modelText = (json.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join("\n")
-      .trim();
-  } catch (e) {
-    return jsonResponse(502, {
-      ok: false,
-      error: e instanceof Error ? e.message : "Network error reaching the analyzer",
-    }, sHeaders);
+  }
+
+  if (!modelText) {
+    if (networkErr) {
+      return jsonResponse(502, { ok: false, error: networkErr }, sHeaders);
+    }
+    const friendly = (lastStatus === 529 || lastStatus === 503)
+      ? "AI is overloaded right now — please try again in a moment."
+      : `Analysis failed (${lastStatus})`;
+    return jsonResponse(502, { ok: false, error: friendly, detail: lastDetail.slice(0, 200) }, sHeaders);
   }
 
   const parsed = extractJson(modelText);

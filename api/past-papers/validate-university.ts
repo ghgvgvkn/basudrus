@@ -289,45 +289,65 @@ export default async function handler(req: Request): Promise<Response> {
     tavilyContext = "(Web search not configured.)";
   }
 
-  // ── Step 3: Claude verdict ──
+  // ── Step 3: Claude verdict (with retry on transient overload) ──
+  // 529 = Anthropic overloaded. Retry twice before giving up.
+  const RETRYABLE = new Set([502, 503, 504, 529]);
+  const BACKOFF_MS = [0, 700, 1700];
   let modelText = "";
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 400,
-        temperature: 0.1,
-        messages: [{
-          role: "user",
-          content: `${VALIDATE_PROMPT}\n\nTyped name: ${raw}\n\nWeb evidence:\n${tavilyContext}`,
-        }],
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return jsonResponse(502, {
-        ok: false,
-        status: "error",
-        error: `Validator upstream failed (${res.status})`,
-        detail: txt.slice(0, 200),
-      }, sHeaders);
+  let lastStatus = 0;
+  let lastDetail = "";
+  let networkErr: string | null = null;
+
+  for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+    if (BACKOFF_MS[attempt] > 0) await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 400,
+          temperature: 0.1,
+          messages: [{
+            role: "user",
+            content: `${VALIDATE_PROMPT}\n\nTyped name: ${raw}\n\nWeb evidence:\n${tavilyContext}`,
+          }],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
+        modelText = (json.content || [])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text ?? "")
+          .join("\n").trim();
+        networkErr = null;
+        lastStatus = 200;
+        break;
+      }
+      lastStatus = res.status;
+      lastDetail = await res.text().catch(() => "");
+      if (!RETRYABLE.has(res.status)) break;
+    } catch (e) {
+      networkErr = e instanceof Error ? e.message : "Network error reaching the validator";
     }
-    const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
-    modelText = (json.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join("\n").trim();
-  } catch (e) {
+  }
+
+  if (!modelText) {
+    if (networkErr) {
+      return jsonResponse(502, { ok: false, status: "error", error: networkErr }, sHeaders);
+    }
+    const friendly = (lastStatus === 529 || lastStatus === 503)
+      ? "AI is overloaded right now — please try again in a moment."
+      : `Validator upstream failed (${lastStatus})`;
     return jsonResponse(502, {
       ok: false,
       status: "error",
-      error: e instanceof Error ? e.message : "Network error reaching the validator",
+      error: friendly,
+      detail: lastDetail.slice(0, 200),
     }, sHeaders);
   }
 

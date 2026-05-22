@@ -2498,12 +2498,26 @@ If the student asks a question that goes beyond what's in the document, answer u
 
     // First attempt — with web_search if enabled.
     let response = await callAnthropic(true);
-    const isTransient = (status: number) => status === 429 || status === 502 || status === 503 || status === 504;
+    // 529 = Anthropic "overloaded" — added to the transient list so
+    // we retry instead of surfacing it to the user (basudrus.com chat
+    // was bubbling these up as "AI service temporarily unavailable"
+    // when a single retry would have succeeded).
+    const isTransient = (status: number) =>
+      status === 429 || status === 502 || status === 503 || status === 504 || status === 529;
 
-    if (!response.ok && isTransient(response.status)) {
-      await new Promise((r) => setTimeout(r, 2000));
-      try { await response.body?.cancel(); } catch { /* noop */ }
-      response = await callAnthropic(true);
+    // Retry up to 2 extra times with exponential backoff. 529s on
+    // a heavily-loaded Anthropic cluster usually resolve within
+    // 1-3 seconds, so 700ms + 1700ms gives us two free shots before
+    // the user even notices.
+    const RETRY_BACKOFF_MS = [700, 1700];
+    for (const delay of RETRY_BACKOFF_MS) {
+      if (!response.ok && isTransient(response.status)) {
+        await new Promise((r) => setTimeout(r, delay));
+        try { await response.body?.cancel(); } catch { /* noop */ }
+        response = await callAnthropic(true);
+      } else {
+        break;
+      }
     }
 
     // If a non-transient 4xx slipped through (most likely a bad tool

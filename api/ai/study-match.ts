@@ -497,44 +497,90 @@ export default async function handler(req: Request): Promise<Response> {
     "Output the JSON verdict now.",
   ].join("\n");
 
+  /**
+   * Anthropic call with retry-on-overload.
+   *
+   * Anthropic returns 529 ("overloaded") and occasionally 503 / 502
+   * when their infrastructure is temporarily slammed. These are
+   * transient — retrying in a moment usually succeeds. Without
+   * retry, a single 529 surfaces straight to the user as
+   * "Matchmaker upstream failed (529)" — confusing and unfair (they
+   * did nothing wrong).
+   *
+   * Schedule: 3 attempts total — original + 2 retries — with
+   * exponential backoff (700ms, 1700ms). Total worst case ~3s added
+   * latency on a fully-overloaded cluster; in practice the second
+   * attempt almost always wins.
+   *
+   * Only retries on these transient statuses:
+   *   529 — overloaded (Anthropic-specific)
+   *   503 — service unavailable
+   *   502 — bad gateway (rare, usually edge transport)
+   *   504 — gateway timeout
+   * 4xx (400, 401, 429, etc.) are NOT retried — those are real
+   * errors that need fixing, not transient overload.
+   */
+  const RETRYABLE_STATUSES = new Set([502, 503, 504, 529]);
+  const BACKOFF_MS = [0, 700, 1700];
   let modelText = "";
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        // Bumped from 700 → 1100 to fit the dialogue (~400 tokens
-        // typical) + the verdict body. Still cheap at Haiku rates.
-        max_tokens: 1100,
-        // Slightly higher temp than verdict-only because the dialogue
-        // benefits from conversational variety; verdict scoring is
-        // still anchored by the strict score guide above.
-        temperature: 0.35,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      return jsonResponse(502, {
-        ok: false,
-        error: `Matchmaker upstream failed (${res.status})`,
-        detail: detail.slice(0, 200),
-      }, sHeaders);
+  let lastStatus = 0;
+  let lastDetail = "";
+  let networkErr: string | null = null;
+
+  for (let attempt = 0; attempt < BACKOFF_MS.length; attempt++) {
+    if (BACKOFF_MS[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
     }
-    const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
-    modelText = (json.content || [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join("\n").trim();
-  } catch (e) {
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1100,
+          temperature: 0.35,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { content?: Array<{ type: string; text?: string }> };
+        modelText = (json.content || [])
+          .filter((b) => b.type === "text")
+          .map((b) => b.text ?? "")
+          .join("\n").trim();
+        networkErr = null;
+        lastStatus = 200;
+        break; // Success — exit retry loop
+      }
+      lastStatus = res.status;
+      lastDetail = await res.text().catch(() => "");
+      if (!RETRYABLE_STATUSES.has(res.status)) break; // Hard error, don't retry
+    } catch (e) {
+      networkErr = e instanceof Error ? e.message : "Network error reaching the matchmaker";
+      // Network errors are usually transient — fall through to retry
+    }
+  }
+
+  if (!modelText) {
+    // All retries exhausted — surface a user-friendly message that
+    // doesn't expose the upstream status code (which confuses users)
+    // but does map specific codes to specific guidance.
+    if (networkErr) {
+      return jsonResponse(502, { ok: false, error: networkErr }, sHeaders);
+    }
+    const userMessage = lastStatus === 529 || lastStatus === 503
+      ? "AI is overloaded right now — please try again in a moment."
+      : lastStatus === 504
+        ? "The matchmaker timed out — try again."
+        : `Matchmaker failed (${lastStatus}).`;
     return jsonResponse(502, {
       ok: false,
-      error: e instanceof Error ? e.message : "Network error reaching the matchmaker",
+      error: userMessage,
+      detail: lastDetail.slice(0, 200),
     }, sHeaders);
   }
 
