@@ -2496,8 +2496,21 @@ If the student asks a question that goes beyond what's in the document, answer u
       }
     }
 
-    // First attempt — with web_search if enabled.
-    let response = await callAnthropic(true);
+    // First attempt — web_search DISABLED by default.
+    // Why: Anthropic's web_search_20250305 tool intermittently returns
+    // 400 errors (~3-5x/day at current traffic). When it 400s, our
+    // fallback path retries without tools — but that adds ~2 seconds
+    // of dead time to every failing request, which users perceive as
+    // the chat being broken. Tavily is already wired for the queries
+    // that genuinely need live data (professor lookups, uni validation
+    // in past-papers/validate-university.ts, live local resources via
+    // tavily.ts shouldSearch heuristic). The Anthropic tool was a
+    // redundant second path; cutting it means every chat starts at
+    // full speed with no transient-error penalty.
+    //
+    // Re-enable later (callAnthropic(true)) once we identify what
+    // triggers the 400s — likely a specific message shape we send.
+    let response = await callAnthropic(false);
     // 529 = Anthropic "overloaded" — added to the transient list so
     // we retry instead of surfacing it to the user (basudrus.com chat
     // was bubbling these up as "AI service temporarily unavailable"
@@ -2514,7 +2527,10 @@ If the student asks a question that goes beyond what's in the document, answer u
       if (!response.ok && isTransient(response.status)) {
         await new Promise((r) => setTimeout(r, delay));
         try { await response.body?.cancel(); } catch { /* noop */ }
-        response = await callAnthropic(true);
+        // Retry without tools too — must match the first attempt's
+        // shape, otherwise we'd re-introduce the 400 we were trying
+        // to avoid.
+        response = await callAnthropic(false);
       } else {
         break;
       }
