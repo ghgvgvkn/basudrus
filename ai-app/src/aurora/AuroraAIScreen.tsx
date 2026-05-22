@@ -88,35 +88,47 @@ export function AuroraAIScreen() {
    * cheap (one short network call to Supabase auth). If there's no
    * session at all, it silently no-ops.
    */
+  /**
+   * Session-refresh on visibility / focus changes ONLY.
+   *
+   * Previously this effect fired refreshSession 4 times in the first
+   * 4 seconds (mount + 800ms + 2s + 4s). The intent was to recover
+   * from the cross-subdomain cookie missing on initial paint. In
+   * practice this was racing with the auth state machine — if the
+   * user JUST signed in, an aggressive refresh could hit Supabase
+   * mid-handshake and (in edge cases) clear the session entirely
+   * via an invalid_grant response. The user would see "signed in"
+   * in the chrome but the chat would fail with "Please sign in."
+   *
+   * New behavior: NO aggressive retries. We rely on the supabase
+   * client's own auto-refresh (autoRefreshToken: true in the client
+   * config). We just listen for visibility/focus and refresh once
+   * each — that catches the "signed in another tab, come back to
+   * this one" case without ever running while the auth state is
+   * mid-transition.
+   */
   useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        // supabase.auth.refreshSession() forces a re-read of the
-        // stored token + revalidation. The auth-state-change listener
-        // in useSupabaseSession picks up the result, so we don't
-        // need to set state here directly.
-        await supabase.auth.refreshSession();
-      } catch { /* silent — auth flows handle their own errors */ }
+    const refreshOnce = () => {
+      // Only refresh when we have a current session — calling
+      // refreshSession on an empty client can return an error that
+      // clears the (already empty) session state, which then races
+      // with any in-progress sign-in attempt.
+      void supabase.auth.getSession().then(({ data }) => {
+        if (!data.session) return;
+        // Have a session — try to refresh it silently. Errors are
+        // swallowed; the auto-refresh inside supabase-js handles
+        // the real token rotation.
+        void supabase.auth.refreshSession().catch(() => { /* silent */ });
+      });
     };
-    if (!cancelled) void refresh();
-    // Schedule three retry passes in the first 4 seconds — handles
-    // browsers where the initial cookie read lags the page paint.
-    const retries = [800, 2000, 4000].map((delay) =>
-      window.setTimeout(refresh, delay),
-    );
-
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") refreshOnce();
     };
-    const onFocus = () => void refresh();
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onFocus);
+    window.addEventListener("focus", refreshOnce);
     return () => {
-      cancelled = true;
-      retries.forEach((id) => clearTimeout(id));
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", refreshOnce);
     };
   }, []);
 
@@ -251,13 +263,30 @@ export function AuroraAIScreen() {
     const wasVoice = lastInputWasVoice;
     setLastInputWasVoice(false);
 
-    const result = await send("omar", text, chatHistory, {
+    const sendOnce = () => send("omar", text, chatHistory, {
       lang: "auto",
       subject: "general",
       uni: profile?.uni ?? undefined,
       major: profile?.major ?? undefined,
       year: profile?.year ?? undefined,
     });
+
+    let result = await sendOnce();
+
+    // Defensive recovery: useSupabaseSession may say authed (we got
+    // here because isAuthed was true) but the internal session-cache
+    // inside useStreamingAI can race — a stale "no session" entry
+    // populated pre-sign-in, with the SIGNED_IN cache bust not yet
+    // observable. If we hit auth error in that exact state, force a
+    // refreshSession (which fires TOKEN_REFRESHED → cache bust) and
+    // try one more time. After this, if still auth, it's a real
+    // missing session.
+    if (!result.ok && result.reason === "auth") {
+      try {
+        await supabase.auth.refreshSession();
+      } catch { /* fall through — retry will reveal real state */ }
+      result = await sendOnce();
+    }
 
     if (result.ok) {
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: result.assistant }]);
