@@ -234,29 +234,68 @@ export function AuroraAIScreen() {
     return () => clearTimeout(t);
   }, [isAuthed, pendingMessage]);
 
-  // ── Mic: push-to-talk via useVoice ────────────────────────────────
+  // ── Mic: hands-free voice mode via useVoice + VAD ─────────────────
   // Anonymous visitors can NOT use the mic — transcribe needs an
   // authed JWT. Tapping the mic while unauthed opens the sign-up modal.
-  const startMic = useCallback(async () => {
+  //
+  // Tap-to-toggle behavior:
+  //   - Tap (not listening) → start hands-free recording. Canvas
+  //     activates so the dots react. VAD watches the mic input and
+  //     fires endVoiceUtterance when the user stops talking.
+  //   - Tap (listening)     → cancel: stop the recording, drop the
+  //     audio, deactivate the canvas. Used when the user wants to
+  //     abort mid-sentence.
+  //
+  // endVoiceUtterance is the natural "I finished talking" path. It
+  // pulls the recorded blob, transcribes it via /api/ai/voice/transcribe,
+  // and IMMEDIATELY dispatches the transcript to runSendForText so Tony
+  // replies without the user having to click send. lastInputWasVoice
+  // is flipped so the auto-TTS pipeline reads Tony's reply aloud.
+
+  /** Live mic level 0–1, set by the VAD onLevel callback every frame.
+   *  Reserved for canvas reactivity — read by AuroraCanvas via ref. */
+  const micLevelRef = useRef(0);
+
+  /** Wraps the post-utterance flow so it can be invoked from the VAD
+   *  callback. Uses runSendForTextRef so the closure stays fresh. */
+  const endVoiceUtterance = useCallback(async () => {
+    const blob = await voice.stopRecording();
+    auroraRef.current?.deactivate();
+    if (!blob) return;
+    const result = await voice.transcribe(blob);
+    if (!result.ok || !result.transcript.trim()) return;
+    setLastInputWasVoice(true);
+    // Skip the composer hop — go straight to send so the conversation
+    // flows like a real voice call. Read latest send via ref so this
+    // closure doesn't pin a stale runSendForText.
+    void runSendForTextRef.current(result.transcript.trim());
+  }, [voice]);
+
+  /** Cancel an in-progress voice utterance without transcribing. */
+  const cancelVoiceMode = useCallback(async () => {
+    auroraRef.current?.deactivate();
+    await voice.stopRecording();
+  }, [voice]);
+
+  const toggleVoiceMode = useCallback(async () => {
     if (!isAuthed) {
       setSignUpOpen(true);
       return;
     }
-    auroraRef.current?.activate();
-    await voice.startRecording();
-  }, [voice, isAuthed]);
-
-  const stopMicAndTranscribe = useCallback(async () => {
-    auroraRef.current?.deactivate();
-    const blob = await voice.stopRecording();
-    if (!blob) return;
-    const result = await voice.transcribe(blob);
-    if (result.ok && result.transcript) {
-      setInput((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript));
-      setLastInputWasVoice(true);
-      inputRef.current?.focus();
+    if (voice.isListening) {
+      // Second tap while already recording — user wants to cancel.
+      await cancelVoiceMode();
+      return;
     }
-  }, [voice]);
+    auroraRef.current?.activate();
+    await voice.startRecording({
+      handsFree: {
+        silenceMs: 1400,
+        onSilence: () => { void endVoiceUtterance(); },
+        onLevel: (rms) => { micLevelRef.current = rms; },
+      },
+    });
+  }, [voice, isAuthed, endVoiceUtterance, cancelVoiceMode]);
 
   /**
    * Core send logic — takes the text as a parameter so it can be
@@ -746,19 +785,11 @@ export function AuroraAIScreen() {
               </svg>
             </button>
             <button
-              className="aurora-mic-btn"
-              title={voice.isListening ? "Release to send your voice" : "Hold to talk"}
+              className={`aurora-mic-btn${voice.isListening ? " is-listening" : ""}`}
+              title={voice.isListening ? "Listening — tap to cancel" : "Tap to talk"}
               type="button"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                void startMic();
-              }}
-              onPointerUp={() => {
-                if (voice.isListening) void stopMicAndTranscribe();
-              }}
-              onPointerLeave={() => {
-                if (voice.isListening) void stopMicAndTranscribe();
-              }}
+              aria-pressed={voice.isListening}
+              onClick={() => { void toggleVoiceMode(); }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="9" y="3" width="6" height="12" rx="3" />

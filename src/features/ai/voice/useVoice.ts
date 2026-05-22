@@ -67,8 +67,27 @@ export interface UseVoiceResult {
   isListening: boolean;
   /** True while a transcription request is in flight. */
   isTranscribing: boolean;
-  /** Start microphone capture. Resolves once recording is active. */
-  startRecording: () => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Start microphone capture. Resolves once recording is active.
+   *
+   * Optional `handsFree` mode enables voice-activity detection (VAD):
+   * after the user has spoken at least once and then goes silent for
+   * `silenceMs` (default 1500), the `onSilence` callback fires — the
+   * caller then runs stopRecording + transcribe + send. While
+   * recording, `onLevel` (if provided) is called every animation frame
+   * with the current normalized 0–1 audio level — drives visual
+   * feedback (canvas reactivity, animated dots, etc.).
+   *
+   * Without `handsFree`, behavior is unchanged: caller must call
+   * stopRecording manually (push-to-talk pattern).
+   */
+  startRecording: (opts?: {
+    handsFree?: {
+      silenceMs?: number;
+      onSilence?: () => void;
+      onLevel?: (rms: number) => void;
+    };
+  }) => Promise<{ ok: boolean; error?: string }>;
   /** Stop microphone capture and return the recorded Blob (or null on error). */
   stopRecording: () => Promise<Blob | null>;
   /** POST audio to the server; return the transcript. */
@@ -146,6 +165,21 @@ export function useVoice(): UseVoiceResult {
   const recordedChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // VAD / hands-free voice mode refs. Created on startRecording when
+  // hands-free mode is active, torn down on stopRecording.
+  //   micCtx        — dedicated AudioContext for mic-side analysis.
+  //                   Separate from the playback context so closing
+  //                   one doesn't kill the other.
+  //   micSource     — MediaStreamSourceNode reading the mic stream.
+  //   micAnalyser   — AnalyserNode for level sampling. fftSize=512
+  //                   for cheap per-frame RMS calculation.
+  //   vadRaf        — requestAnimationFrame handle so we can cancel
+  //                   the level-monitoring loop on stop/unmount.
+  const micCtxRef = useRef<AudioContext | null>(null);
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micAnalyserRef = useRef<AnalyserNode | null>(null);
+  const vadRafRef = useRef<number | null>(null);
+
   // Cleanup on unmount — stop any active audio + release the mic
   // stream so the browser's recording indicator disappears.
   useEffect(() => {
@@ -157,6 +191,11 @@ export function useVoice(): UseVoiceResult {
       try {
         streamRef.current?.getTracks().forEach((t) => t.stop());
       } catch { /* noop */ }
+      // Tear down VAD-side audio graph if it survived (defensive — the
+      // stopRecording path normally handles this).
+      if (vadRafRef.current !== null) cancelAnimationFrame(vadRafRef.current);
+      try { micSourceRef.current?.disconnect(); } catch { /* noop */ }
+      try { void micCtxRef.current?.close(); } catch { /* noop */ }
     };
   }, []);
 
@@ -333,7 +372,7 @@ export function useVoice(): UseVoiceResult {
 
   // ── STT ────────────────────────────────────────────────────────────
 
-  const startRecording = useCallback<UseVoiceResult["startRecording"]>(async () => {
+  const startRecording = useCallback<UseVoiceResult["startRecording"]>(async (opts) => {
     setError(null);
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       const msg = "Microphone not supported in this browser";
@@ -383,10 +422,104 @@ export function useVoice(): UseVoiceResult {
     recorderRef.current = recorder;
     recorder.start(250); // 250ms timeslice — keep chunks small for low latency
     setIsListening(true);
+
+    // ── Hands-free mode: set up VAD ────────────────────────────────────
+    // Spin up a dedicated mic-side AudioContext + AnalyserNode so we
+    // can monitor the input level every animation frame. The first
+    // time we detect speech (RMS above the threshold) we flip a
+    // "spoke at least once" flag — without it, the silence detector
+    // would fire instantly at session start before the user has said
+    // anything. Once they've spoken AND fallen silent for silenceMs,
+    // we invoke onSilence so the caller can stop+transcribe.
+    if (opts?.handsFree) {
+      const { silenceMs = 1500, onSilence, onLevel } = opts.handsFree;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const AC: typeof AudioContext = (window.AudioContext || (window as any).webkitAudioContext);
+        const micCtx = new AC();
+        const source = micCtx.createMediaStreamSource(stream);
+        const analyser = micCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        source.connect(analyser);
+        micCtxRef.current = micCtx;
+        micSourceRef.current = source;
+        micAnalyserRef.current = analyser;
+
+        // RMS calculation reuses one Float32Array to avoid per-frame
+        // allocation. Threshold is empirical — ~0.02 is roughly
+        // "quieter than typing nearby" but louder than fan noise on
+        // most laptops with echoCancellation enabled.
+        const buf = new Float32Array(analyser.fftSize);
+        const SPEECH_THRESHOLD = 0.02;
+        let hasSpoken = false;
+        let silenceStartedAt: number | null = null;
+        let cancelled = false;
+
+        const loop = () => {
+          if (cancelled) return;
+          // Bail out if recording has already been stopped from outside.
+          if (!recorderRef.current || recorderRef.current.state !== "recording") {
+            return;
+          }
+          analyser.getFloatTimeDomainData(buf);
+          // Standard RMS over the frame.
+          let sumSq = 0;
+          for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
+          const rms = Math.sqrt(sumSq / buf.length);
+          if (onLevel) {
+            // Clamp to 0–1 with a soft ceiling for nicer visuals.
+            onLevel(Math.min(1, rms * 4));
+          }
+          const now = performance.now();
+          if (rms > SPEECH_THRESHOLD) {
+            hasSpoken = true;
+            silenceStartedAt = null;
+          } else if (hasSpoken) {
+            if (silenceStartedAt === null) silenceStartedAt = now;
+            else if (now - silenceStartedAt >= silenceMs) {
+              // End of utterance detected. Fire callback ONCE then stop
+              // the loop — the caller is expected to call stopRecording
+              // which will tear down the VAD context via the cleanup
+              // path in stopRecording.
+              cancelled = true;
+              vadRafRef.current = null;
+              try { onSilence?.(); } catch { /* caller threw — swallow */ }
+              return;
+            }
+          }
+          vadRafRef.current = requestAnimationFrame(loop);
+        };
+        vadRafRef.current = requestAnimationFrame(loop);
+      } catch (e) {
+        // VAD setup failed — keep recording in non-handsfree mode rather
+        // than tearing the whole thing down. Caller can still tap to
+        // stop manually.
+        if (import.meta.env.DEV) console.warn("[useVoice] VAD setup failed:", e);
+      }
+    }
+
     return { ok: true };
   }, []);
 
   const stopRecording = useCallback<UseVoiceResult["stopRecording"]>(async () => {
+    // Cancel any in-flight VAD loop and tear down the mic-side audio
+    // graph. Safe to run unconditionally — refs are null when not in
+    // hands-free mode.
+    if (vadRafRef.current !== null) {
+      cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = null;
+    }
+    if (micSourceRef.current) {
+      try { micSourceRef.current.disconnect(); } catch { /* noop */ }
+      micSourceRef.current = null;
+    }
+    micAnalyserRef.current = null;
+    if (micCtxRef.current) {
+      try { void micCtxRef.current.close(); } catch { /* noop */ }
+      micCtxRef.current = null;
+    }
+
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") {
       setIsListening(false);
