@@ -671,6 +671,28 @@ body.aurora-active .aurora-app .aurora-status {
   border-radius: 50%;
 }
 
+/* ── Sign-in pill (anonymous visitors, shown in place of avatar) ─ */
+.aurora-app .aurora-signin-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, rgba(255,138,166,0.28), rgba(196,184,255,0.20));
+  border: 0.5px solid rgba(255,138,166,0.40);
+  border-radius: 999px;
+  color: #ffffff;
+  font-family: 'Urbanist', sans-serif;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: transform 180ms, box-shadow 180ms;
+  box-shadow: 0 8px 24px rgba(255,138,166,0.18);
+}
+.aurora-app .aurora-signin-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(255,138,166,0.28);
+}
+
 /* ── Photo avatar (when user has a profile photo) ───────────────── */
 .aurora-app .aurora-avatar.aurora-avatar-photo {
   background: transparent;
@@ -954,6 +976,277 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-bubble.aurora-typing-bubble i:nth-child(3) {
   animation-delay: 0.36s;
+}
+
+/* ── Sign-up modal (anonymous-browse → sign-up-on-send flow) ────── */
+.aurora-signup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 5, 36, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: aurora-fadeIn 200ms ease forwards;
+  font-family: 'Urbanist', sans-serif;
+  color: #ffffff;
+}
+.aurora-signup-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  border-radius: 24px;
+  background: rgba(20, 20, 63, 0.85);
+  border: 0.5px solid rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -0.5px 0 rgba(255, 255, 255, 0.04),
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    0 0 100px rgba(196, 184, 255, 0.10);
+  padding: 28px;
+  animation: aurora-signup-pop 320ms cubic-bezier(.2, .7, .2, 1) both;
+}
+@keyframes aurora-signup-pop {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.aurora-signup-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: background 160ms, color 160ms;
+}
+.aurora-signup-close:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #ffffff;
+}
+
+.aurora-signup-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+.aurora-signup-pip {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 12px;
+  display: grid;
+  place-items: center;
+}
+.aurora-signup-title {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: #ffffff;
+}
+.aurora-signup-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.5;
+}
+
+.aurora-signup-pending {
+  margin: 14px 0 18px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+}
+.aurora-signup-pending-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  display: block;
+  margin-bottom: 6px;
+}
+.aurora-signup-pending-bubble {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #ffffff;
+  word-wrap: break-word;
+}
+.aurora-signup-pending-foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(196, 184, 255, 0.85);
+}
+
+.aurora-signup-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-family: 'Urbanist', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: background 160ms, transform 160ms;
+  margin-bottom: 14px;
+}
+.aurora-signup-google:hover:not(:disabled) {
+  background: #f5f5f5;
+  transform: translateY(-1px);
+}
+.aurora-signup-google:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.aurora-signup-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+}
+.aurora-signup-divider::before,
+.aurora-signup-divider::after {
+  content: "";
+  flex: 1;
+  height: 0.5px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.aurora-signup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.aurora-signup-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  transition: border-color 160ms, background 160ms;
+}
+.aurora-signup-field:focus-within {
+  border-color: rgba(196, 184, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+}
+.aurora-signup-field-icon {
+  width: 16px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+}
+.aurora-signup-field input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-family: 'Urbanist', sans-serif;
+  font-size: 14px;
+}
+.aurora-signup-field input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.aurora-signup-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 138, 138, 0.10);
+  border: 0.5px solid rgba(255, 138, 138, 0.30);
+  color: #ffb8b8;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.aurora-signup-error svg {
+  margin-top: 1px;
+}
+
+.aurora-signup-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ff8aa6 0%, #c4b8ff 100%);
+  color: #0A0A36;
+  font-family: 'Urbanist', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: transform 160ms, box-shadow 160ms;
+  margin-top: 4px;
+  box-shadow: 0 8px 24px rgba(255, 138, 166, 0.25);
+}
+.aurora-signup-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(255, 138, 166, 0.35);
+}
+.aurora-signup-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.aurora-signup-toggle {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.aurora-signup-toggle button {
+  background: none;
+  border: none;
+  color: #c4b8ff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  padding: 0;
+}
+.aurora-signup-toggle button:hover {
+  color: #ffffff;
+}
+
+.aurora-signup-tos {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.30);
+  line-height: 1.5;
 }
 
 /* ── Mobile responsive — hide rail/widgets, narrow chrome ───────── */

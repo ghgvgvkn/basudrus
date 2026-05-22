@@ -37,8 +37,10 @@ import { useStreamingAI, type ChatMsg } from "@/features/ai/useStreamingAI";
 import { useVoice } from "@/features/ai/voice/useVoice";
 import { useAIHistory, fetchSessionById, type SessionListItem } from "@/features/ai/useAIHistory";
 import { useStreak } from "@/features/ai/useStreak";
+import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
+import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
 import "./aurora.css";
 
@@ -59,6 +61,11 @@ export function AuroraAIScreen() {
   const history = useAIHistory();
   const streak = useStreak();
   const geo = useGeoCity();
+  // Auth state. The page renders without a session — Aurora is
+  // publicly browsable. Only chat send / mic require a real user;
+  // those actions open the sign-up modal instead when user is null.
+  const { user } = useSupabaseSession();
+  const isAuthed = !!user;
 
   const auroraRef = useRef<AuroraHandle>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -77,6 +84,13 @@ export function AuroraAIScreen() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   /** Local 30s tick for the footer clock + meta strip day label. */
   const [meta, setMeta] = useState<{ day: string; clock: string }>(() => formatMeta(new Date()));
+
+  /** Sign-up modal state. When the anonymous user tries to send a
+   *  message (or use the mic), we stash the message here and open
+   *  the modal. After auth succeeds (detected via user becoming
+   *  truthy), we auto-send the pending message. */
+  const [signUpOpen, setSignUpOpen] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setMeta(formatMeta(new Date())), 30 * 1000);
@@ -101,11 +115,46 @@ export function AuroraAIScreen() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, partial]);
 
+  /**
+   * Post-auth retry: when an anonymous user opens the sign-up modal
+   * with a pending message and successfully authenticates, this fires
+   * the moment user becomes truthy. We:
+   *   1. Restore the message into the composer (so handleSend can see it)
+   *   2. Close the modal
+   *   3. Trigger send on the next tick — small delay lets the modal's
+   *      exit animation play out + the session token to settle
+   *
+   * Falls through quietly when the user signed in without a pending
+   * message (e.g. they manually opened the modal from the avatar).
+   */
+  useEffect(() => {
+    if (!isAuthed || !pendingMessage) return;
+    const message = pendingMessage;
+    setPendingMessage(null);
+    setSignUpOpen(false);
+    setInput(message);
+    // Small delay so the modal close animation finishes + the user
+    // sees their message appear in the composer right before the
+    // send fires. Feels intentional, not jarring.
+    const t = setTimeout(() => {
+      // Read the latest send function via ref so this effect doesn't
+      // depend on runSendForText's identity (which changes per render).
+      void runSendForTextRef.current(message);
+    }, 240);
+    return () => clearTimeout(t);
+  }, [isAuthed, pendingMessage]);
+
   // ── Mic: push-to-talk via useVoice ────────────────────────────────
+  // Anonymous visitors can NOT use the mic — transcribe needs an
+  // authed JWT. Tapping the mic while unauthed opens the sign-up modal.
   const startMic = useCallback(async () => {
+    if (!isAuthed) {
+      setSignUpOpen(true);
+      return;
+    }
     auroraRef.current?.activate();
     await voice.startRecording();
-  }, [voice]);
+  }, [voice, isAuthed]);
 
   const stopMicAndTranscribe = useCallback(async () => {
     auroraRef.current?.deactivate();
@@ -119,9 +168,13 @@ export function AuroraAIScreen() {
     }
   }, [voice]);
 
-  // ── Send a message ────────────────────────────────────────────────
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  /**
+   * Core send logic — takes the text as a parameter so it can be
+   * called either from handleSend (user clicked send / hit enter)
+   * OR from the post-auth retry effect (user just signed up with
+   * a queued message). Assumes auth is already established.
+   */
+  const runSendForText = useCallback(async (text: string) => {
     if (!text || loading) return;
 
     if (!focusMode) setFocusMode(true);
@@ -143,8 +196,6 @@ export function AuroraAIScreen() {
     }));
 
     const wasVoice = lastInputWasVoice;
-    // Reset for next turn — if the user types after this, we won't
-    // auto-speak Tony's next reply unless they mic again.
     setLastInputWasVoice(false);
 
     const result = await send("omar", text, chatHistory, {
@@ -159,16 +210,12 @@ export function AuroraAIScreen() {
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: result.assistant }]);
       auroraRef.current?.pulseFromAll(0.45);
 
-      // ── Auto-TTS: if the user used the mic, speak Tony's reply.
-      // Closes the voice loop without forcing TTS on text-only users.
-      // Fire-and-forget; the speak hook handles its own errors.
+      // Auto-TTS: speak Tony's reply when the user used voice input.
       if (wasVoice && result.assistant.trim()) {
-        void voice.speak(result.assistant).catch(() => { /* silent — voice is best-effort */ });
+        void voice.speak(result.assistant).catch(() => { /* silent — best-effort */ });
       }
 
       // Refresh history sidebar so the new session row shows up.
-      // useStreamingAI persists sessions in the background; we
-      // refresh after a small delay so the row is visible.
       window.setTimeout(() => { void history.refresh(); }, 600);
     } else {
       const errMsg = result.reason === "auth"
@@ -184,7 +231,32 @@ export function AuroraAIScreen() {
                 : "Something went wrong. Try again in a moment.";
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg }]);
     }
-  }, [input, loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history]);
+  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history]);
+
+  // ── Send a message (button / enter) ───────────────────────────────
+  const handleSend = useCallback(async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    // Anonymous user → stash the message, open the modal. The modal
+    // shows the queued message back to the user so they know what
+    // they were about to ask. After auth, runSendForText fires.
+    if (!isAuthed) {
+      setPendingMessage(text);
+      setSignUpOpen(true);
+      return;
+    }
+
+    await runSendForText(text);
+  }, [input, loading, isAuthed, runSendForText]);
+
+  // Stable ref to the latest runSendForText so the post-auth retry
+  // effect can call it without listing it as a dep (which would
+  // cause the effect to re-fire on every render).
+  const runSendForTextRef = useRef(runSendForText);
+  useEffect(() => {
+    runSendForTextRef.current = runSendForText;
+  }, [runSendForText]);
 
   // ── Conversation history: resume a session ────────────────────────
   const loadSession = useCallback(async (item: SessionListItem) => {
@@ -322,21 +394,35 @@ export function AuroraAIScreen() {
               Upgrade · Pro
             </button>
           )}
-          <button
-            className="aurora-icon-btn"
-            type="button"
-            onClick={() => openSettings("account")}
-            title="Settings"
-            aria-label="Open settings"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
-            </svg>
-          </button>
-          {/* Avatar: photo when set, initial otherwise. Uses the user's
-              chosen avatar_color when photo isn't available. */}
-          {hasPhoto ? (
+          {/* Settings cog — visible when authed. Anonymous users
+              don't have settings to manage; we show a Sign-in button
+              in the same slot instead. */}
+          {isAuthed ? (
+            <button
+              className="aurora-icon-btn"
+              type="button"
+              onClick={() => openSettings("account")}
+              title="Settings"
+              aria-label="Open settings"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+              </svg>
+            </button>
+          ) : null}
+          {/* Avatar — only when authed. Anonymous users see a
+              compact "Sign in" pill instead that opens the modal. */}
+          {!isAuthed ? (
+            <button
+              type="button"
+              onClick={() => setSignUpOpen(true)}
+              className="aurora-signin-pill"
+              title="Sign up or sign in"
+            >
+              Sign in
+            </button>
+          ) : hasPhoto ? (
             <div
               className="aurora-avatar aurora-avatar-photo"
               title={profile?.name ?? "You"}
@@ -359,7 +445,10 @@ export function AuroraAIScreen() {
           )}
         </div>
 
-        {/* LEFT RAIL — conversation history */}
+        {/* LEFT RAIL — conversation history. Only authed users see it
+            (anonymous visitors have nothing to display + the rail would
+            look awkward without data). */}
+        {isAuthed && (
         <aside className="aurora-chat-rail">
           <div className="aurora-rail-card">
             <h3>
@@ -410,8 +499,11 @@ export function AuroraAIScreen() {
             </div>
           </div>
         </aside>
+        )}
 
-        {/* TOP WIDGET SHELF — Quota + Streak (real data) */}
+        {/* TOP WIDGET SHELF — Quota + Streak (authed only). Anonymous
+            visitors see clean chrome; widgets appear after sign-up. */}
+        {isAuthed && (
         <section className="aurora-widgets">
           {/* Today's AI quota widget — pulled from useApp().subscription */}
           <div className="aurora-widget aurora-w-quota">
@@ -454,6 +546,7 @@ export function AuroraAIScreen() {
             </div>
           </div>
         </section>
+        )}
 
         {/* CHAT THREAD */}
         <div className="aurora-chat-thread" ref={threadRef}>
@@ -590,6 +683,19 @@ export function AuroraAIScreen() {
           <span>AURORA · BAS UDRUS</span>
         </div>
       </div>
+
+      {/* Sign-up modal — opens only when an anonymous visitor tries
+          to send a message or use the mic. Authed users never see it. */}
+      <AuroraSignUpModal
+        open={signUpOpen}
+        onClose={() => {
+          setSignUpOpen(false);
+          // Don't clear pendingMessage — user might dismiss the modal
+          // by accident; keeping the message means the next send
+          // attempt re-prompts with the same text.
+        }}
+        pendingMessage={pendingMessage ?? undefined}
+      />
     </div>
   );
 }

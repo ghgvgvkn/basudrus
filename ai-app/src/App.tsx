@@ -1,46 +1,43 @@
 /**
- * ai-app — Aurora AI shell.
+ * ai-app — Aurora AI shell (anonymous-browsable).
  *
- * Mirrors the provider stack from Bas Udrus's App.tsx but skips the
- * Router, Shell, Onboarding gate, and every non-AI screen. The only
- * thing this app does is:
- *   1. Wrap in the same providers Bas Udrus uses (so all shared hooks
- *      from @/context/AppContext + @/context/LocaleContext work).
- *   2. Force a Supabase sign-in via SignInGate.
- *   3. Render <AuroraAIScreen /> full-bleed.
+ * Key UX decision: visitors can BROWSE Aurora without signing in.
+ * The full canvas, chrome, and chat composer render publicly. Only
+ * when an anonymous user tries to actually send a message (or use
+ * the mic) does AuroraAIScreen open the inline AuroraSignUpModal.
  *
- * Because we share the supabase client (with the new cookie storage
- * scoped to .basudrus.com), a user signed into basudrus.com is
- * automatically signed in here. SignInGate falls through.
+ * Why we removed SignInGate from this shell:
+ *   - Better first-impression UX — visitors see the product immediately
+ *     instead of an auth wall before they understand what it does.
+ *   - "Twitter/X" pattern — browse freely, sign up at the moment of
+ *     intent (send a message, save, follow). Conversion lifts.
+ *   - Cross-subdomain SSO still works — when a signed-in basudrus.com
+ *     user lands here, the .basudrus.com-scoped cookie is picked up
+ *     by the supabase client and useSupabaseSession sees them as
+ *     authed without any redirect.
  *
  * IMPORTANT: ai.basudrus.com is branded "Aurora" — but the AI persona
  * itself stays "Tony Starrk" (system prompt in api/ai/tutor.ts is
  * unchanged). Aurora is the PLATFORM; Tony is the AI inside it.
  *
  * The shared src/features/ai/AIScreen.tsx (used by basudrus.com) is
- * NOT touched by the Aurora redesign — basudrus.com keeps its existing
- * look and behavior.
+ * NOT touched. basudrus.com keeps its existing auth-gated flow.
  */
 import { Suspense, lazy } from "react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { ErrorBoundary } from "@/shared/ErrorBoundary";
 import { AppProvider } from "@/context/AppContext";
 import { LocaleProvider } from "@/context/LocaleContext";
-import { SignInGate } from "@/features/auth/SignInGate";
 import { ProfileSync } from "@/features/auth/ProfileSync";
 import { SettingsModal } from "@ai/settings/SettingsModal";
 
-// AuroraAIScreen replaces the legacy <AIScreen /> on ai.basudrus.com.
-// Lazy-loaded so the auth gate paints before the canvas + chrome
-// download. The Aurora chunk is ~30 KB including the dot-matrix
-// engine + ported CSS.
+// AuroraAIScreen — anonymous-renderable. Authed paths gated inside
+// the component, not at the route level.
 const AuroraAIScreen = lazy(() =>
   import("./aurora/AuroraAIScreen").then((m) => ({ default: m.AuroraAIScreen })),
 );
 
 function LoadingShell() {
-  // Match Aurora's deep-navy background so the loading paint doesn't
-  // flash cream → black on a freshly opened tab.
   return (
     <div
       style={{
@@ -72,23 +69,21 @@ export default function App() {
     <ErrorBoundary>
       <LocaleProvider>
         <AppProvider>
-          <SignInGate>
-            <ProfileSync />
-            <Suspense fallback={<LoadingShell />}>
-              <AuroraAIScreen />
-            </Suspense>
-            {/* Settings modal stays mounted as a portal-style overlay —
-                its visibility is driven by global state from
-                SettingsButton (clicked from inside Aurora's top-right
-                chrome). The modal's 8 sections still work; only its
-                trigger location changed. */}
-            <SettingsModal />
-          </SignInGate>
+          {/* ProfileSync is safe to mount unconditionally — it
+              internally checks for a session and no-ops without one.
+              When the user eventually signs in via the modal, it
+              picks up the new session via supabase.auth state
+              changes and syncs their profile into AppContext. */}
+          <ProfileSync />
+          <Suspense fallback={<LoadingShell />}>
+            <AuroraAIScreen />
+          </Suspense>
+          {/* Settings modal — only ever opens when an authed user
+              clicks the cog inside Aurora. Safe to keep mounted
+              globally as a portal-style overlay. */}
+          <SettingsModal />
         </AppProvider>
       </LocaleProvider>
-      {/* Vercel Speed Insights — Core Web Vitals on ai.basudrus.com.
-          Outside SignInGate so we still capture LCP/TTFB for the
-          auth-gate paint (which IS the first paint for new visitors). */}
       <SpeedInsights />
     </ErrorBoundary>
   );
