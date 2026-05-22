@@ -31,6 +31,7 @@
 import { useState } from "react";
 import { Mail, Lock, ArrowRight, AlertCircle, X, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { setOauthOrigin } from "@/lib/oauthOrigin";
 
 type Mode = "up" | "in";
 
@@ -62,14 +63,11 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
     setGoogleBusy(true);
     try {
       // Remember origin so the cross-subdomain bounce-back in
-      // SignInGate (which IS rendered on basudrus.com when the
-      // OAuth flow lands there) can ship the user back here.
-      try {
-        localStorage.setItem("bu:oauth-origin", JSON.stringify({
-          origin: window.location.origin,
-          ts: Date.now(),
-        }));
-      } catch { /* noop */ }
+      // SignInGate (rendered on basudrus.com when the OAuth flow
+      // lands there) can ship the user back here. Uses a
+      // .basudrus.com-scoped cookie because localStorage is per-
+      // origin and wouldn't survive the cross-subdomain redirect.
+      setOauthOrigin(window.location.origin);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo: `${window.location.origin}/` },

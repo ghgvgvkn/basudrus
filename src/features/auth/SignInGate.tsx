@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { Mail, Lock, ArrowRight, AlertCircle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { setOauthOrigin, readOauthOrigin, clearOauthOrigin } from "@/lib/oauthOrigin";
 import { useSupabaseSession } from "./useSupabaseSession";
 
 /** Legacy localStorage flag — kept only so we can clean it up on
@@ -73,21 +74,17 @@ export function SignInGate({
    */
   useEffect(() => {
     if (!user) return;
-    let raw: string | null = null;
-    try { raw = localStorage.getItem("bu:oauth-origin"); } catch { /* noop */ }
-    if (!raw) return;
-    let parsed: { origin?: string; ts?: number } | null = null;
-    try { parsed = JSON.parse(raw); } catch { /* noop */ }
-    // Clear the flag regardless — it's single-use.
-    try { localStorage.removeItem("bu:oauth-origin"); } catch { /* noop */ }
-    if (!parsed?.origin || !parsed.ts) return;
-    // Expire after 5 minutes — anything older was a stale attempt.
-    if (Date.now() - parsed.ts > 5 * 60 * 1000) return;
+    const entry = readOauthOrigin();
+    // Clear the marker either way — single-use, so a stale value
+    // doesn't keep firing on every render.
+    clearOauthOrigin();
+    if (!entry) return;
     // Already on the right origin? Nothing to do.
-    if (parsed.origin === window.location.origin) return;
-    // Bounce. Use window.location so the new page does a full
-    // session-cookie read (instead of soft-routing inside the SPA).
-    try { window.location.replace(parsed.origin + "/"); } catch { /* noop */ }
+    if (entry.origin === window.location.origin) return;
+    // Bounce. Use window.location.replace so the .basudrus.com-scoped
+    // auth cookie comes along with us to the new origin and the
+    // supabase client there reads it on init.
+    try { window.location.replace(entry.origin + "/"); } catch { /* noop */ }
   }, [user]);
 
   // Listen once for PASSWORD_RECOVERY. Doesn't fire on regular sign-in,
@@ -165,14 +162,11 @@ function SignInForm() {
     setGoogleBusy(true);
     try {
       // Remember where we started so we can bounce back after OAuth.
-      // 5 min TTL — guards against stale localStorage entries from
-      // abandoned sign-in attempts.
-      try {
-        localStorage.setItem("bu:oauth-origin", JSON.stringify({
-          origin: window.location.origin,
-          ts: Date.now(),
-        }));
-      } catch { /* localStorage unavailable, no-op */ }
+      // Uses a .basudrus.com-scoped cookie so the value survives
+      // cross-subdomain redirects (localStorage wouldn't — it's
+      // scoped per-origin and we'd lose it when Supabase routes
+      // the OAuth callback to a different subdomain).
+      setOauthOrigin(window.location.origin);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
