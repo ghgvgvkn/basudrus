@@ -190,6 +190,26 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
           </p>
         </div>
 
+        {/* Cross-domain notice — only on preview/staging URLs that
+            aren't .basudrus.com. Explains why a user who's signed in on
+            basudrus.com still has to sign in here: browsers don't share
+            cookies across .basudrus.com and .vercel.app domains. */}
+        {typeof window !== "undefined" &&
+         !/(^|\.)basudrus\.com$/i.test(window.location.hostname) && (
+          <div className="aurora-signup-cross-domain-note">
+            <span className="aurora-signup-cross-domain-label">PREVIEW URL</span>
+            <p>
+              You're on the preview build (<code>{window.location.hostname}</code>).
+              Even if you have an account on basudrus.com, you'll need to
+              {mode === "up" ? " sign up" : " sign in"} here too —
+              browsers don't share sessions across different domains.
+              <br />
+              <strong>Tip:</strong> email + password below works instantly.
+              Google sign-in works only if this URL is in our Supabase allowlist.
+            </p>
+          </div>
+        )}
+
         {/* Pending message echo — gives the user context for WHY they
             were asked to sign up. */}
         {pendingMessage && (
