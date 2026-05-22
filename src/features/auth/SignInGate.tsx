@@ -81,10 +81,63 @@ export function SignInGate({
     if (!entry) return;
     // Already on the right origin? Nothing to do.
     if (entry.origin === window.location.origin) return;
-    // Bounce. Use window.location.replace so the .basudrus.com-scoped
-    // auth cookie comes along with us to the new origin and the
-    // supabase client there reads it on init.
-    try { window.location.replace(entry.origin + "/"); } catch { /* noop */ }
+    // Allowlist of target origins — defensive guard so a hostile
+    // cookie value can't redirect the user's session anywhere
+    // attacker-controlled.
+    const ALLOWED_BOUNCE_TARGETS = new Set([
+      "https://basudrus.com",
+      "https://www.basudrus.com",
+      "https://ai.basudrus.com",
+      "https://basudrus-ai.vercel.app",
+    ]);
+    if (!ALLOWED_BOUNCE_TARGETS.has(entry.origin)) {
+      // Silently drop unknown origins — never redirect arbitrary URLs.
+      return;
+    }
+    /**
+     * Cross-origin session handoff via URL hash.
+     *
+     * When the bounce target is a different eTLD+1 (e.g.
+     * basudrus-ai.vercel.app vs basudrus.com), the .basudrus.com-
+     * scoped auth cookie does NOT travel — Vercel preview hostnames
+     * aren't subdomains of basudrus.com. We have to transfer the
+     * session another way.
+     *
+     * Supabase's `detectSessionInUrl: true` option (set on every
+     * supabase client in this codebase) parses these specific URL
+     * hash params on page load and creates a session from them.
+     * Same mechanism Supabase uses for OAuth callbacks. So if we
+     * append the current session's tokens to the destination URL,
+     * the destination's client picks them up on init.
+     *
+     * Security: tokens in a URL show up in browser history and any
+     * server-side logs that capture the full URL. Risk is acceptable
+     * for a study-app session (no payment data, replaceable with
+     * password reset). Mitigations: allowlist above + the hash
+     * fragment (not query string) which doesn't transmit over the
+     * wire to the destination's server, only to the destination's
+     * JavaScript.
+     */
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        // No session yet — just redirect plain. Either the bounce
+        // target is on the same eTLD and the cookie will carry the
+        // session, or the user will need to sign in again there.
+        try { window.location.replace(entry.origin + "/"); } catch { /* noop */ }
+        return;
+      }
+      const hash = new URLSearchParams({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        expires_in: String(session.expires_in ?? 3600),
+        token_type: "bearer",
+        type: "magiclink",
+      }).toString();
+      try {
+        window.location.replace(`${entry.origin}/#${hash}`);
+      } catch { /* noop */ }
+    })();
   }, [user]);
 
   // Listen once for PASSWORD_RECOVERY. Doesn't fire on regular sign-in,
