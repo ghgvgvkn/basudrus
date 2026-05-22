@@ -58,31 +58,41 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
 
   if (!open) return null;
 
-  const signInWithGoogle = async () => {
+  /**
+   * Google sign-in via the basudrus.com auth hub.
+   *
+   * Why we don't call signInWithOAuth directly here:
+   *   Supabase's OAuth redirect dance kept landing users on basudrus.com
+   *   instead of ai.basudrus.com because Supabase falls back to the
+   *   project's Site URL when the requested redirectTo isn't in the
+   *   allowlist. Fighting that requires Supabase dashboard config that
+   *   keeps breaking in subtle ways.
+   *
+   * Instead: we redirect the user to basudrus.com which ALREADY has a
+   * working Google sign-in flow (it's been live for months). After they
+   * complete Google auth there, SignInGate on basudrus.com reads the
+   * .basudrus.com-scoped bu_oauth_origin cookie and bounces them back
+   * to ai.basudrus.com. Their session cookie (also .basudrus.com-scoped)
+   * comes with them so they land on Aurora fully authed.
+   *
+   * Zero Supabase config changes needed. Zero Google Cloud Console
+   * changes needed. Uses the existing working flow.
+   */
+  const signInWithGoogle = () => {
     setErr(null);
     setGoogleBusy(true);
-    try {
-      // Remember origin so the cross-subdomain bounce-back in
-      // SignInGate (rendered on basudrus.com when the OAuth flow
-      // lands there) can ship the user back here. Uses a
-      // .basudrus.com-scoped cookie because localStorage is per-
-      // origin and wouldn't survive the cross-subdomain redirect.
-      setOauthOrigin(window.location.origin);
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: `${window.location.origin}/` },
-      });
-      if (error) throw error;
-      // Browser navigates away — we don't reach this line.
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Google sign-in failed.";
-      setErr(
-        /provider.*disabled|not enabled|Unsupported provider/i.test(msg)
-          ? "Google sign-in isn't available right now — try email below."
-          : msg,
-      );
-      setGoogleBusy(false);
-    }
+    // Save where we want to end up — basudrus.com's SignInGate
+    // reads this cookie after auth and bounces us back.
+    setOauthOrigin(window.location.origin);
+    // Take the user to basudrus.com root. SignInGate there will:
+    //   1. Show the sign-in form if they're not authed
+    //   2. After they sign in (Google or email), fire the bounce
+    //   3. If they're already authed (rare), the bounce fires
+    //      immediately without showing a form
+    // ?signin=google is a UX hint — basudrus.com's SignInGate can
+    // optionally auto-click the Google button on landing. (No-op
+    // for now; the user clicks Google there manually.)
+    window.location.href = "https://basudrus.com/?signin=google";
   };
 
   const submit = async (e: React.FormEvent) => {
