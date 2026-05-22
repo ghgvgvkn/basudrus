@@ -424,13 +424,15 @@ export function AuroraAIScreen() {
             <span className="aurora-pip" />
           </div>
           <div className="aurora-logo-text">
-            <b>Aurora</b>
-            <small>BAS UDRUS · TONY STARRK</small>
+            <b>Aurora AI</b>
+            <small>basudrus.com</small>
           </div>
         </div>
 
         {/* TOP CENTER — meta strip with REAL city */}
         <div className="aurora-top-bar">
+          <span>AURORA AI</span>
+          <span className="aurora-sep" />
           <span>{cityLabel}</span>
           <span className="aurora-sep" />
           <span>{meta.day}</span>
@@ -746,7 +748,7 @@ export function AuroraAIScreen() {
         <div className="aurora-footer-info">
           <span>{meta.clock}</span>
           <span className="aurora-dot" />
-          <span>AURORA · BAS UDRUS</span>
+          <span>AURORA AI · basudrus.com</span>
         </div>
       </div>
 
