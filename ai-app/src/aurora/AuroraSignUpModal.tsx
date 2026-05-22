@@ -135,13 +135,38 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
           password,
           options: { emailRedirectTo: window.location.origin },
         });
-        if (error) throw error;
-        // signUp may require email confirmation depending on Supabase
-        // settings — if confirmation is OFF, the SIGNED_IN event fires
-        // immediately and AuroraAIScreen closes us + retries pending.
-        // If confirmation is ON, the user has to click the link in
-        // their email; we show a success message in that case.
-        setErr(null);
+        if (error) {
+          // "User already registered" — they have an account on
+          // basudrus.com (same Supabase project). Don't show an error;
+          // pivot the modal into sign-in mode with the email still
+          // filled in so they just need to enter their password.
+          if (/already\s*registered|user.*exists|already.*signed[\s\-]*up/i.test(error.message)) {
+            setMode("in");
+            // Try to sign them in immediately with the password they
+            // already typed — many users use the same password across
+            // both sites and this is a one-click recovery.
+            try {
+              const signInRes = await supabase.auth.signInWithPassword({
+                email: email.trim(),
+                password,
+              });
+              if (signInRes.error) {
+                // Password didn't match — they DO have an account, but
+                // with a different password (or signed up via Google).
+                // Show a clear, gentle nudge.
+                setErr("You already have a Bas Udrus account. Enter your password to sign in — or use 'Forgot password' below.");
+                return;
+              }
+              // Sign-in succeeded — SIGNED_IN event fires, AuroraAIScreen
+              // closes the modal + retries the pending message.
+              return;
+            } catch {
+              setErr("You already have a Bas Udrus account. Sign in below.");
+              return;
+            }
+          }
+          throw error;
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -151,6 +176,31 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
       }
     } catch (e2) {
       setErr(friendlyAuthError(e2));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Forgot password — sends a reset email via Supabase. Lives next to
+   * the password field in sign-in mode so users locked out of their
+   * basudrus.com account can recover without leaving Aurora.
+   */
+  const sendPasswordReset = async () => {
+    setErr(null);
+    if (!email.includes("@")) {
+      setErr("Enter your email above first, then click Forgot password.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setErr(`Sent — check ${email.trim()} for a reset link.`);
+    } catch (e3) {
+      setErr(friendlyAuthError(e3));
     } finally {
       setBusy(false);
     }
@@ -282,7 +332,7 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
           </button>
         </form>
 
-        {/* Mode toggle */}
+        {/* Mode toggle + forgot-password link */}
         <div className="aurora-signup-toggle">
           {mode === "up" ? (
             <>
@@ -296,6 +346,10 @@ export function AuroraSignUpModal({ open, onClose, pendingMessage }: AuroraSignU
               New here?{" "}
               <button type="button" onClick={() => { setMode("up"); setErr(null); }}>
                 Sign up
+              </button>
+              {" · "}
+              <button type="button" onClick={() => void sendPasswordReset()} disabled={busy}>
+                Forgot password?
               </button>
             </>
           )}
