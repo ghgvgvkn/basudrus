@@ -36,6 +36,7 @@ import { useApp } from "@/context/AppContext";
 import { useStreamingAI, type ChatMsg } from "@/features/ai/useStreamingAI";
 import { useVoice } from "@/features/ai/voice/useVoice";
 import { useAIHistory, fetchSessionById, type SessionListItem } from "@/features/ai/useAIHistory";
+import { findLatestActiveSubject } from "@/features/ai/tutorSession";
 import { useStreak } from "@/features/ai/useStreak";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { supabase } from "@/lib/supabase";
@@ -157,6 +158,30 @@ export function AuroraAIScreen() {
   const [signUpOpen, setSignUpOpen] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
+  /**
+   * Resumed subject — keeps Tony's memory shared between Aurora and
+   * basudrus.com. tutor_sessions are keyed by (user_id, subject), so
+   * if Aurora always sent "general" we'd silo from whatever subject
+   * the user was working on at basudrus.com. Instead we look up their
+   * most recent active subject (within 24h) and pass that. Falls back
+   * to "general" for first-time users or users whose last activity is
+   * stale. Note: student_memory (long-term durable facts like the
+   * user's name, university, year, persistent preferences) is loaded
+   * server-side regardless of subject — those are ALREADY shared
+   * across both surfaces. This fix specifically reconciles the
+   * short-term per-subject session memory.
+   */
+  const [resumedSubject, setResumedSubject] = useState<string>("general");
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void findLatestActiveSubject(user.id).then((subj) => {
+      if (cancelled || !subj) return;
+      setResumedSubject(subj);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
   useEffect(() => {
     const id = setInterval(() => setMeta(formatMeta(new Date())), 30 * 1000);
     return () => clearInterval(id);
@@ -265,7 +290,11 @@ export function AuroraAIScreen() {
 
     const sendOnce = () => send("omar", text, chatHistory, {
       lang: "auto",
-      subject: "general",
+      // Use the user's most recently active subject so Aurora resumes
+      // the same tutor_session memory as basudrus.com (set by the
+      // findLatestActiveSubject effect above). Falls back to "general"
+      // for first-time users.
+      subject: resumedSubject,
       uni: profile?.uni ?? undefined,
       major: profile?.major ?? undefined,
       year: profile?.year ?? undefined,
@@ -313,7 +342,7 @@ export function AuroraAIScreen() {
                 : "Something went wrong. Try again in a moment.";
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg }]);
     }
-  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history]);
+  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history, resumedSubject]);
 
   // ── Send a message (button / enter) ───────────────────────────────
   const handleSend = useCallback(async () => {

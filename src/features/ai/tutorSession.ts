@@ -394,6 +394,48 @@ export async function startOrResumeSession(
   };
 }
 
+/**
+ * Find the user's most recently active subject across ALL tutor sessions.
+ *
+ * Used by Aurora (ai-app), which has no subject picker — instead of
+ * defaulting every conversation to "general" (which would create a
+ * separate session silo from whatever the user was working on at
+ * basudrus.com), we look up the most recent session and resume that
+ * subject. So if the user was doing Physics at basudrus.com 10 minutes
+ * ago, Aurora picks up the Physics session memory automatically.
+ *
+ * Returns null when the user has no prior sessions OR their last
+ * activity is older than `withinMs` (default 24h — long enough to
+ * span "I came back the next morning", short enough that a session
+ * from last semester doesn't accidentally hijack a fresh chat).
+ *
+ * Best-effort: any error or missing supabase returns null silently.
+ * Callers should fall back to "general" in that case.
+ */
+export async function findLatestActiveSubject(
+  userId: string,
+  withinMs: number = 24 * 60 * 60 * 1000,
+): Promise<string | null> {
+  if (!supabase || !userId) return null;
+  try {
+    const { data, error } = await supabase
+      .from("tutor_sessions")
+      .select("subject, updated_at")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const updatedAt = Date.parse(data.updated_at as string);
+    if (!Number.isFinite(updatedAt)) return null;
+    if (Date.now() - updatedAt > withinMs) return null;
+    const subject = typeof data.subject === "string" ? data.subject.trim() : "";
+    return subject || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Append messages to the session row. Reads the current array first to
  *  avoid the read-modify-write race, but tolerates losing a message in
  *  the rare double-click case (the next save will include it again). */
