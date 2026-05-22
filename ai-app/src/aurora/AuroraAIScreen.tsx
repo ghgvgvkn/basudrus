@@ -257,18 +257,19 @@ export function AuroraAIScreen() {
   const micLevelRef = useRef(0);
 
   /** Wraps the post-utterance flow so it can be invoked from the VAD
-   *  callback. Uses runSendForTextRef so the closure stays fresh. */
+   *  callback. Uses runSendForTextRef so the closure stays fresh, and
+   *  passes voice:true explicitly so runSendForText doesn't have to
+   *  read the (always-stale at this point) lastInputWasVoice state. */
   const endVoiceUtterance = useCallback(async () => {
     const blob = await voice.stopRecording();
     auroraRef.current?.deactivate();
     if (!blob) return;
     const result = await voice.transcribe(blob);
     if (!result.ok || !result.transcript.trim()) return;
-    setLastInputWasVoice(true);
     // Skip the composer hop — go straight to send so the conversation
-    // flows like a real voice call. Read latest send via ref so this
-    // closure doesn't pin a stale runSendForText.
-    void runSendForTextRef.current(result.transcript.trim());
+    // flows like a real voice call. voice:true forces auto-TTS in
+    // runSendForText regardless of state.
+    void runSendForTextRef.current(result.transcript.trim(), { voice: true });
   }, [voice]);
 
   /** Cancel an in-progress voice utterance without transcribing. */
@@ -301,9 +302,18 @@ export function AuroraAIScreen() {
    * Core send logic — takes the text as a parameter so it can be
    * called either from handleSend (user clicked send / hit enter)
    * OR from the post-auth retry effect (user just signed up with
-   * a queued message). Assumes auth is already established.
+   * a queued message) OR from the VAD onSilence path (hands-free
+   * voice). Assumes auth is already established.
+   *
+   * The optional `voice` flag forces the auto-TTS branch on. Without
+   * it we'd fall back to reading `lastInputWasVoice` state — but
+   * that's set via setState right before this is called from
+   * endVoiceUtterance, which means the closure still sees the old
+   * value (state updates are async and don't take effect until the
+   * next render). Passing it explicitly avoids the stale-closure
+   * race entirely.
    */
-  const runSendForText = useCallback(async (text: string) => {
+  const runSendForText = useCallback(async (text: string, opts?: { voice?: boolean }) => {
     if (!text || loading) return;
 
     if (!focusMode) setFocusMode(true);
@@ -324,7 +334,10 @@ export function AuroraAIScreen() {
       content: m.text,
     }));
 
-    const wasVoice = lastInputWasVoice;
+    // Prefer the explicit param over the (possibly stale) state. The
+    // VAD path passes voice:true; typed input falls through to the
+    // state value as before.
+    const wasVoice = opts?.voice ?? lastInputWasVoice;
     setLastInputWasVoice(false);
 
     const sendOnce = () => send("omar", text, chatHistory, {
@@ -361,8 +374,27 @@ export function AuroraAIScreen() {
       auroraRef.current?.pulseFromAll(0.45);
 
       // Auto-TTS: speak Tony's reply when the user used voice input.
+      // If speak fails (autoplay blocked, missing API key, network),
+      // surface a short hint in the chat so the user understands why
+      // they didn't hear anything — better than silent failure.
       if (wasVoice && result.assistant.trim()) {
-        void voice.speak(result.assistant).catch(() => { /* silent — best-effort */ });
+        void voice
+          .speak(result.assistant)
+          .then((r) => {
+            if (!r.ok && r.error) {
+              setMessages((prev) => [
+                ...prev,
+                { id: nextId(), role: "ai", text: `(voice unavailable: ${r.error})` },
+              ]);
+            }
+          })
+          .catch((e) => {
+            const msg = e instanceof Error ? e.message : "playback failed";
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId(), role: "ai", text: `(voice unavailable: ${msg})` },
+            ]);
+          });
       }
 
       // Refresh history sidebar so the new session row shows up.
