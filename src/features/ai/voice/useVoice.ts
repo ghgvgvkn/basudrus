@@ -72,6 +72,37 @@ export interface UseVoiceResult {
    */
   primeAudio: () => void;
 
+  /**
+   * Voice-activity "barge-in" monitor. Opens a dedicated mic stream
+   * (separate from MediaRecorder so it doesn't interfere with the
+   * primary STT path), runs a per-frame RMS check, and fires
+   * `onDetected` once the level stays above `threshold` for
+   * `durationMs` consecutive milliseconds.
+   *
+   * Designed to run WHILE the assistant is speaking: the consumer
+   * uses onDetected to stopSpeaking + start a fresh listening turn,
+   * giving the user true talk-over-the-AI interruption.
+   *
+   * Returns a `stop()` handle (or null if the mic couldn't be opened
+   * — e.g. permission denied). Always call stop() in a finally so the
+   * mic indicator goes away.
+   *
+   * The browser's built-in echo cancellation prevents the assistant's
+   * own TTS playback from triggering the listener as long as the audio
+   * goes through the page's normal output route.
+   */
+  startBargeInListener: (opts: {
+    onDetected: () => void;
+    /** RMS threshold (0–1). Default 0.025 — slightly higher than the
+     *  primary VAD's 0.02 to reduce false positives from Tony's voice
+     *  bleeding through. */
+    threshold?: number;
+    /** Sustained-above-threshold time before firing. Default 250ms —
+     *  fast enough to feel responsive, slow enough to ignore single
+     *  pops or echo-cancellation glitches. */
+    durationMs?: number;
+  }) => Promise<{ stop: () => void } | null>;
+
   // ── STT ──
   /** True while the microphone is recording. */
   isListening: boolean;
@@ -640,6 +671,83 @@ export function useVoice(): UseVoiceResult {
     }
   }, []);
 
+  const startBargeInListener = useCallback<UseVoiceResult["startBargeInListener"]>(
+    async ({ onDetected, threshold = 0.025, durationMs = 250 }) => {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        return null;
+      }
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch {
+        return null;
+      }
+      let ctx: AudioContext | null = null;
+      let source: MediaStreamAudioSourceNode | null = null;
+      let analyser: AnalyserNode | null = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const AC: typeof AudioContext = (window.AudioContext || (window as any).webkitAudioContext);
+        ctx = new AC();
+        source = ctx.createMediaStreamSource(stream);
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.5;
+        source.connect(analyser);
+      } catch {
+        try { stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+        try { void ctx?.close(); } catch { /* noop */ }
+        return null;
+      }
+
+      const buf = new Float32Array(analyser.fftSize);
+      let aboveSince: number | null = null;
+      let stopped = false;
+      let raf: number | null = null;
+
+      const cleanup = () => {
+        stopped = true;
+        if (raf !== null) {
+          cancelAnimationFrame(raf);
+          raf = null;
+        }
+        try { source?.disconnect(); } catch { /* noop */ }
+        try { void ctx?.close(); } catch { /* noop */ }
+        try { stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+      };
+
+      const tick = () => {
+        if (stopped || !analyser) return;
+        analyser.getFloatTimeDomainData(buf);
+        let sumSq = 0;
+        for (let i = 0; i < buf.length; i++) sumSq += buf[i] * buf[i];
+        const rms = Math.sqrt(sumSq / buf.length);
+        const now = performance.now();
+        if (rms > threshold) {
+          if (aboveSince === null) aboveSince = now;
+          else if (now - aboveSince >= durationMs) {
+            cleanup();
+            try { onDetected(); } catch { /* swallow consumer errors */ }
+            return;
+          }
+        } else {
+          aboveSince = null;
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+
+      return { stop: cleanup };
+    },
+    [],
+  );
+
   return {
     isSpeaking,
     speak,
@@ -650,6 +758,7 @@ export function useVoice(): UseVoiceResult {
     startRecording,
     stopRecording,
     transcribe,
+    startBargeInListener,
     error,
     analyserRef,
   };

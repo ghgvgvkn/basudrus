@@ -281,6 +281,18 @@ export function AuroraAIScreen() {
   const [voiceModeActive, setVoiceModeActive] = useState(false);
 
   /**
+   * Monotonic counter bumped every time the user opens (or closes)
+   * voice mode. Async pipeline stages capture the generation at start
+   * and compare on each await — if it's changed, they're stale and
+   * silently bail. Belt + suspenders alongside voiceModeActiveRef:
+   * the bool tells you "is voice mode on RIGHT NOW," the gen tells
+   * you "is this specific utterance's chain still the current one."
+   * Without the gen, a fast cancel-then-restart could let stage-A
+   * from utterance #1 still write into utterance #2.
+   */
+  const voiceSessionGenRef = useRef(0);
+
+  /**
    * Kicks off (or restarts) the mic-listening leg of the loop. Called
    * once when the user enters voice mode AND again automatically each
    * time Tony finishes speaking. Bails out cleanly if voice mode has
@@ -318,17 +330,27 @@ export function AuroraAIScreen() {
    * still talking (which would feed Tony's voice back as input).
    */
   const endVoiceUtterance = useCallback(async () => {
+    // Capture the session generation NOW. If the user dismisses mid-
+    // pipeline, voiceSessionGenRef gets bumped — any later check that
+    // sees a different gen knows this chain is stale and bails. Without
+    // this guard, a tap-to-dismiss made AFTER VAD fired but BEFORE
+    // transcribe completed would still produce a Tony reply + voice
+    // playback for the discarded utterance.
+    const myGen = voiceSessionGenRef.current;
+    const stillMine = () => voiceModeActiveRef.current && voiceSessionGenRef.current === myGen;
+
     const blob = await voice.stopRecording();
+    if (!stillMine()) return;
     if (!blob) {
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: "ai", text: "(couldn't capture audio — try again)" },
       ]);
-      // Still in voice mode? Loop back to listening so the user can retry.
-      if (voiceModeActiveRef.current) void beginListening();
+      if (stillMine()) void beginListening();
       return;
     }
     const result = await voice.transcribe(blob);
+    if (!stillMine()) return;
     if (!result.ok) {
       setMessages((prev) => [
         ...prev,
@@ -338,7 +360,7 @@ export function AuroraAIScreen() {
           text: `(transcription failed: ${result.error ?? "unknown error"})`,
         },
       ]);
-      if (voiceModeActiveRef.current) void beginListening();
+      if (stillMine()) void beginListening();
       return;
     }
     // ElevenLabs Scribe transcribes ambient sounds as parenthesized
@@ -357,22 +379,43 @@ export function AuroraAIScreen() {
         ...prev,
         { id: nextId(), role: "ai", text: "(didn't catch your voice — try speaking up)" },
       ]);
-      if (voiceModeActiveRef.current) void beginListening();
+      if (stillMine()) void beginListening();
       return;
     }
     // Send the transcript to Tony. runSendForText calls voice.speak
     // internally because voice:true is set; it stores the SpeakResult
     // on speakEndedRef so we can await `ended` here for the loop.
     await runSendForTextRef.current(cleaned, { voice: true });
+    if (!stillMine()) {
+      // User dismissed while Anthropic was streaming. The auto-TTS
+      // started inside runSendForText — kill it so they don't hear
+      // a reply they explicitly cancelled.
+      voice.stopSpeaking();
+      return;
+    }
     // Wait for Tony's voice to finish before re-opening the mic. If
     // speak failed or returned no ended promise, we still continue —
-    // the loop should never get stuck.
+    // the loop should never get stuck. While Tony speaks, run a
+    // barge-in listener: if the user starts talking over him, stop
+    // his audio immediately and let the loop fall through to begin
+    // a new listening turn.
     const ended = speakEndedRef.current;
     speakEndedRef.current = null;
+    let bargeIn: { stop: () => void } | null = null;
     if (ended) {
+      bargeIn = await voice.startBargeInListener({
+        onDetected: () => {
+          // Tony is interrupted — stop his audio. The ended promise
+          // resolves (via the speak() pause path), the await below
+          // unblocks, and we fall through to beginListening which
+          // captures the user's next utterance.
+          voice.stopSpeaking();
+        },
+      });
       try { await ended; } catch { /* noop */ }
     }
-    if (voiceModeActiveRef.current) void beginListening();
+    bargeIn?.stop();
+    if (stillMine()) void beginListening();
   }, [voice, beginListening]);
 
   // Stable ref for endVoiceUtterance so the VAD callback (set up once
@@ -394,7 +437,13 @@ export function AuroraAIScreen() {
     if (voiceModeActiveRef.current) {
       // Second tap — user wants to close voice mode entirely. Stop
       // recording (drops any in-progress utterance), stop any current
-      // TTS playback, deactivate the canvas.
+      // TTS playback, deactivate the canvas. Bump the session gen
+      // FIRST so any in-flight endVoiceUtterance chain that's about
+      // to write a Tony reply sees the gen change at its next stillMine()
+      // check and exits silently. Without that bump, the user's
+      // dismiss could be "too late" — Tony's reply for the just-spoken
+      // utterance would still queue up and play.
+      voiceSessionGenRef.current += 1;
       voiceModeActiveRef.current = false;
       setVoiceModeActive(false);
       auroraRef.current?.deactivate();
@@ -409,6 +458,7 @@ export function AuroraAIScreen() {
     // call, audio.play() throws NotAllowedError and Tony stays silent.
     // Calling it before any async work guarantees the gesture is fresh.
     voice.primeAudio();
+    voiceSessionGenRef.current += 1;
     voiceModeActiveRef.current = true;
     setVoiceModeActive(true);
     void beginListening();
