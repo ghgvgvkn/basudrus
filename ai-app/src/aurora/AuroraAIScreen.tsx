@@ -855,6 +855,28 @@ export function AuroraAIScreen() {
               Upgrade · Pro
             </button>
           )}
+          {/* Judgment — opens the two-party verdict feature.
+              Authed-only (judgment requires both parties to sign in
+              and the API gates on JWT). For anonymous users we let
+              the sign-in pill below handle it. */}
+          {isAuthed && (
+            <button
+              className="aurora-icon-btn"
+              type="button"
+              onClick={() => {
+                window.history.pushState(null, "", "/judgment");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+              title="Get a verdict — two-party AI judgment"
+              aria-label="Open Judgment"
+            >
+              {/* Gavel icon */}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 4l6 6M11 7l6 6M9 9l6 6M5 21l4-4M3 19l8-8" />
+                <path d="M11 17l-4 4" />
+              </svg>
+            </button>
+          )}
           {/* Settings cog — visible when authed. Anonymous users
               don't have settings to manage; we show a Sign-in button
               in the same slot instead. */}

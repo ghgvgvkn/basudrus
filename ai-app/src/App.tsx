@@ -23,7 +23,7 @@
  * The shared src/features/ai/AIScreen.tsx (used by basudrus.com) is
  * NOT touched. basudrus.com keeps its existing auth-gated flow.
  */
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { ErrorBoundary } from "@/shared/ErrorBoundary";
 import { AppProvider } from "@/context/AppContext";
@@ -35,6 +35,13 @@ import { SettingsModal } from "@ai/settings/SettingsModal";
 // the component, not at the route level.
 const AuroraAIScreen = lazy(() =>
   import("./aurora/AuroraAIScreen").then((m) => ({ default: m.AuroraAIScreen })),
+);
+
+// JudgmentApp — handles /judgment and /judgment/[code] routes. Lazy
+// because most Aurora visitors won't use it, no reason to pay its
+// download cost on every page load.
+const JudgmentApp = lazy(() =>
+  import("./judgment/JudgmentApp").then((m) => ({ default: m.JudgmentApp })),
 );
 
 function LoadingShell() {
@@ -64,7 +71,39 @@ function LoadingShell() {
   );
 }
 
+/**
+ * Tiny pathname router. Aurora is a 2-route app (main + judgment) —
+ * pulling in react-router for that would be overkill. We just read
+ * window.location.pathname once on mount, listen for popstate, and
+ * render the right shell.
+ *
+ * If the path starts with /judgment, render JudgmentApp; else render
+ * the normal Aurora chat. Navigation back to Aurora is done via
+ * window.history.pushState + popstate to keep URL sharing working.
+ */
+function useTopLevelRoute(): {
+  isJudgment: boolean;
+  goAurora: () => void;
+} {
+  const [pathname, setPathname] = useState(
+    typeof window !== "undefined" ? window.location.pathname : "/",
+  );
+  useEffect(() => {
+    const onPop = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  return {
+    isJudgment: pathname.startsWith("/judgment"),
+    goAurora: () => {
+      window.history.pushState(null, "", "/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+  };
+}
+
 export default function App() {
+  const route = useTopLevelRoute();
   return (
     <ErrorBoundary>
       <LocaleProvider>
@@ -76,7 +115,9 @@ export default function App() {
               changes and syncs their profile into AppContext. */}
           <ProfileSync />
           <Suspense fallback={<LoadingShell />}>
-            <AuroraAIScreen />
+            {route.isJudgment
+              ? <JudgmentApp onBackToAurora={route.goAurora} />
+              : <AuroraAIScreen />}
           </Suspense>
           {/* Settings modal — only ever opens when an authed user
               clicks the cog inside Aurora. Safe to keep mounted

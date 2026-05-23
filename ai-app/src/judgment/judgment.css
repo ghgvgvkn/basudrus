@@ -1,0 +1,365 @@
+/**
+ * Judgment-feature styles. Scoped to .judgment-app so they don't
+ * bleed into the main Aurora chat UI or anywhere else.
+ */
+
+.judgment-app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse at 50% 30%, #2C3E5C 0%, #1A2538 55%, #0E1622 100%);
+  color: #fff;
+  font-family: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ── Top bar with back-link + title ───────────────────────────────── */
+.judgment-app .j-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 0.5px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.judgment-app .j-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.7);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 0;
+}
+.judgment-app .j-back:hover { color: #fff; }
+.judgment-app .j-back svg { width: 16px; height: 16px; }
+
+.judgment-app .j-topbar-title {
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.8);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+}
+
+/* ── Scrollable body for all screens ──────────────────────────────── */
+.judgment-app .j-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.judgment-app .j-form {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.judgment-app .j-form-heading {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.3;
+  margin-top: 4px;
+}
+.judgment-app .j-form-sub {
+  font-size: 14px;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.5;
+  margin-top: -14px;
+}
+
+.judgment-app .j-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-family: 'Geist Mono', monospace;
+  color: rgba(255,255,255,0.55);
+  margin-bottom: 8px;
+}
+
+/* ── Relationship-type pills ──────────────────────────────────────── */
+.judgment-app .j-rel-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.judgment-app .j-rel-chip {
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.045);
+  border: 0.5px solid rgba(255,255,255,0.14);
+  border-radius: 999px;
+  color: rgba(255,255,255,0.8);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms, border-color 160ms, color 160ms;
+  font-family: inherit;
+}
+.judgment-app .j-rel-chip:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+.judgment-app .j-rel-chip.active {
+  background: rgba(255,138,166,0.18);
+  border-color: rgba(255,138,166,0.55);
+  color: #ffd6e0;
+}
+
+/* ── Inputs + textareas ───────────────────────────────────────────── */
+.judgment-app .j-input,
+.judgment-app .j-textarea {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.04);
+  border: 0.5px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  resize: vertical;
+  transition: border-color 160ms, background 160ms;
+}
+.judgment-app .j-input::placeholder,
+.judgment-app .j-textarea::placeholder {
+  color: rgba(255,255,255,0.35);
+}
+.judgment-app .j-input:focus,
+.judgment-app .j-textarea:focus {
+  outline: none;
+  border-color: rgba(255,138,166,0.55);
+  background: rgba(255,255,255,0.06);
+}
+.judgment-app .j-textarea {
+  min-height: 140px;
+  font-size: 15px;
+}
+
+/* ── Primary action button ────────────────────────────────────────── */
+.judgment-app .j-btn-primary {
+  align-self: flex-start;
+  padding: 13px 22px;
+  background: linear-gradient(135deg, #ff8aa6 0%, #c4b8ff 100%);
+  border: none;
+  border-radius: 12px;
+  color: #0E1622;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 160ms, box-shadow 160ms, opacity 160ms;
+  font-family: inherit;
+}
+.judgment-app .j-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(255,138,166,0.30);
+}
+.judgment-app .j-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.judgment-app .j-btn-secondary {
+  align-self: flex-start;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.06);
+  border: 0.5px solid rgba(255,255,255,0.18);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 160ms;
+}
+.judgment-app .j-btn-secondary:hover { background: rgba(255,255,255,0.10); }
+
+/* ── Error banner ─────────────────────────────────────────────────── */
+.judgment-app .j-error {
+  padding: 12px 16px;
+  background: rgba(255,87,87,0.10);
+  border: 0.5px solid rgba(255,87,87,0.35);
+  border-radius: 10px;
+  color: #ffb8b8;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* ── Share screen (post-create) ───────────────────────────────────── */
+.judgment-app .j-share-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 28px;
+  background: rgba(255,255,255,0.045);
+  border: 0.5px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.judgment-app .j-share-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.30);
+  border: 0.5px solid rgba(255,255,255,0.16);
+  border-radius: 10px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+  color: rgba(255,255,255,0.9);
+  word-break: break-all;
+}
+
+/* ── Chat screen ──────────────────────────────────────────────────── */
+.judgment-app .j-chat-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 16px;
+  overflow: hidden;
+}
+
+/* Verdict badge (parsed from <<<VERDICT>>> block in latest AI msg) */
+.judgment-app .j-verdict-badge {
+  align-self: stretch;
+  margin: 14px 0 12px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: linear-gradient(135deg, rgba(255,138,166,0.16), rgba(196,184,255,0.12));
+  border: 0.5px solid rgba(255,138,166,0.40);
+  box-shadow: 0 8px 28px rgba(255,138,166,0.14);
+}
+.judgment-app .j-verdict-badge.sides-a   { border-color: rgba(255,200,100,0.55); background: linear-gradient(135deg, rgba(255,200,100,0.18), rgba(255,180,100,0.10)); }
+.judgment-app .j-verdict-badge.sides-b   { border-color: rgba(140,200,255,0.55); background: linear-gradient(135deg, rgba(140,200,255,0.18), rgba(120,180,255,0.10)); }
+.judgment-app .j-verdict-badge.sides-both    { border-color: rgba(255,120,120,0.55); background: linear-gradient(135deg, rgba(255,120,120,0.18), rgba(255,100,100,0.10)); }
+.judgment-app .j-verdict-badge.sides-neither { border-color: rgba(180,180,180,0.55); background: linear-gradient(135deg, rgba(220,220,220,0.10), rgba(180,180,180,0.06)); }
+.judgment-app .j-verdict-headline {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.judgment-app .j-verdict-confidence {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+  font-family: 'Geist Mono', monospace;
+}
+
+/* Scrollable message thread */
+.judgment-app .j-thread {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 6px 0 12px;
+  scroll-behavior: smooth;
+}
+.judgment-app .j-msg {
+  max-width: 78%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.judgment-app .j-msg-from-a { align-self: flex-start; }
+.judgment-app .j-msg-from-b { align-self: flex-end; }
+.judgment-app .j-msg-from-ai { align-self: center; max-width: 88%; }
+
+.judgment-app .j-msg-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-family: 'Geist Mono', monospace;
+  color: rgba(255,255,255,0.55);
+  padding: 0 4px;
+}
+.judgment-app .j-msg-from-b .j-msg-label { text-align: right; }
+.judgment-app .j-msg-from-ai .j-msg-label { text-align: center; color: rgba(255,200,140,0.80); }
+
+.judgment-app .j-msg-bubble {
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.judgment-app .j-msg-from-a .j-msg-bubble {
+  background: rgba(255,200,100,0.12);
+  border: 0.5px solid rgba(255,200,100,0.30);
+  border-bottom-left-radius: 4px;
+}
+.judgment-app .j-msg-from-b .j-msg-bubble {
+  background: rgba(140,200,255,0.12);
+  border: 0.5px solid rgba(140,200,255,0.30);
+  border-bottom-right-radius: 4px;
+}
+.judgment-app .j-msg-from-ai .j-msg-bubble {
+  background: rgba(255,255,255,0.06);
+  border: 0.5px solid rgba(255,200,140,0.30);
+  color: rgba(255,255,255,0.92);
+}
+
+/* Composer */
+.judgment-app .j-composer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 0 18px;
+  border-top: 0.5px solid rgba(255,255,255,0.08);
+  margin-top: 8px;
+}
+.judgment-app .j-composer .j-textarea {
+  min-height: 48px;
+  max-height: 200px;
+  font-size: 14px;
+  padding: 12px 14px;
+}
+.judgment-app .j-composer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.judgment-app .j-composer-actions .j-btn-primary,
+.judgment-app .j-composer-actions .j-btn-secondary {
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+/* Status banner */
+.judgment-app .j-status-banner {
+  align-self: stretch;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 0.5px solid rgba(255,255,255,0.10);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+  font-family: 'Geist Mono', monospace;
+  text-align: center;
+  margin: 4px 0 8px;
+}
