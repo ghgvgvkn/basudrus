@@ -17,7 +17,7 @@
   width: 100%;
   height: 100%;
   background:
-    radial-gradient(ellipse at 50% 30%, #4A1B5C 0%, #2A0B3D 55%, #1A0628 100%);
+    radial-gradient(ellipse at 50% 30%, #1E5BB8 0%, #0F3DA6 55%, #061E63 100%);
   color: #ffffff;
   font-family: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -561,7 +561,7 @@ body.aurora-active .aurora-app .aurora-mic-btn {
   font-size: 14.5px;
   font-weight: 400;
   line-height: 1.5;
-  color: #1A0628;
+  color: #061E63;
   backdrop-filter: blur(34px) saturate(200%);
   -webkit-backdrop-filter: blur(34px) saturate(200%);
   border: 0.5px solid rgba(213,209,209,0.85);
@@ -575,7 +575,7 @@ body.aurora-active .aurora-app .aurora-mic-btn {
 }
 .aurora-app .aurora-msg.aurora-user .aurora-bubble {
   background: #D5D1D1;
-  color: #1A0628;
+  color: #061E63;
   border-radius: 18px 18px 4px 18px;
 }
 .aurora-app .aurora-msg.aurora-ai .aurora-bubble {
@@ -593,7 +593,7 @@ body.aurora-active .aurora-app .aurora-mic-btn {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #1A0628;
+  background: #061E63;
   opacity: 0.45;
   animation: aurora-pipBlink 1.3s ease-in-out infinite;
 }
@@ -985,7 +985,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #1A0628;
+  background: #061E63;
   opacity: 0.45;
   animation: aurora-pipBlink 1.3s ease-in-out infinite;
 }
@@ -1255,7 +1255,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   height: 44px;
   border-radius: 12px;
   background: linear-gradient(135deg, #ff8aa6 0%, #c4b8ff 100%);
-  color: #1A0628;
+  color: #061E63;
   font-family: 'Urbanist', sans-serif;
   font-size: 14px;
   font-weight: 600;

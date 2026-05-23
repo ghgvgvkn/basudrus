@@ -80,13 +80,59 @@ interface Dot {
   lifeNext: number;
 }
 
-const SPACING = 18;
-const DOT_R_AMB = 1.2;
+// Performance + design knobs — tuned for low-end laptop GPUs/CPUs.
+//
+// SPACING bumped 18→28: that's ~2.4× fewer ambient dots overall (cost
+//   scales as 1/spacing²) — major frame-time improvement on cheap
+//   integrated GPUs without making the field look sparse where it
+//   matters (the corners).
+// DOT_R_AMB shrunk 1.2→0.8: smaller idle dots per founder request —
+//   "should be so small."
+// GLOW_BG dropped 2→1: shadow-blur is one of the most expensive 2D
+//   canvas ops; halving it on the ambient field is invisible to the
+//   eye but cuts per-frame paint cost noticeably.
+const SPACING = 28;
+const DOT_R_AMB = 0.8;
 const DOT_R_ORB = 2.6;
-const ALPHA_AMB = 0.13;
-const GLOW_BG = 2;
+const ALPHA_AMB = 0.18;
+const GLOW_BG = 1;
 const GLOW_ORB = 14;
 const TRANSITION_MS = 1800;
+
+// Corners-only ambient field. The founder asked: "I want you to do
+// it only in the corners — in the middle there should be none, and
+// they should be small."
+//
+// We keep dots whose grid position falls inside one of the four
+// corner zones (each a quarter-ellipse rooted in that corner). Dots
+// outside ALL four corner zones are dropped entirely — they're never
+// allocated, never iterated, never drawn. That's a huge perf win
+// AND it gets the visual the founder asked for.
+//
+// CORNER_FRACTION = 0.32 means each corner zone extends 32% of the
+// viewport width/height inward from its corner. Tweak to taste:
+// smaller = tighter clusters in the corners; larger = more coverage.
+const CORNER_FRACTION = 0.32;
+
+function isInCornerZone(x: number, y: number, w: number, h: number): boolean {
+  const zoneW = w * CORNER_FRACTION;
+  const zoneH = h * CORNER_FRACTION;
+  // Four corner anchors: TL, TR, BL, BR.
+  // For each corner, distance is normalized against (zoneW, zoneH);
+  // dot is included if normalized distance <= 1 (inside the
+  // quarter-ellipse rooted at that corner).
+  const check = (cx: number, cy: number): boolean => {
+    const dx = (x - cx) / zoneW;
+    const dy = (y - cy) / zoneH;
+    return (dx * dx + dy * dy) <= 1;
+  };
+  return (
+    check(0, 0) ||         // top-left
+    check(w, 0) ||         // top-right
+    check(0, h) ||         // bottom-left
+    check(w, h)            // bottom-right
+  );
+}
 // Note: DOT_R_TEXT and GLOW_TEXT existed in the original design's
 // text-mask system (rendering "23°" as dot clusters on the field).
 // The mask system was removed in the React port — Aurora's text
@@ -114,6 +160,16 @@ export class AuroraEngine {
   private startTime = performance.now();
   private lastGhostSpawn = 0;
   private destroyed = false;
+
+  // Frame-rate throttling so the canvas doesn't burn 144 Hz on a
+  // gaming monitor when the visuals only need 30 fps to look smooth.
+  // lastFrameDrawAt tracks the most recent FULL render; in idle mode
+  // we skip frames that arrive sooner than IDLE_MIN_FRAME_MS apart.
+  // Voice / forming / orb modes render at full rate because the
+  // 3D-ish sphere actually benefits from smoothness — but the orb
+  // is short-lived per session so the cost is contained.
+  private lastFrameDrawAt = 0;
+  private readonly IDLE_MIN_FRAME_MS = 33; // ~30 fps in idle
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -242,6 +298,10 @@ export class AuroraEngine {
       for (let c = -1; c < cols; c++) {
         const x = c * SPACING + xOff;
         const y = r * SPACING;
+        // Corners-only filter — see isInCornerZone comment at the
+        // top of this file. Dots in the middle are not allocated at
+        // all; they cost zero CPU per frame.
+        if (!isInCornerZone(x, y, this.W, this.H)) continue;
         this.dots.push({
           hx: x,
           hy: y,
@@ -342,6 +402,20 @@ export class AuroraEngine {
 
   private frame(now: number): void {
     if (this.destroyed) return;
+
+    // Throttle idle-mode renders to ~30 fps. In voice / forming /
+    // orb modes we render at the browser's native rate (typically 60
+    // or 120 fps) because the sphere animation benefits from
+    // smoothness. In idle mode, the ambient breathing/sparkle effect
+    // looks identical at 30 fps and costs roughly half the CPU.
+    if (this.mode === "idle") {
+      if (now - this.lastFrameDrawAt < this.IDLE_MIN_FRAME_MS) {
+        this.rafId = requestAnimationFrame((next) => this.frame(next));
+        return;
+      }
+    }
+    this.lastFrameDrawAt = now;
+
     const t = (now - this.startTime) / 1000;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.W, this.H);
