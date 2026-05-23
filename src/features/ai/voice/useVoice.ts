@@ -161,11 +161,17 @@ export function useVoice(): UseVoiceResult {
   // analyser reference stays stable.
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  // Current playback's <audio> element + the MediaElementAudioSource
-  // bridging it into the AudioContext. We keep refs so stopSpeaking()
-  // can pause/disconnect cleanly.
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  // Current playback's AudioBufferSourceNode. We use the pure Web
+  // Audio API path (decodeAudioData → BufferSource) rather than an
+  // HTMLAudioElement because the latter has its OWN per-element
+  // autoplay gate, separate from the AudioContext's gate. Once the
+  // AudioContext is unlocked by primeAudio() (called during the
+  // user's mic tap), every subsequent BufferSource.start() plays
+  // freely — no NotAllowedError. With the <audio> element path,
+  // even an unlocked context couldn't help: each new element
+  // needed its own gesture, which the multi-second voice pipeline
+  // couldn't provide.
+  const bufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
   // Abort controller for the in-flight speak() fetch (cancels server
   // streaming if the user navigates away or interrupts).
   const speakAbortRef = useRef<AbortController | null>(null);
@@ -195,8 +201,8 @@ export function useVoice(): UseVoiceResult {
   useEffect(() => {
     return () => {
       try { speakAbortRef.current?.abort(); } catch { /* noop */ }
-      try { audioElRef.current?.pause(); } catch { /* noop */ }
-      try { sourceNodeRef.current?.disconnect(); } catch { /* noop */ }
+      try { bufferSourceRef.current?.stop(); } catch { /* noop */ }
+      try { bufferSourceRef.current?.disconnect(); } catch { /* noop */ }
       try { audioContextRef.current?.close(); } catch { /* noop */ }
       try {
         streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -281,14 +287,12 @@ export function useVoice(): UseVoiceResult {
   const stopSpeaking = useCallback(() => {
     try { speakAbortRef.current?.abort(); } catch { /* noop */ }
     speakAbortRef.current = null;
-    if (audioElRef.current) {
-      try { audioElRef.current.pause(); } catch { /* noop */ }
-      try { audioElRef.current.src = ""; } catch { /* noop */ }
-      audioElRef.current = null;
-    }
-    if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.disconnect(); } catch { /* noop */ }
-      sourceNodeRef.current = null;
+    if (bufferSourceRef.current) {
+      // stop() throws InvalidStateError if the source hasn't been started
+      // yet (rare timing race). disconnect() is always safe.
+      try { bufferSourceRef.current.stop(); } catch { /* not yet started */ }
+      try { bufferSourceRef.current.disconnect(); } catch { /* noop */ }
+      bufferSourceRef.current = null;
     }
     setIsSpeaking(false);
   }, []);
@@ -344,23 +348,21 @@ export function useVoice(): UseVoiceResult {
       return { ok: false, error: serverMsg };
     }
 
-    // Pipe the audio response into an <audio> element via a Blob URL.
-    // Why Blob URL instead of MediaSource Extensions? MSE for streamed
-    // MP3 is fiddly across browsers; the small latency cost of fully
-    // downloading before playback (vs. streaming through MSE) is ~150ms
-    // for a typical Tony response and worth the simplicity.
-    //
-    // V3 (Jarvis WebSocket) will swap this for direct AudioContext
-    // decoding, which is what enables interruption + per-chunk visuals.
-    let audioBlob: Blob;
+    // Decode the MP3 response directly into an AudioBuffer and play
+    // it through the AudioContext. This is the Web Audio path — no
+    // HTMLAudioElement involved — and it bypasses the per-element
+    // autoplay gate that was blocking us. Because primeAudio() ran
+    // inside the mic-tap gesture, the AudioContext is already
+    // unlocked, so BufferSource.start() plays freely.
+    let audioBuf: ArrayBuffer;
     try {
-      audioBlob = await res.blob();
+      audioBuf = await res.arrayBuffer();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Couldn't read audio";
       setError(msg);
       return { ok: false, error: msg };
     }
-    if (audioBlob.size < 200) {
+    if (audioBuf.byteLength < 200) {
       setError("Empty audio response");
       return { ok: false, error: "Empty audio response" };
     }
@@ -372,55 +374,44 @@ export function useVoice(): UseVoiceResult {
       try { await ctx.resume(); } catch { /* noop */ }
     }
 
-    const url = URL.createObjectURL(audioBlob);
-    const el = new Audio();
-    el.src = url;
-    el.crossOrigin = "anonymous";
-    audioElRef.current = el;
-
-    // Wire <audio> → MediaElementAudioSource → AnalyserNode → destination.
-    // The analyser is a passive tap — audio still reaches speakers.
-    let source: MediaElementAudioSourceNode;
+    // decodeAudioData mutates the ArrayBuffer in some browsers, so
+    // we don't reuse audioBuf after this. MP3 decoding is supported
+    // in all evergreen browsers via Web Audio.
+    let decoded: AudioBuffer;
     try {
-      source = ctx.createMediaElementSource(el);
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      sourceNodeRef.current = source;
-    } catch {
-      // Some browsers throw when createMediaElementSource is called on
-      // the same element twice. We create a fresh element per call so
-      // this shouldn't fire, but in case it does fall back to direct
-      // playback (no analyser → no 3D visuals for this turn).
-      sourceNodeRef.current = null;
+      decoded = await ctx.decodeAudioData(audioBuf);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Couldn't decode audio";
+      setError(msg);
+      return { ok: false, error: msg };
     }
+
+    const src = ctx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(analyser);
+    analyser.connect(ctx.destination);
+    bufferSourceRef.current = src;
 
     setIsSpeaking(true);
     const ended = new Promise<void>((resolve) => {
-      el.addEventListener("ended", () => {
-        URL.revokeObjectURL(url);
-        if (audioElRef.current === el) {
-          audioElRef.current = null;
-          sourceNodeRef.current?.disconnect();
-          sourceNodeRef.current = null;
-        }
-        setIsSpeaking(false);
-        resolve();
-      }, { once: true });
-      el.addEventListener("error", () => {
-        URL.revokeObjectURL(url);
+      src.addEventListener("ended", () => {
+        try { src.disconnect(); } catch { /* noop */ }
+        if (bufferSourceRef.current === src) bufferSourceRef.current = null;
         setIsSpeaking(false);
         resolve();
       }, { once: true });
     });
 
     try {
-      await el.play();
+      src.start(0);
     } catch (e) {
-      // Autoplay policy can still block .play() if the user hasn't
-      // interacted yet. Surface a clean message.
-      const msg = e instanceof Error ? e.message : "Playback blocked";
-      setError(`Tap to enable audio (${msg})`);
+      // start() throws if the context is in a broken state — e.g.
+      // closed by the user navigating away mid-fetch.
+      const msg = e instanceof Error ? e.message : "Playback failed";
+      setError(msg);
       setIsSpeaking(false);
+      try { src.disconnect(); } catch { /* noop */ }
+      bufferSourceRef.current = null;
       return { ok: false, error: msg };
     }
 

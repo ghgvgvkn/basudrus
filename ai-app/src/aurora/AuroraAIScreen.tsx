@@ -341,18 +341,29 @@ export function AuroraAIScreen() {
       if (voiceModeActiveRef.current) void beginListening();
       return;
     }
-    if (!result.transcript.trim()) {
+    // ElevenLabs Scribe transcribes ambient sounds as parenthesized
+    // descriptions like "(slurps)", "(heavy breathing)", "(microphone
+    // thumps)". These are noise — Tony shouldn't see them and treat
+    // them as questions. Strip them, then check what's actual speech
+    // remains. If nothing is left, the user didn't really say
+    // anything (mic too far / room too noisy / hot mic between
+    // utterances). Re-open the mic for another attempt.
+    const cleaned = result.transcript
+      .replace(/\([^)]*\)/g, " ") // drop "(sound description)" segments
+      .replace(/\s+/g, " ")        // collapse the spaces left behind
+      .trim();
+    if (!cleaned) {
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "ai", text: "(didn't catch that — try speaking again)" },
+        { id: nextId(), role: "ai", text: "(didn't catch your voice — try speaking up)" },
       ]);
       if (voiceModeActiveRef.current) void beginListening();
       return;
     }
     // Send the transcript to Tony. runSendForText calls voice.speak
     // internally because voice:true is set; it stores the SpeakResult
-    // on speakResultRef so we can await `ended` here for the loop.
-    await runSendForTextRef.current(result.transcript.trim(), { voice: true });
+    // on speakEndedRef so we can await `ended` here for the loop.
+    await runSendForTextRef.current(cleaned, { voice: true });
     // Wait for Tony's voice to finish before re-opening the mic. If
     // speak failed or returned no ended promise, we still continue —
     // the loop should never get stuck.
