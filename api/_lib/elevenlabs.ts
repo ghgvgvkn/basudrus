@@ -40,7 +40,12 @@ const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io";
 // against a client passing a random voice_id and racking up cost on
 // a voice we haven't validated.
 const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
-  "pNInz6obpgDQGcFmaJgB", // Adam — deep, calm male (Tony Starrk default)
+  "nPczCjzI2devNBz1zQrb", // Brian — natural, conversational male (Tony Starrk default — more human + faster pacing than Adam)
+  "29vD33N1CtxCmqQRPOHJ", // Drew — friendly American male, well-paced
+  "2EiwWnXFnvU5JabPnv8n", // Clyde — energetic American male, characterful
+  "IKne3meq5aSn9XLyUdCD", // Charlie — casual Australian male, conversational
+  "TX3LPaxmHKxFdv7VOQHJ", // Liam — articulate American male
+  "pNInz6obpgDQGcFmaJgB", // Adam — deep, calm male (legacy default, kept for fallback)
   "21m00Tcm4TlvDq8ikWAM", // Rachel — clear female, neutral US
   "AZnzlk1XvdvUeBnXmlld", // Domi — strong, confident female
   "EXAVITQu4vr4xnSDxMaL", // Bella — warm, friendly female
@@ -50,9 +55,25 @@ const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
   "TxGEqnHWrfWFTfGW9XjX", // Josh — calm, deep male
 ]);
 
-export const DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB"; // Adam
+// Brian is more human + faster-paced than Adam — better fit for Tony
+// Starrk's witty, conversational energy. Adam stays in the allowlist
+// as a fallback. To override per-deploy without code, set
+// ELEVENLABS_DEFAULT_VOICE_ID in Vercel env.
+export const DEFAULT_VOICE_ID = "nPczCjzI2devNBz1zQrb"; // Brian
 export const DEFAULT_TTS_MODEL = "eleven_flash_v2_5";
 export const DEFAULT_STT_MODEL = "scribe_v1";
+
+// Default voice_settings tuned for conversational expressiveness.
+// Lower stability = more dynamic / less robotic delivery; higher
+// style = more character. Speaker boost helps cut through quiet
+// playback environments. These are sane defaults — speak.ts can
+// override per-request if needed.
+export const DEFAULT_VOICE_SETTINGS = {
+  stability: 0.35,        // 0.5 default; lower = more expressive
+  similarity_boost: 0.75, // keeps voice recognizable
+  style: 0.45,            // adds character without sounding theatrical
+  use_speaker_boost: true,
+} as const;
 
 /**
  * Pick the effective voice ID for a request:
@@ -125,12 +146,21 @@ export async function synthesizeSpeechStream(args: SynthesizeArgs): Promise<{
   if (!apiKey) return { ok: false, status: 500, error: "Missing ElevenLabs API key" };
   if (!text || text.length === 0) return { ok: false, status: 400, error: "Empty text" };
 
-  const url = `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=${encodeURIComponent(outputFormat)}`;
+  // optimize_streaming_latency=3 = ElevenLabs' max-speed setting.
+  // Bytes start arriving before the full sentence is synthesized —
+  // dramatically reduces time-to-first-audio. We pair it with the
+  // smallest output format (mp3 128kbps) so the bytes are small too.
+  const url = `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream` +
+              `?output_format=${encodeURIComponent(outputFormat)}` +
+              `&optimize_streaming_latency=3`;
   const body: Record<string, unknown> = {
     text,
     model_id: modelId,
+    // Apply per-call settings if provided; otherwise the
+    // conversational defaults (lower stability + style boost) so
+    // Tony's voice has actual character instead of flat narration.
+    voice_settings: voiceSettings ?? DEFAULT_VOICE_SETTINGS,
   };
-  if (voiceSettings) body.voice_settings = voiceSettings;
 
   try {
     const res = await fetch(url, {

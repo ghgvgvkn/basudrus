@@ -629,8 +629,43 @@ export function AuroraAIScreen() {
     runSendForTextRef.current = runSendForText;
   }, [runSendForText]);
 
+  /**
+   * Hard-shutdown of every voice-related thing.
+   *
+   * The user reported "after I dismiss the voice it's supposed to
+   * stop working and the mic stopped working and it keeps just
+   * going going going even when I click next conversation or
+   * something it does not stop." This helper is the single place
+   * that flips the kill switch on:
+   *   1. The voice-mode loop flag (so the VAD chain bails on its
+   *      next stillMine() check)
+   *   2. The session generation counter (so any in-flight chain
+   *      sees a generation mismatch and exits silently)
+   *   3. MediaRecorder stop (releases the browser mic indicator)
+   *   4. TTS playback abort (stops Tony mid-sentence)
+   *   5. Canvas deactivation (visual exit from voice mode)
+   *
+   * Safe to call unconditionally — every step no-ops when the
+   * relevant resource isn't active. We call it from any navigation
+   * away from the current conversation: history click, new chat,
+   * unmount.
+   */
+  const shutdownVoiceMode = useCallback(() => {
+    voiceSessionGenRef.current += 1;
+    voiceModeActiveRef.current = false;
+    setVoiceModeActive(false);
+    auroraRef.current?.deactivate();
+    try { voice.stopSpeaking(); } catch { /* noop */ }
+    void voice.stopRecording().catch(() => { /* noop */ });
+  }, [voice]);
+
   // ── Conversation history: resume a session ────────────────────────
   const loadSession = useCallback(async (item: SessionListItem) => {
+    // Belt-and-braces: kill any active voice mode BEFORE swapping
+    // the conversation context. Otherwise the mic indicator stays
+    // up, Tony keeps talking over the new conversation he's not
+    // even part of, and the user gets the "going going going" bug.
+    shutdownVoiceMode();
     setActiveSessionId(item.id);
     setMessages([]);
     setFocusMode(true);
@@ -645,15 +680,18 @@ export function AuroraAIScreen() {
         text: typeof m.content === "string" ? m.content : "",
       })),
     );
-  }, []);
+  }, [shutdownVoiceMode]);
 
   const newChat = useCallback(() => {
+    // Same shutdown reason as loadSession — new chat means
+    // current voice session is OVER, full stop.
+    shutdownVoiceMode();
     setMessages([]);
     setActiveSessionId(null);
     setFocusMode(false);
     auroraRef.current?.pulse(60, 80, 0.6);
     inputRef.current?.focus();
-  }, []);
+  }, [shutdownVoiceMode]);
 
   // ⌘A / Ctrl+A toggles voice mode
   useEffect(() => {
