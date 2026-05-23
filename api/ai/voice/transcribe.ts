@@ -44,15 +44,23 @@ const SUPABASE_ANON_KEY  = process.env.SUPABASE_ANON_KEY || "";
 const MAX_BODY_BYTES = 6 * 1024 * 1024; // 6 MB — base64 inflates ~33% so 5 MB raw audio fits
 const LIMITS = { daily: 400, hourly: 100, minute: 20 };
 
-// Allowed audio mediaTypes from common browser MediaRecorder outputs.
-// We don't accept arbitrary content types — a bogus type might still
-// be uploaded but at least the client surface is constrained to what
-// Scribe is known to handle.
-const ALLOWED_MEDIA_TYPES = new Set([
+// Allowed audio base MIME types from common browser MediaRecorder
+// outputs. We compare against the BASE type only (everything before
+// the first `;`) so codec parameters — and the whitespace browsers
+// inconsistently insert around the `;` — don't cause false rejects.
+// Concrete cases this now handles:
+//   "audio/webm"                       ✓ (Chrome, no codec hint)
+//   "audio/webm;codecs=opus"           ✓ (Chrome historical)
+//   "audio/webm; codecs=opus"          ✓ (Chrome current, with space)
+//   "audio/webm; codecs=\"opus\""      ✓ (some Firefox)
+//   "audio/mp4"                        ✓ (Safari)
+//   "audio/ogg;codecs=opus"            ✓ (Firefox)
+// The old allowlist enumerated specific full strings and was too strict
+// — production logs showed every browser was tripping a 400 "Unsupported
+// audio type" because of one of these whitespace/codec variants.
+const ALLOWED_BASE_TYPES = new Set([
   "audio/webm",
-  "audio/webm;codecs=opus",
   "audio/ogg",
-  "audio/ogg;codecs=opus",
   "audio/mp4",
   "audio/mpeg",
   "audio/mp3",
@@ -60,6 +68,15 @@ const ALLOWED_MEDIA_TYPES = new Set([
   "audio/x-wav",
   "audio/wave",
 ]);
+
+function extractBaseType(t: string): string {
+  // Take everything up to (but not including) the first `;`, then trim
+  // whitespace + lowercase. Browser blob.type values are always plain
+  // ASCII so a simple split is safe.
+  const semi = t.indexOf(";");
+  const base = semi >= 0 ? t.slice(0, semi) : t;
+  return base.trim().toLowerCase();
+}
 
 interface TranscribeBody {
   audioBase64?: unknown;
@@ -120,7 +137,8 @@ export default async function handler(req: Request): Promise<Response> {
   if (audioBase64.length < 100) {
     return jsonResponse(400, { ok: false, error: "Empty audio" }, sHeaders);
   }
-  if (!ALLOWED_MEDIA_TYPES.has(mediaType)) {
+  const baseType = extractBaseType(mediaType);
+  if (!ALLOWED_BASE_TYPES.has(baseType)) {
     return jsonResponse(400, {
       ok: false,
       error: `Unsupported audio type: ${mediaType || "(none)"}`,

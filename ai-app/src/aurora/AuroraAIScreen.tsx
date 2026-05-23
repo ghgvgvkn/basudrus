@@ -259,13 +259,41 @@ export function AuroraAIScreen() {
   /** Wraps the post-utterance flow so it can be invoked from the VAD
    *  callback. Uses runSendForTextRef so the closure stays fresh, and
    *  passes voice:true explicitly so runSendForText doesn't have to
-   *  read the (always-stale at this point) lastInputWasVoice state. */
+   *  read the (always-stale at this point) lastInputWasVoice state.
+   *
+   *  Surfaces transcribe failures inline as a chat message. Without
+   *  this, a 400 from /api/ai/voice/transcribe (unsupported audio
+   *  type, empty audio, etc.) would silently bail and the user would
+   *  see "nothing happened" with no clue why. */
   const endVoiceUtterance = useCallback(async () => {
     const blob = await voice.stopRecording();
     auroraRef.current?.deactivate();
-    if (!blob) return;
+    if (!blob) {
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "ai", text: "(couldn't capture audio — try again)" },
+      ]);
+      return;
+    }
     const result = await voice.transcribe(blob);
-    if (!result.ok || !result.transcript.trim()) return;
+    if (!result.ok) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: "ai",
+          text: `(transcription failed: ${result.error ?? "unknown error"})`,
+        },
+      ]);
+      return;
+    }
+    if (!result.transcript.trim()) {
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "ai", text: "(didn't catch that — try speaking again)" },
+      ]);
+      return;
+    }
     // Skip the composer hop — go straight to send so the conversation
     // flows like a real voice call. voice:true forces auto-TTS in
     // runSendForText regardless of state.
