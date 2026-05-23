@@ -256,23 +256,76 @@ export function AuroraAIScreen() {
    *  Reserved for canvas reactivity — read by AuroraCanvas via ref. */
   const micLevelRef = useRef(0);
 
-  /** Wraps the post-utterance flow so it can be invoked from the VAD
-   *  callback. Uses runSendForTextRef so the closure stays fresh, and
-   *  passes voice:true explicitly so runSendForText doesn't have to
-   *  read the (always-stale at this point) lastInputWasVoice state.
+  /**
+   * Continuous voice-mode state machine.
    *
-   *  Surfaces transcribe failures inline as a chat message. Without
-   *  this, a 400 from /api/ai/voice/transcribe (unsupported audio
-   *  type, empty audio, etc.) would silently bail and the user would
-   *  see "nothing happened" with no clue why. */
+   * Held in a ref (not state) so the async pipeline can check it
+   * synchronously without depending on a render. State diagram:
+   *
+   *   OFF  ──user taps mic──▶  ON (listening)
+   *     ▲                          │
+   *     │                          ▼ user speaks then goes silent
+   *     │                       (transcribe + Tony reply + TTS)
+   *     │                          │
+   *     │                          ▼ Tony finishes speaking
+   *     │                       ON (listening — automatic restart)
+   *     │                          │
+   *     └─────user taps mic again──┘
+   *
+   * The user controls open/close. The system controls the loop in
+   * between. ON means: keep the mic going after each Tony reply.
+   * Tapping the mic at any sub-stage (listening, thinking, speaking)
+   * closes voice mode entirely.
+   */
+  const voiceModeActiveRef = useRef(false);
+  const [voiceModeActive, setVoiceModeActive] = useState(false);
+
+  /**
+   * Kicks off (or restarts) the mic-listening leg of the loop. Called
+   * once when the user enters voice mode AND again automatically each
+   * time Tony finishes speaking. Bails out cleanly if voice mode has
+   * been closed in the meantime.
+   */
+  const beginListening = useCallback(async () => {
+    if (!voiceModeActiveRef.current) return;
+    auroraRef.current?.activate();
+    await voice.startRecording({
+      handsFree: {
+        silenceMs: 1400,
+        onSilence: () => { void endVoiceUtteranceRef.current(); },
+        onLevel: (rms) => { micLevelRef.current = rms; },
+      },
+    });
+  }, [voice]);
+
+  /**
+   * Post-utterance flow: stop recording, transcribe, send to Tony,
+   * speak Tony's reply, then (if still in voice mode) loop back to
+   * listening. This is the heart of the continuous conversation.
+   *
+   * Surfaces transcribe failures inline as a chat message. Without
+   * this, a 400 from /api/ai/voice/transcribe (unsupported audio
+   * type, empty audio, etc.) would silently bail and the user would
+   * see "nothing happened" with no clue why.
+   *
+   * Uses runSendForTextRef so the closure stays fresh; passes
+   * voice:true explicitly so runSendForText doesn't have to read
+   * the (always-stale at this point) lastInputWasVoice state.
+   *
+   * The continuation step (auto-restart listening) waits on
+   * voice.speak's `ended` promise — that's the precise moment the
+   * audio finishes playing, so the mic doesn't open while Tony is
+   * still talking (which would feed Tony's voice back as input).
+   */
   const endVoiceUtterance = useCallback(async () => {
     const blob = await voice.stopRecording();
-    auroraRef.current?.deactivate();
     if (!blob) {
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: "ai", text: "(couldn't capture audio — try again)" },
       ]);
+      // Still in voice mode? Loop back to listening so the user can retry.
+      if (voiceModeActiveRef.current) void beginListening();
       return;
     }
     const result = await voice.transcribe(blob);
@@ -285,6 +338,7 @@ export function AuroraAIScreen() {
           text: `(transcription failed: ${result.error ?? "unknown error"})`,
         },
       ]);
+      if (voiceModeActiveRef.current) void beginListening();
       return;
     }
     if (!result.transcript.trim()) {
@@ -292,46 +346,73 @@ export function AuroraAIScreen() {
         ...prev,
         { id: nextId(), role: "ai", text: "(didn't catch that — try speaking again)" },
       ]);
+      if (voiceModeActiveRef.current) void beginListening();
       return;
     }
-    // Skip the composer hop — go straight to send so the conversation
-    // flows like a real voice call. voice:true forces auto-TTS in
-    // runSendForText regardless of state.
-    void runSendForTextRef.current(result.transcript.trim(), { voice: true });
-  }, [voice]);
+    // Send the transcript to Tony. runSendForText calls voice.speak
+    // internally because voice:true is set; it stores the SpeakResult
+    // on speakResultRef so we can await `ended` here for the loop.
+    await runSendForTextRef.current(result.transcript.trim(), { voice: true });
+    // Wait for Tony's voice to finish before re-opening the mic. If
+    // speak failed or returned no ended promise, we still continue —
+    // the loop should never get stuck.
+    const ended = speakEndedRef.current;
+    speakEndedRef.current = null;
+    if (ended) {
+      try { await ended; } catch { /* noop */ }
+    }
+    if (voiceModeActiveRef.current) void beginListening();
+  }, [voice, beginListening]);
 
-  /** Cancel an in-progress voice utterance without transcribing. */
-  const cancelVoiceMode = useCallback(async () => {
-    auroraRef.current?.deactivate();
-    await voice.stopRecording();
-  }, [voice]);
+  // Stable ref for endVoiceUtterance so the VAD callback (set up once
+  // per startRecording call) always invokes the latest version. Without
+  // this, the closure inside startRecording would pin a stale callback.
+  const endVoiceUtteranceRef = useRef(endVoiceUtterance);
+  useEffect(() => { endVoiceUtteranceRef.current = endVoiceUtterance; }, [endVoiceUtterance]);
+
+  // Holds the `ended` promise from the most recent voice.speak call so
+  // the loop can await it from outside runSendForText. Set inside
+  // runSendForText, consumed in endVoiceUtterance.
+  const speakEndedRef = useRef<Promise<void> | null>(null);
 
   const toggleVoiceMode = useCallback(async () => {
     if (!isAuthed) {
       setSignUpOpen(true);
       return;
     }
-    if (voice.isListening) {
-      // Second tap while already recording — user wants to cancel.
-      await cancelVoiceMode();
+    if (voiceModeActiveRef.current) {
+      // Second tap — user wants to close voice mode entirely. Stop
+      // recording (drops any in-progress utterance), stop any current
+      // TTS playback, deactivate the canvas.
+      voiceModeActiveRef.current = false;
+      setVoiceModeActive(false);
+      auroraRef.current?.deactivate();
+      voice.stopSpeaking();
+      await voice.stopRecording();
       return;
     }
     // CRITICAL: prime the audio pipeline NOW, inside the click handler's
-    // synchronous gesture stack. The TTS reply arrives 5–8 seconds later
-    // (record → silence → STT → Anthropic stream → TTS fetch), well
-    // past the autoplay-policy gesture window. Without this prime call,
-    // audio.play() throws NotAllowedError and Tony stays silent. Calling
-    // it before any async work guarantees the gesture is still fresh.
+    // synchronous gesture stack. The TTS reply arrives several seconds
+    // later (record → silence → STT → Anthropic stream → TTS fetch),
+    // well past the autoplay-policy gesture window. Without this prime
+    // call, audio.play() throws NotAllowedError and Tony stays silent.
+    // Calling it before any async work guarantees the gesture is fresh.
     voice.primeAudio();
-    auroraRef.current?.activate();
-    await voice.startRecording({
-      handsFree: {
-        silenceMs: 1400,
-        onSilence: () => { void endVoiceUtterance(); },
-        onLevel: (rms) => { micLevelRef.current = rms; },
-      },
-    });
-  }, [voice, isAuthed, endVoiceUtterance, cancelVoiceMode]);
+    voiceModeActiveRef.current = true;
+    setVoiceModeActive(true);
+    void beginListening();
+  }, [voice, isAuthed, beginListening]);
+
+  // Belt-and-braces cleanup: if Aurora unmounts mid-conversation,
+  // tear down voice mode so the mic releases and TTS stops. useVoice
+  // also has its own unmount cleanup; this just clears the loop flag
+  // so any in-flight beginListening() bails on its voiceModeActiveRef
+  // check before trying to restart the mic.
+  useEffect(() => {
+    return () => {
+      voiceModeActiveRef.current = false;
+    };
+  }, []);
 
   /**
    * Core send logic — takes the text as a parameter so it can be
@@ -412,24 +493,35 @@ export function AuroraAIScreen() {
       // If speak fails (autoplay blocked, missing API key, network),
       // surface a short hint in the chat so the user understands why
       // they didn't hear anything — better than silent failure.
+      //
+      // The `ended` promise is stashed on speakEndedRef so the
+      // continuous voice-mode loop can wait for it to resolve before
+      // re-opening the mic. Without that gate, the mic would open
+      // while Tony is still talking and capture his voice as input.
       if (wasVoice && result.assistant.trim()) {
-        void voice
-          .speak(result.assistant)
-          .then((r) => {
-            if (!r.ok && r.error) {
+        try {
+          const speakRes = await voice.speak(result.assistant);
+          if (speakRes.ok) {
+            speakEndedRef.current = speakRes.ended ?? null;
+          } else {
+            speakEndedRef.current = null;
+            if (speakRes.error) {
               setMessages((prev) => [
                 ...prev,
-                { id: nextId(), role: "ai", text: `(voice unavailable: ${r.error})` },
+                { id: nextId(), role: "ai", text: `(voice unavailable: ${speakRes.error})` },
               ]);
             }
-          })
-          .catch((e) => {
-            const msg = e instanceof Error ? e.message : "playback failed";
-            setMessages((prev) => [
-              ...prev,
-              { id: nextId(), role: "ai", text: `(voice unavailable: ${msg})` },
-            ]);
-          });
+          }
+        } catch (e) {
+          speakEndedRef.current = null;
+          const msg = e instanceof Error ? e.message : "playback failed";
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: "ai", text: `(voice unavailable: ${msg})` },
+          ]);
+        }
+      } else {
+        speakEndedRef.current = null;
       }
 
       // Refresh history sidebar so the new session row shows up.
@@ -852,10 +944,18 @@ export function AuroraAIScreen() {
               </svg>
             </button>
             <button
-              className={`aurora-mic-btn${voice.isListening ? " is-listening" : ""}`}
-              title={voice.isListening ? "Listening — tap to cancel" : "Tap to talk"}
+              className={`aurora-mic-btn${voiceModeActive ? " is-listening" : ""}`}
+              title={
+                !voiceModeActive
+                  ? "Tap to start a voice conversation"
+                  : voice.isSpeaking
+                    ? "Tony is speaking — tap to end"
+                    : voice.isListening
+                      ? "Listening — keep talking, or tap to end"
+                      : "Thinking — tap to end"
+              }
               type="button"
-              aria-pressed={voice.isListening}
+              aria-pressed={voiceModeActive}
               onClick={() => { void toggleVoiceMode(); }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -886,10 +986,11 @@ export function AuroraAIScreen() {
             <i /><i /><i />
           </span>
           <span>
-            {voice.isListening ? "Listening — release to send" :
+            {voice.isListening ? "Listening — talk to Tony, pause when you're done" :
               voice.isTranscribing ? "Transcribing…" :
                 voice.isSpeaking ? "Tony is speaking…" :
-                  "Voice mode — hold the mic to speak"}
+                  voiceModeActive ? "Voice mode — thinking…" :
+                    "Voice mode — tap the mic to start"}
           </span>
           <button
             className="aurora-dismiss"
