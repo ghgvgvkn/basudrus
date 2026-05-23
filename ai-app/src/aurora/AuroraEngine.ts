@@ -98,15 +98,29 @@ const SPACING = 18;
 const DOT_R_AMB = 1.0;
 const DOT_R_ORB = 2.6;
 const ALPHA_AMB = 0.16;
-// GLOW_BG=0 disables the ambient glow halo around every dot. This
-// is the "glory things" the founder asked to remove — and it's also
-// the single biggest performance lever in the engine. Disabling
-// shadowBlur on the ambient field eliminates dozens of per-frame
-// shadow computations. The voice-mode sphere keeps its glow
-// (GLOW_ORB=14) because that's the showpiece moment, not ambient.
+// GLOW_BG=0 disables the ambient glow halo around every dot.
+//
+// GLOW_ORB cut from 14→7. Founder reported voice-mode lag on an
+// M2 MacBook Air — that's a fast machine, so the lag is real, not
+// perceived. shadowBlur is expensive per dot per frame; halving
+// the value cuts the per-dot cost dramatically. Visually the glow
+// is still very present at 7 — the difference is barely visible
+// but the frame-budget impact is huge with ~4000 dots in the field.
 const GLOW_BG = 0;
-const GLOW_ORB = 14;
+const GLOW_ORB = 7;
 const TRANSITION_MS = 1800;
+
+// In sphere mode, only apply the expensive shadowBlur to the
+// FRONT-FACING half of the sphere. Back-facing dots are dimmer
+// anyway (low alpha) — the glow on them is barely visible but
+// the cost is identical. Skipping shadow on back-facing dots
+// roughly halves the per-frame shadow-blur work in orb mode.
+const SPHERE_GLOW_FRONT_THRESHOLD = 0.45;
+
+// Inner counter-rotating ring segment count. Halved 64→32: at
+// the rendered size the ring still looks smooth, and we save
+// 32 expensive ctx.arc + shadowBlur calls per frame.
+const INNER_RING_SEGMENTS = 32;
 // Note: DOT_R_TEXT and GLOW_TEXT existed in the original design's
 // text-mask system (rendering "23°" as dot clusters on the field).
 // The mask system was removed in the React port — Aurora's text
@@ -524,7 +538,18 @@ export class AuroraEngine {
       const finalA = isFocus ? Math.min(1, alpha * 1.35) : alpha;
 
       const calmDots = isTyping;
-      ctx.shadowBlur = isFocus ? 0 : calmDots ? Math.min(blur, 2) : blur;
+      // PERF: in orb/forming mode, only glow front-facing dots.
+      // Back-facing dots are low-alpha already — the glow on them
+      // is invisible to the viewer but identically expensive. Cuts
+      // shadow-blur work roughly in half during voice mode without
+      // any perceptible visual change.
+      const inOrbMode = dotMix > 0.4;
+      const isFrontFacing = inOrbMode ? (1 - d.sz) * 0.5 > SPHERE_GLOW_FRONT_THRESHOLD : true;
+      ctx.shadowBlur =
+        isFocus ? 0 :
+        calmDots ? Math.min(blur, 2) :
+        inOrbMode && !isFrontFacing ? 0 :
+        blur;
       ctx.shadowColor = d.tint === "tint" ? "rgba(255,180,210,0.9)" : "rgba(255,255,255,0.9)";
       ctx.fillStyle =
         d.tint === "tint"
@@ -569,8 +594,8 @@ export class AuroraEngine {
       // Inner ring
       const innerR = R * 0.55;
       const innerRot = -t * 0.6;
-      for (let i = 0; i < 64; i++) {
-        const ang = (i / 64) * Math.PI * 2 + innerRot;
+      for (let i = 0; i < INNER_RING_SEGMENTS; i++) {
+        const ang = (i / INNER_RING_SEGMENTS) * Math.PI * 2 + innerRot;
         let px = Math.cos(ang) * innerR;
         let py = 0;
         let pz = Math.sin(ang) * innerR;
@@ -593,11 +618,13 @@ export class AuroraEngine {
         ctx.fill();
       }
 
-      // Second inner ring — perpendicular axis
+      // Second inner ring — perpendicular axis. Reduced 48→24
+      // segments for the same perf reason as the outer ring.
       const innerR2 = R * 0.38;
       const innerRot2 = t * 0.85;
-      for (let i = 0; i < 48; i++) {
-        const ang = (i / 48) * Math.PI * 2 + innerRot2;
+      const INNER_RING2_SEGMENTS = 24;
+      for (let i = 0; i < INNER_RING2_SEGMENTS; i++) {
+        const ang = (i / INNER_RING2_SEGMENTS) * Math.PI * 2 + innerRot2;
         let px = Math.cos(ang) * innerR2;
         let py = Math.sin(ang) * innerR2;
         let pz = 0;
