@@ -19,6 +19,14 @@
  *   aurora-style.ts            ← Universal output format (length,
  *                                audio, no emoji, no markdown)
  *
+ * SINGLE-PERSONA CONTRACT
+ * Tony Starrk is the only voice on Aurora. There is no "generic mode,"
+ * no separate "tutor persona," no "Sherlock." All the topic files
+ * below — tutoring, wellbeing, legal, etc. — describe SKILLS Tony
+ * draws on. They are not separate identities that activate by topic.
+ * aurora-core.ts states this rule explicitly at the very top of the
+ * composed prompt so it anchors before any skill block.
+ *
  * Per-call context (user's name, university, memory rows, language
  * lock) is built and appended here so the scope files stay pure prose
  * and don't need to know about runtime data.
