@@ -80,59 +80,33 @@ interface Dot {
   lifeNext: number;
 }
 
-// Performance + design knobs — tuned for low-end laptop GPUs/CPUs.
+// Performance + design knobs.
 //
-// SPACING bumped 18→28: that's ~2.4× fewer ambient dots overall (cost
-//   scales as 1/spacing²) — major frame-time improvement on cheap
-//   integrated GPUs without making the field look sparse where it
-//   matters (the corners).
-// DOT_R_AMB shrunk 1.2→0.8: smaller idle dots per founder request —
-//   "should be so small."
-// GLOW_BG dropped 2→1: shadow-blur is one of the most expensive 2D
-//   canvas ops; halving it on the ambient field is invisible to the
-//   eye but cuts per-frame paint cost noticeably.
-const SPACING = 28;
-const DOT_R_AMB = 0.8;
+// History:
+//   - Original ambient field had a glow halo + random sparkles +
+//     full dot density at SPACING=18. Looked good but ate frame
+//     budget on weak laptops.
+//   - First attempt cut it to corners-only with smaller dots. User
+//     pushback: "return back the dots but remove the glory things."
+//   - Current: full grid back (SPACING=18) — but with zero glow
+//     (GLOW_BG=0) and no ambient sparkles. That keeps the visual
+//     the founder wants (plain dot matrix everywhere) while still
+//     being very light on hardware, because shadowBlur (the "glow")
+//     is by far the most expensive op in 2D canvas, and the random
+//     sparkles were spawning every 70ms.
+const SPACING = 18;
+const DOT_R_AMB = 1.0;
 const DOT_R_ORB = 2.6;
-const ALPHA_AMB = 0.18;
-const GLOW_BG = 1;
+const ALPHA_AMB = 0.16;
+// GLOW_BG=0 disables the ambient glow halo around every dot. This
+// is the "glory things" the founder asked to remove — and it's also
+// the single biggest performance lever in the engine. Disabling
+// shadowBlur on the ambient field eliminates dozens of per-frame
+// shadow computations. The voice-mode sphere keeps its glow
+// (GLOW_ORB=14) because that's the showpiece moment, not ambient.
+const GLOW_BG = 0;
 const GLOW_ORB = 14;
 const TRANSITION_MS = 1800;
-
-// Corners-only ambient field. The founder asked: "I want you to do
-// it only in the corners — in the middle there should be none, and
-// they should be small."
-//
-// We keep dots whose grid position falls inside one of the four
-// corner zones (each a quarter-ellipse rooted in that corner). Dots
-// outside ALL four corner zones are dropped entirely — they're never
-// allocated, never iterated, never drawn. That's a huge perf win
-// AND it gets the visual the founder asked for.
-//
-// CORNER_FRACTION = 0.32 means each corner zone extends 32% of the
-// viewport width/height inward from its corner. Tweak to taste:
-// smaller = tighter clusters in the corners; larger = more coverage.
-const CORNER_FRACTION = 0.32;
-
-function isInCornerZone(x: number, y: number, w: number, h: number): boolean {
-  const zoneW = w * CORNER_FRACTION;
-  const zoneH = h * CORNER_FRACTION;
-  // Four corner anchors: TL, TR, BL, BR.
-  // For each corner, distance is normalized against (zoneW, zoneH);
-  // dot is included if normalized distance <= 1 (inside the
-  // quarter-ellipse rooted at that corner).
-  const check = (cx: number, cy: number): boolean => {
-    const dx = (x - cx) / zoneW;
-    const dy = (y - cy) / zoneH;
-    return (dx * dx + dy * dy) <= 1;
-  };
-  return (
-    check(0, 0) ||         // top-left
-    check(w, 0) ||         // top-right
-    check(0, h) ||         // bottom-left
-    check(w, h)            // bottom-right
-  );
-}
 // Note: DOT_R_TEXT and GLOW_TEXT existed in the original design's
 // text-mask system (rendering "23°" as dot clusters on the field).
 // The mask system was removed in the React port — Aurora's text
@@ -158,7 +132,6 @@ export class AuroraEngine {
   private rafId = 0;
   private resizeHandler: () => void;
   private startTime = performance.now();
-  private lastGhostSpawn = 0;
   private destroyed = false;
 
   // Frame-rate throttling so the canvas doesn't burn 144 Hz on a
@@ -298,10 +271,6 @@ export class AuroraEngine {
       for (let c = -1; c < cols; c++) {
         const x = c * SPACING + xOff;
         const y = r * SPACING;
-        // Corners-only filter — see isInCornerZone comment at the
-        // top of this file. Dots in the middle are not allocated at
-        // all; they cost zero CPU per frame.
-        if (!isInCornerZone(x, y, this.W, this.H)) continue;
         this.dots.push({
           hx: x,
           hy: y,
@@ -459,26 +428,19 @@ export class AuroraEngine {
       ctx.fillRect(0, 0, this.W, this.H);
     }
 
+    // These mode flags are read elsewhere in the render loop to
+    // dim/brighten the field when typing or in focus mode. Declared
+    // here even though the ambient-sparkle spawn that used to consume
+    // them has been removed (see comment below).
     const isTyping = document.body.classList.contains("aurora-typing");
     const isFocus = document.body.classList.contains("aurora-focus-mode");
-    const spawnGate = isFocus ? Infinity : isTyping ? 320 : 70;
 
-    if (!isFocus && now - this.lastGhostSpawn > spawnGate) {
-      this.lastGhostSpawn = now;
-      const n = isTyping ? 1 : 1 + (Math.random() < 0.6 ? 1 : 0);
-      for (let i = 0; i < n; i++) {
-        this.ghosts.push({
-          x: Math.random() * this.W,
-          y: Math.random() * this.H,
-          vx: 0,
-          vy: 0,
-          born: now,
-          ttl: 1700 + Math.random() * 2400,
-          r: 1.4 + Math.random() * 2.4,
-          ambient: true,
-        });
-      }
-    }
+    // Ambient ghost-sparkle spawning is DISABLED. Founder asked to
+    // "remove the glory things" — the random shimmering dots that
+    // would appear and fade across the field every ~70ms. They were
+    // part of the "glory" effect we're stripping. The intentional
+    // spark() API used on send / tap / pulse is unaffected — those
+    // bursts are user-initiated feedback, not ambient sparkle.
 
     // Draw dots
     for (let i = 0; i < this.dots.length; i++) {
