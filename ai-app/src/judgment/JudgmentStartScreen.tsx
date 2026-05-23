@@ -7,7 +7,7 @@
  * useJudgmentApi.create() which returns the new judgment row with
  * its invite_code. Caller then routes to the share screen.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useJudgmentApi, type Judgment } from "./useJudgmentApi";
 
 const RELATIONSHIP_OPTIONS: Array<{ value: string; label: string }> = [
@@ -21,9 +21,11 @@ const RELATIONSHIP_OPTIONS: Array<{ value: string; label: string }> = [
 interface Props {
   onBack: () => void;
   onCreated: (j: Judgment) => void;
+  /** Called when the user clicks a past judgment from the list. */
+  onOpenPast: (j: Judgment) => void;
 }
 
-export function JudgmentStartScreen({ onBack, onCreated }: Props) {
+export function JudgmentStartScreen({ onBack, onCreated, onOpenPast }: Props) {
   const api = useJudgmentApi();
   const [relType, setRelType] = useState<string>("friend");
   const [title, setTitle] = useState("");
@@ -31,6 +33,15 @@ export function JudgmentStartScreen({ onBack, onCreated }: Props) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Past judgments the user participated in — shown below the
+  // new-judgment form so they can jump back into ongoing ones.
+  const [pastJudgments, setPastJudgments] = useState<Judgment[]>([]);
+  useEffect(() => {
+    void api.listMyJudgments().then((r) => {
+      if (r.ok) setPastJudgments(r.data.judgments ?? []);
+    });
+  }, [api]);
 
   const canSubmit = !busy && text.trim().length >= 5;
 
@@ -131,7 +142,71 @@ export function JudgmentStartScreen({ onBack, onCreated }: Props) {
             Cancel
           </button>
         </div>
+
+        {/* Past judgments — let the user jump back into ongoing or
+            completed conversations. Founder noticed people couldn't
+            find their judgments after closing the tab. */}
+        {pastJudgments.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div className="j-label">Your past judgments</div>
+            <div className="j-past-list">
+              {pastJudgments.map((j) => (
+                <PastJudgmentRow key={j.id} judgment={j} onOpen={onOpenPast} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+/** A row in the past-judgments list. Shows title (or relationship
+ *  type), status badge, last-updated timestamp. Click → open. */
+function PastJudgmentRow({
+  judgment,
+  onOpen,
+}: {
+  judgment: Judgment;
+  onOpen: (j: Judgment) => void;
+}) {
+  const title =
+    judgment.title?.trim()
+    || judgment.party_b_label?.trim() && judgment.party_a_label?.trim()
+       ? `${judgment.party_a_label} ↔ ${judgment.party_b_label}`
+       : `With a ${judgment.relationship_type}`;
+  const statusLabel =
+    judgment.status === "waiting"  ? "Waiting for them" :
+    judgment.status === "both_in"  ? "Both in" :
+    judgment.status === "active"   ? "In discussion" :
+    judgment.status === "complete" ? "Complete" :
+    judgment.status === "expired"  ? "Expired" : judgment.status;
+  const updated = judgment.updated_at ? new Date(judgment.updated_at) : null;
+  const relTime = updated ? relativeTime(updated) : "";
+  return (
+    <button
+      type="button"
+      className="j-past-row"
+      onClick={() => onOpen(judgment)}
+    >
+      <div className="j-past-row-title">{title}</div>
+      <div className="j-past-row-meta">
+        <span className={`j-past-row-status status-${judgment.status}`}>
+          {statusLabel}
+        </span>
+        {relTime && <span className="j-past-row-time">{relTime}</span>}
+      </div>
+    </button>
+  );
+}
+
+/** Tiny relative-time formatter — no library needed for one widget. */
+function relativeTime(d: Date): string {
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60)    return "just now";
+  if (sec < 3600)  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  const days = Math.floor(sec / 86400);
+  if (days < 30)   return `${days}d ago`;
+  return d.toLocaleDateString();
 }

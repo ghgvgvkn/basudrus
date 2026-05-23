@@ -153,7 +153,17 @@ export function useJudgmentApi() {
     [],
   );
 
-  return { create, join, postMessage, askAi, listMessages };
+  /** List the user's past judgments (any judgment where they are
+   *  party_a or party_b). Used by the start screen to show a
+   *  history list under the new-judgment form. */
+  const listMyJudgments = useCallback(
+    async (): Promise<ApiResult<{ judgments: Judgment[] }>> => {
+      return postJudgment<{ judgments: Judgment[] }>({ action: "list_my" });
+    },
+    [],
+  );
+
+  return { create, join, postMessage, askAi, listMessages, listMyJudgments };
 }
 
 /**

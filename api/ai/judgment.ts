@@ -66,7 +66,7 @@ const RETRYABLE = new Set([429, 502, 503, 504, 529]);
 const BACKOFFS = [700, 1700];
 
 interface ReqBody {
-  action: "create" | "join" | "post_message" | "ai_respond" | "list_messages";
+  action: "create" | "join" | "post_message" | "ai_respond" | "list_messages" | "list_my";
   // create
   relationshipType?: unknown;
   title?: unknown;
@@ -150,6 +150,7 @@ export default async function handler(req: Request): Promise<Response> {
     case "post_message":  return handlePostMessage(body, authHeader, sHeaders);
     case "ai_respond":    return handleAiRespond(body, userId, authHeader, sHeaders);
     case "list_messages": return handleListMessages(body, authHeader, sHeaders);
+    case "list_my":       return handleListMy(userId, authHeader, sHeaders);
     default:              return json(400, { error: `Unknown action: ${body.action}` }, sHeaders);
   }
 }
@@ -196,6 +197,31 @@ async function handleCreate(
     return json(res.status, { error: `Could not create judgment: ${detail.slice(0, 200)}` }, sHeaders);
   }
   const created = await res.json() as Record<string, unknown>;
+
+  // Auto-acknowledgment from Tony. The user just poured out their
+  // side and is now sitting on a screen with a share link. Without
+  // an ack, it feels empty. We post a brief, hardcoded Tony reply
+  // (no AI call needed — it's the same message every time and the
+  // point is just to be present, not to be clever).
+  //
+  // Best-effort: if this insert fails, the judgment still works —
+  // we just skip the ack and the user sees only their own message.
+  const ackText =
+    "Heard you. I'm not going to weigh in yet — I want to hear " +
+    "their side first, blind, so I'm fair to both of you. Send " +
+    "them the link below. The second they're in I'll come back " +
+    "with my read.";
+  try {
+    if (typeof created.id === "string") {
+      await supabaseRest({
+        path: "/rest/v1/rpc/judgment_post_ai_message",
+        method: "POST",
+        body: { p_judgment_id: created.id, p_text: ackText },
+        authHeader,
+      });
+    }
+  } catch { /* ack is best-effort */ }
+
   return json(200, { judgment: created }, sHeaders);
 }
 
@@ -462,4 +488,52 @@ async function handleListMessages(
   if (!res.ok) return json(500, { error: "Failed to load messages" }, sHeaders);
   const messages = await res.json() as Array<Record<string, unknown>>;
   return json(200, { messages }, sHeaders);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// LIST_MY — past judgments the caller participated in (A or B)
+// ──────────────────────────────────────────────────────────────────────
+
+async function handleListMy(
+  userId: string,
+  authHeader: string | null,
+  sHeaders: Record<string, string>,
+): Promise<Response> {
+  // RLS already restricts the rows to participants, so a plain
+  // ordering+limit query is all we need. We OR on the two party
+  // columns because PostgREST's "or" filter syntax is awkward;
+  // simpler to do two queries and union them client-side.
+  const baseCols = "id,invite_code,relationship_type,title,party_a_label,party_b_label,status,created_at,updated_at,party_a_user_id,party_b_user_id";
+  const asA = await supabaseRest({
+    path: `/rest/v1/judgments?party_a_user_id=eq.${encodeURIComponent(userId)}&order=updated_at.desc&limit=50&select=${baseCols}`,
+    authHeader,
+  });
+  const asB = await supabaseRest({
+    path: `/rest/v1/judgments?party_b_user_id=eq.${encodeURIComponent(userId)}&order=updated_at.desc&limit=50&select=${baseCols}`,
+    authHeader,
+  });
+  if (!asA.ok || !asB.ok) {
+    return json(500, { error: "Failed to load your judgments" }, sHeaders);
+  }
+  const aRows = (await asA.json()) as Array<Record<string, unknown>>;
+  const bRows = (await asB.json()) as Array<Record<string, unknown>>;
+  // Merge + dedupe by id (a row only appears in one of the two
+  // queries since A and B are different user IDs, but defensive
+  // dedupe is cheap).
+  const seen = new Set<string>();
+  const merged: Array<Record<string, unknown>> = [];
+  for (const r of [...aRows, ...bRows]) {
+    const id = typeof r.id === "string" ? r.id : "";
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      merged.push(r);
+    }
+  }
+  // Re-sort by updated_at desc.
+  merged.sort((a, b) => {
+    const ta = Date.parse(String(a.updated_at ?? "")) || 0;
+    const tb = Date.parse(String(b.updated_at ?? "")) || 0;
+    return tb - ta;
+  });
+  return json(200, { judgments: merged }, sHeaders);
 }

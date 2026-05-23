@@ -92,6 +92,47 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
     return () => window.clearInterval(id);
   }, [refresh]);
 
+  // ── Auto-trigger Tony's opening verdict the moment both sides
+  //    have posted AND Tony hasn't said anything beyond his ack.
+  //
+  //    This is the "no button click needed" experience the founder
+  //    asked for. The flow:
+  //      1. A creates → server inserts A's message + Tony's ack
+  //         (the brief "I'll wait for them" message). status='waiting'.
+  //      2. B joins via link → server inserts B's message.
+  //         status='both_in'. Both clients poll and see B's message.
+  //      3. This effect fires on BOTH clients: it sees a party_a
+  //         message + a party_b message in the transcript + only
+  //         the initial ack from Tony (no verdict). It auto-calls
+  //         ai_respond. Server runs the AI + posts the opening
+  //         verdict. status → 'active'. Tony's verdict appears in
+  //         both browsers on the next poll.
+  //
+  //    Guarded by autoAiTriggeredRef so it only fires ONCE per
+  //    judgment per mount (avoids retriggering on every poll).
+  const autoAiTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (autoAiTriggeredRef.current) return;
+    if (askingAi) return;
+    // Need both human sides AND no verdict-grade AI message yet.
+    // The initial ack message is OK — it doesn't count as a verdict.
+    const hasA = messages.some((m) => m.sender_type === "party_a");
+    const hasB = messages.some((m) => m.sender_type === "party_b");
+    if (!hasA || !hasB) return;
+    const hasVerdict = messages.some(
+      (m) => m.sender_type === "ai" && /<<<VERDICT>>>/i.test(m.text),
+    );
+    if (hasVerdict) return;
+    autoAiTriggeredRef.current = true;
+    void askTony();
+    // Note: askTony is defined below — its identity is stable across
+    // renders thanks to useCallback, so referencing it before the
+    // declaration is fine at runtime (closure on the latest reference).
+    // We intentionally don't put it in the deps array — we only want
+    // this effect's body to gate on `messages` (and the ref).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, askingAi]);
+
   // Derive party-A vs party-B labels for the speaker chips.
   const aLabel = judgment.party_a_label?.trim() || "Party A";
   const bLabel = judgment.party_b_label?.trim() || "Party B";
@@ -223,23 +264,16 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
         <VerdictBadge verdict={verdict} aLabel={aLabel} bLabel={bLabel} />
       )}
 
-      {/* Prominent "Get Tony's verdict" CTA when both sides are in
-          but Tony hasn't responded yet. Without this the small
-          "Ask Tony" button in the composer is too easy to miss
-          and people just sit there wondering why nothing happens. */}
-      {!verdict && canAskAi && (
+      {/* Loading shimmer while Tony auto-generates his opening
+          verdict — gives the user immediate feedback so they know
+          something is happening, instead of the chat looking
+          frozen during the ~3-5s AI call. Auto-hides as soon as
+          a verdict-bearing AI message arrives. */}
+      {!verdict && askingAi && (
         <div className="j-ask-cta">
           <div className="j-ask-cta-text">
-            Both sides are in. Ready for Tony's verdict?
+            Tony is reading both sides...
           </div>
-          <button
-            type="button"
-            className="j-btn-primary"
-            onClick={askTony}
-            disabled={askingAi}
-          >
-            {askingAi ? "Tony is thinking..." : "Get Tony's verdict"}
-          </button>
         </div>
       )}
 

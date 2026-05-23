@@ -348,6 +348,51 @@
   font-size: 13px;
 }
 
+/* Past judgments list (start screen) */
+.judgment-app .j-past-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.judgment-app .j-past-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.035);
+  border: 0.5px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: #fff;
+  transition: background 160ms, border-color 160ms;
+}
+.judgment-app .j-past-row:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.18);
+}
+.judgment-app .j-past-row-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+.judgment-app .j-past-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-family: 'Geist Mono', monospace;
+  color: rgba(255,255,255,0.5);
+}
+.judgment-app .j-past-row-status.status-waiting  { color: rgba(255,220,140,0.85); }
+.judgment-app .j-past-row-status.status-active   { color: rgba(180,255,200,0.85); }
+.judgment-app .j-past-row-status.status-both_in  { color: rgba(140,200,255,0.85); }
+.judgment-app .j-past-row-status.status-complete { color: rgba(200,200,200,0.65); }
+.judgment-app .j-past-row-status.status-expired  { color: rgba(180,140,140,0.65); }
+
 /* Big "Get Tony's verdict" call-to-action, shown when both sides
    are in but Tony hasn't responded yet. */
 .judgment-app .j-ask-cta {

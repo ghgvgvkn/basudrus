@@ -175,6 +175,11 @@ export function JudgmentApp({ onBackToAurora }: { onBackToAurora: () => void }) 
           navigate(`/judgment/${j.invite_code}`);
           setView({ kind: "chat", judgment: j });
         }}
+        onOpenPast={(j) => {
+          // Past-judgment click — push the URL and route to chat.
+          navigate(`/judgment/${j.invite_code}`);
+          setView({ kind: "chat", judgment: j });
+        }}
       />
     );
   } else if (view.kind === "join") {
