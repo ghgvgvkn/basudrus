@@ -220,7 +220,17 @@ export function useStreamingAI(): StreamingAIState {
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     try {
-      const endpoint = persona === "noor" ? "/api/ai/wellbeing" : "/api/ai/tutor";
+      // Persona → endpoint routing. Aurora (life-mode Tony) and the
+      // tutor (academic Tony) are separate edge functions on purpose —
+      // see the comment on AIPersona in @/shared/types and the
+      // architecture note at the top of api/ai/aurora.ts. NEVER fold
+      // these into one endpoint with a "mode" param; the file-level
+      // separation is what protects the tutor brain from accidental
+      // edits when extending Aurora.
+      const endpoint =
+        persona === "noor"   ? "/api/ai/wellbeing" :
+        persona === "aurora" ? "/api/ai/aurora" :
+        "/api/ai/tutor";
 
       const { data: { session } } = await getSessionCached();
       const access = session?.access_token;

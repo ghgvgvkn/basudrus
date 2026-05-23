@@ -19,8 +19,24 @@ export type ScreenId =
   | "subscription"
   | "onboarding";
 
-/** AI mode — Tony Starrk = Study, Sherlock = Mental Health. */
-export type AIPersona = "omar" | "noor";
+/**
+ * AI mode — which "version" of the assistant is talking.
+ *
+ *   omar      → Tony Starrk in TUTOR mode. Powers basudrus.com chat.
+ *               Backed by api/ai/tutor.ts. Focus: academic subjects,
+ *               Socratic ladder, spaced repetition. NEVER touch this
+ *               brain when extending Aurora's scope.
+ *   noor      → Sherlock, mental-health persona. Backed by
+ *               api/ai/wellbeing.ts.
+ *   aurora    → Tony Starrk in LIFE mode. Powers ai.basudrus.com.
+ *               Backed by api/ai/aurora.ts. Broader scope:
+ *               mental health, relationships, legal, business,
+ *               productivity. Same memory as `omar` (shared
+ *               student_memory + profiles), different system prompt
+ *               and scope. Edits to Aurora's personality live in
+ *               api/ai/_prompts/aurora-prompt.ts ONLY.
+ */
+export type AIPersona = "omar" | "noor" | "aurora";
 
 /** Subscription tier. */
 export type Tier = "free" | "pro";

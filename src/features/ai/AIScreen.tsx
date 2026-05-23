@@ -2028,7 +2028,7 @@ function AIMessageView({
             uses id="streaming") because the message hasn't committed
             yet. Feedback is fire-and-forget into tutor_feedback;
             bookmark toggles tutor_saved_messages. */}
-        {onToggleSave && msg.id !== "streaming" && (
+        {onToggleSave && msg.id !== "streaming" && msg.persona !== "aurora" && (
           <div className="mt-2 px-1 flex items-center justify-between">
             <FeedbackRow
               persona={msg.persona}

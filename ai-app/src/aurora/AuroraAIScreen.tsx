@@ -36,7 +36,6 @@ import { useApp } from "@/context/AppContext";
 import { useStreamingAI, type ChatMsg } from "@/features/ai/useStreamingAI";
 import { useVoice } from "@/features/ai/voice/useVoice";
 import { useAIHistory, fetchSessionById, type SessionListItem } from "@/features/ai/useAIHistory";
-import { findLatestActiveSubject } from "@/features/ai/tutorSession";
 import { useStreak } from "@/features/ai/useStreak";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { supabase } from "@/lib/supabase";
@@ -158,29 +157,17 @@ export function AuroraAIScreen() {
   const [signUpOpen, setSignUpOpen] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
 
-  /**
-   * Resumed subject — keeps Tony's memory shared between Aurora and
-   * basudrus.com. tutor_sessions are keyed by (user_id, subject), so
-   * if Aurora always sent "general" we'd silo from whatever subject
-   * the user was working on at basudrus.com. Instead we look up their
-   * most recent active subject (within 24h) and pass that. Falls back
-   * to "general" for first-time users or users whose last activity is
-   * stale. Note: student_memory (long-term durable facts like the
-   * user's name, university, year, persistent preferences) is loaded
-   * server-side regardless of subject — those are ALREADY shared
-   * across both surfaces. This fix specifically reconciles the
-   * short-term per-subject session memory.
-   */
-  const [resumedSubject, setResumedSubject] = useState<string>("general");
-  useEffect(() => {
-    if (!user?.id) return;
-    let cancelled = false;
-    void findLatestActiveSubject(user.id).then((subj) => {
-      if (cancelled || !subj) return;
-      setResumedSubject(subj);
-    });
-    return () => { cancelled = true; };
-  }, [user?.id]);
+  // Note: an earlier version of this screen looked up the user's
+  // most-recently-active tutor subject and passed it as `subject` to
+  // the chat endpoint so Aurora would inherit the right per-subject
+  // tutor_session memory_context. That mechanism is now obsolete:
+  // Aurora calls api/ai/aurora.ts (life-mode), which has no concept
+  // of "subject" and reads the SHARED student_memory rows directly.
+  // The cross-surface continuity the user experiences ("Tony knows
+  // me") comes from student_memory now, not session sharding.
+  // Keeping this note here as a tombstone — if you bring back per-
+  // subject keying for Aurora later, do it in api/ai/aurora.ts, not
+  // by spreading subject state through the client.
 
   useEffect(() => {
     const id = setInterval(() => setMeta(formatMeta(new Date())), 30 * 1000);
@@ -517,13 +504,14 @@ export function AuroraAIScreen() {
     const wasVoice = opts?.voice ?? lastInputWasVoice;
     setLastInputWasVoice(false);
 
-    const sendOnce = () => send("omar", text, chatHistory, {
+    // Aurora uses the "aurora" persona → routes to api/ai/aurora.ts
+    // (Tony in life-mode). The tutor brain on basudrus.com is a
+    // different endpoint with a completely separate system prompt —
+    // see the AIPersona doc in @/shared/types. The aurora endpoint
+    // ignores `subject` (life-mode has no subject keying); we still
+    // pass profile fields for context grounding.
+    const sendOnce = () => send("aurora", text, chatHistory, {
       lang: "auto",
-      // Use the user's most recently active subject so Aurora resumes
-      // the same tutor_session memory as basudrus.com (set by the
-      // findLatestActiveSubject effect above). Falls back to "general"
-      // for first-time users.
-      subject: resumedSubject,
       uni: profile?.uni ?? undefined,
       major: profile?.major ?? undefined,
       year: profile?.year ?? undefined,
@@ -601,7 +589,7 @@ export function AuroraAIScreen() {
                 : "Something went wrong. Try again in a moment.";
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg }]);
     }
-  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history, resumedSubject]);
+  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history]);
 
   // ── Send a message (button / enter) ───────────────────────────────
   const handleSend = useCallback(async () => {
