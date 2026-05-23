@@ -6,7 +6,9 @@
  * other files. To edit what Tony says or how he behaves on Aurora,
  * open the right scope file:
  *
- *   aurora-core.ts             ← Identity (who Tony IS)
+ *   aurora-core.ts             ← Identity (who Tony Starrk IS)
+ *   aurora-tony-voice.ts       ← Tony-specific speech patterns
+ *                                (nicknames, pop-culture, joke-rhythm)
  *   aurora-mental-health.ts    ← Wellbeing / emotional support
  *   aurora-relationships.ts    ← Friendships, family, dating, social
  *   aurora-legal.ts            ← Legal concepts (NOT advice)
@@ -14,7 +16,8 @@
  *   aurora-productivity.ts     ← Planning, time, habits
  *   aurora-honesty.ts          ← Direct-not-cruel calibration
  *   aurora-safety.ts           ← Hard guardrails (CRITICAL — read first)
- *   aurora-style.ts            ← Voice / length / format
+ *   aurora-style.ts            ← Universal output format (length,
+ *                                audio, no emoji, no markdown)
  *
  * Per-call context (user's name, university, memory rows, language
  * lock) is built and appended here so the scope files stay pure prose
@@ -35,6 +38,7 @@
  */
 
 import { AURORA_CORE } from "./aurora-core";
+import { AURORA_TONY_VOICE } from "./aurora-tony-voice";
 import { AURORA_MENTAL_HEALTH } from "./aurora-mental-health";
 import { AURORA_WELLBEING } from "./aurora-wellbeing";
 import { AURORA_RELATIONSHIPS } from "./aurora-relationships";
@@ -114,7 +118,14 @@ export function buildAuroraPrompt(ctx: {
   // unexpectedly, consider gating them in the endpoint (only inject
   // when the last user message looks academic/emotional).
   const sections = [
+    // Identity FIRST — this establishes who Tony is before anything
+    // else (capabilities, topic rules, voice patterns). The model
+    // anchors to whatever's at the top.
     AURORA_CORE,
+    // Then the voice — HOW Tony talks. Placed right after identity
+    // so cadence/nicknames/joke-rhythm are set before any scope
+    // file tries to define behavior for itself.
+    AURORA_TONY_VOICE,
     "# What you help with",
     AURORA_MENTAL_HEALTH,
     AURORA_RELATIONSHIPS,
