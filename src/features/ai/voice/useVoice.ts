@@ -61,6 +61,16 @@ export interface UseVoiceResult {
   speak: (text: string, opts?: { voiceId?: string }) => Promise<SpeakResult>;
   /** Stop current playback, drop the queue. Safe to call any time. */
   stopSpeaking: () => void;
+  /**
+   * Unlock the audio pipeline during a user gesture so later speak()
+   * calls aren't blocked by browser autoplay policy. Call this from
+   * any onClick / onTap that LEADS to an automatic later playback —
+   * e.g. when the user taps the mic for hands-free voice mode, where
+   * the TTS reply arrives seconds later, well past the gesture window.
+   *
+   * Synchronous-ish: returns immediately. Idempotent.
+   */
+  primeAudio: () => void;
 
   // ── STT ──
   /** True while the microphone is recording. */
@@ -218,6 +228,53 @@ export function useVoice(): UseVoiceResult {
     analyserRef.current = analyser;
     return { ctx, analyser };
   }, []);
+
+  /**
+   * Prime the audio pipeline inside a user-gesture handler so playback
+   * works later when it really matters.
+   *
+   * Browsers enforce an autoplay policy: HTMLAudioElement.play() and
+   * AudioContext creation are only allowed during (or shortly after)
+   * a user gesture — a click, tap, key press. Hands-free voice mode
+   * has a multi-second pipeline (record → silence-detect → STT →
+   * Anthropic stream → TTS fetch → play) so by the time speak() calls
+   * audio.play(), the original mic-tap gesture has expired and Chrome
+   * (especially Safari) refuses to play.
+   *
+   * Calling primeAudio() synchronously inside the mic-tap onClick
+   * lets us:
+   *   1. Create the AudioContext while the gesture is still "fresh"
+   *      — so it starts in "running" state instead of "suspended".
+   *   2. Play a tiny silent buffer immediately, which counts as
+   *      "the page initiated audio playback" and unlocks later
+   *      audio.play() calls for the rest of the session on most
+   *      browsers.
+   *
+   * Safe to call multiple times — idempotent after first success.
+   */
+  const primeAudio = useCallback(() => {
+    try {
+      const { ctx } = ensureAudioContext();
+      // Resume if the context was created earlier in a non-gesture
+      // path (e.g. by an analyser being requested elsewhere). resume()
+      // is async but works as long as we're in a gesture stack at
+      // call time — we don't need to await it.
+      if (ctx.state === "suspended") void ctx.resume();
+      // Play a 50ms silent buffer through the destination. This is
+      // the "audio unlock" trick: many browsers (Safari, older Chrome)
+      // only allow further playback once at least one buffer has
+      // actually been played within a gesture.
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.05), ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      // Construction can fail on very old browsers or in some embedded
+      // webviews. We swallow — the regular speak() path will surface a
+      // clean error if playback later fails.
+    }
+  }, [ensureAudioContext]);
 
   // ── TTS ────────────────────────────────────────────────────────────
 
@@ -596,6 +653,7 @@ export function useVoice(): UseVoiceResult {
     isSpeaking,
     speak,
     stopSpeaking,
+    primeAudio,
     isListening,
     isTranscribing,
     startRecording,

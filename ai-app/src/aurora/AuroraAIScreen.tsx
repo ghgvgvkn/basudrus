@@ -316,6 +316,13 @@ export function AuroraAIScreen() {
       await cancelVoiceMode();
       return;
     }
+    // CRITICAL: prime the audio pipeline NOW, inside the click handler's
+    // synchronous gesture stack. The TTS reply arrives 5–8 seconds later
+    // (record → silence → STT → Anthropic stream → TTS fetch), well
+    // past the autoplay-policy gesture window. Without this prime call,
+    // audio.play() throws NotAllowedError and Tony stays silent. Calling
+    // it before any async work guarantees the gesture is still fresh.
+    voice.primeAudio();
     auroraRef.current?.activate();
     await voice.startRecording({
       handsFree: {
