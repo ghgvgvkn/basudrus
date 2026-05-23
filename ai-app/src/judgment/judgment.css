@@ -348,6 +348,27 @@
   font-size: 13px;
 }
 
+/* Big "Get Tony's verdict" call-to-action, shown when both sides
+   are in but Tony hasn't responded yet. */
+.judgment-app .j-ask-cta {
+  align-self: stretch;
+  margin: 12px 0 16px;
+  padding: 18px 22px;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  background: linear-gradient(135deg, rgba(255,200,140,0.18), rgba(196,184,255,0.10));
+  border: 0.5px solid rgba(255,200,140,0.40);
+  box-shadow: 0 8px 24px rgba(255,200,140,0.12);
+}
+.judgment-app .j-ask-cta-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #fff;
+}
+
 /* Status banner */
 .judgment-app .j-status-banner {
   align-self: stretch;

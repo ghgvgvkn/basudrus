@@ -59,13 +59,31 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
   }, [messages]);
 
   // Initial fetch + polling.
+  // Also derives status updates from the message list — if we see
+  // a party_b message arrive (B joined) or an ai message (Tony
+  // weighed in), bump the local judgment status accordingly so the
+  // composer + Ask Tony button unhide for Party A even though the
+  // judgment row in their local state was set ONCE at create-time.
   const refresh = useCallback(async () => {
     const res = await api.listMessages({ judgmentId: judgment.id });
-    if (res.ok) {
-      setMessages(res.data.messages ?? []);
-    }
-    // Soft error: don't surface poll-failures; they'll resolve on
-    // the next interval. Only surface explicit user-action errors.
+    if (!res.ok) return;
+    const fetched = res.data.messages ?? [];
+    setMessages(fetched);
+    const hasBMessage = fetched.some((m) => m.sender_type === "party_b");
+    const hasAiMessage = fetched.some((m) => m.sender_type === "ai");
+    setJudgment((prev) => {
+      // Promote 'waiting' → 'both_in' the moment B's first message
+      // shows up in the transcript (means B joined since this client
+      // last knew about it).
+      if (prev.status === "waiting" && hasBMessage) {
+        return { ...prev, status: "both_in" };
+      }
+      // Promote 'both_in' → 'active' once Tony has responded.
+      if (prev.status === "both_in" && hasAiMessage) {
+        return { ...prev, status: "active" };
+      }
+      return prev;
+    });
   }, [api, judgment.id]);
 
   useEffect(() => {
@@ -203,6 +221,26 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
       {/* Verdict badge (only once Tony has issued one) */}
       {verdict && (
         <VerdictBadge verdict={verdict} aLabel={aLabel} bLabel={bLabel} />
+      )}
+
+      {/* Prominent "Get Tony's verdict" CTA when both sides are in
+          but Tony hasn't responded yet. Without this the small
+          "Ask Tony" button in the composer is too easy to miss
+          and people just sit there wondering why nothing happens. */}
+      {!verdict && canAskAi && (
+        <div className="j-ask-cta">
+          <div className="j-ask-cta-text">
+            Both sides are in. Ready for Tony's verdict?
+          </div>
+          <button
+            type="button"
+            className="j-btn-primary"
+            onClick={askTony}
+            disabled={askingAi}
+          >
+            {askingAi ? "Tony is thinking..." : "Get Tony's verdict"}
+          </button>
+        </div>
       )}
 
       {/* Message thread */}
