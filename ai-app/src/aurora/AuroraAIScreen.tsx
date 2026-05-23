@@ -39,6 +39,7 @@ import { useAIHistory, fetchSessionById, type SessionListItem } from "@/features
 import { useStreak } from "@/features/ai/useStreak";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { supabase } from "@/lib/supabase";
+import { apiUrl } from "@/lib/apiBase";
 import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
@@ -185,6 +186,17 @@ export function AuroraAIScreen() {
       document.body.classList.remove("aurora-rail-hidden");
     };
   }, [focusMode, railHidden]);
+
+  // Pre-warm the Aurora edge function on mount so the user's first
+  // message doesn't pay the cold-start tax. GET / is a cheap no-auth
+  // ping that returns 200 + spins up the V8 isolate + imports the
+  // module graph. Fire-and-forget — failure here is silent because
+  // the actual chat send has its own retry-with-backoff anyway.
+  useEffect(() => {
+    void fetch(apiUrl("/api/ai/aurora"), { method: "GET" }).catch(() => {
+      /* warm-up failure is harmless — first message will just be slow */
+    });
+  }, []);
 
   // Auto-scroll thread to bottom on new content
   useEffect(() => {

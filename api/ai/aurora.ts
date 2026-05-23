@@ -85,6 +85,18 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: sHeaders });
   }
+  // GET = pre-warm ping. The client fires this on Aurora mount so the
+  // edge function spins up its cold-start (V8 isolate, module imports,
+  // SDK initialization) WHILE the user is still reading the page,
+  // instead of paying the cold-start tax on the first real message.
+  // No auth, no rate limit — just a 200 OK that proves the function
+  // is hot. Negligible cost; massive UX win on first send.
+  if (req.method === "GET") {
+    return new Response(JSON.stringify({ ok: true, warm: true }), {
+      status: 200,
+      headers: { ...sHeaders, "Content-Type": "application/json" },
+    });
+  }
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -182,18 +194,22 @@ export default async function handler(req: Request): Promise<Response> {
     // buildAuroraPrompt is the ONLY entry point into the personality
     // text. To edit Tony-on-Aurora, edit aurora-prompt.ts. Do not
     // splice persona instructions in here directly.
-    const auroraSystem = buildAuroraPrompt({
+    // Pass memory INTO buildAuroraPrompt so it lands inside the
+    // "About the person you're talking to" context block — same
+    // structural position as the name/uni/major/year facts. Putting
+    // memory there (rather than appending it after the safety block)
+    // makes Tony actually use it as identity context instead of
+    // treating it as a tacked-on appendix. Without this, Tony "knew"
+    // facts about the user but didn't naturally weave them in.
+    const systemPrompt = buildAuroraPrompt({
       studentName,
       uni,
       major,
       year,
       personality,
-      memory: undefined, // raw memory rows are added separately below
+      memory: memoryBlock || undefined,
       lang,
     });
-    const systemPrompt = memoryBlock
-      ? `${auroraSystem}\n\n${memoryBlock}`
-      : auroraSystem;
 
     // ── Call Anthropic with retry-with-backoff ──
     // Same transient-status policy as tutor.ts (529 overload, 5xx).
