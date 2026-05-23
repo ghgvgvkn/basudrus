@@ -292,6 +292,23 @@ export function AuroraAIScreen() {
   const voiceSessionGenRef = useRef(0);
 
   /**
+   * Counter for how many consecutive empty utterances we've seen
+   * inside the current voice mode. Resets to 0 the moment the user
+   * says something the server actually transcribes. If we hit
+   * MAX_EMPTY_STREAK in a row, voice mode shuts itself down instead
+   * of restarting the listen loop forever — that was the bug behind
+   * the user's screenshot showing "didn't catch your voice — try
+   * speaking up" repeated 5 times in a row.
+   *
+   * Common cause: silent room, mic muted at the OS level, AirPods
+   * dropped, user walked away from the laptop. In all of those, the
+   * AI spamming the chat with "didn't catch you" doesn't help —
+   * it's just noise.
+   */
+  const emptyStreakRef = useRef(0);
+  const MAX_EMPTY_STREAK = 2;
+
+  /**
    * Kicks off (or restarts) the mic-listening leg of the loop. Called
    * once when the user enters voice mode AND again automatically each
    * time Tony finishes speaking. Bails out cleanly if voice mode has
@@ -374,6 +391,24 @@ export function AuroraAIScreen() {
       .replace(/\s+/g, " ")        // collapse the spaces left behind
       .trim();
     if (!cleaned) {
+      // Increment the streak. If we've hit too many empties in a
+      // row, just close voice mode instead of looping — that prevents
+      // the chat from spamming the same "didn't catch you" message
+      // over and over when the mic is muted / room is silent.
+      emptyStreakRef.current += 1;
+      if (emptyStreakRef.current >= MAX_EMPTY_STREAK) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextId(),
+            role: "ai",
+            text: "(closing voice mode — tap the mic to start again)",
+          },
+        ]);
+        shutdownVoiceMode();
+        emptyStreakRef.current = 0;
+        return;
+      }
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: "ai", text: "(didn't catch your voice — try speaking up)" },
@@ -381,6 +416,9 @@ export function AuroraAIScreen() {
       if (stillMine()) void beginListening();
       return;
     }
+    // Successful transcript — reset the empty-streak counter so the
+    // next stretch of silence starts fresh.
+    emptyStreakRef.current = 0;
     // Send the transcript to Tony. runSendForText calls voice.speak
     // internally because voice:true is set; it stores the SpeakResult
     // on speakEndedRef so we can await `ended` here for the loop.
@@ -1094,7 +1132,14 @@ export function AuroraAIScreen() {
           <button
             className="aurora-dismiss"
             type="button"
-            onClick={() => auroraRef.current?.deactivate()}
+            // shutdownVoiceMode kills EVERYTHING — mic recording, in-
+            // flight TTS playback, the voice-mode loop flag, canvas
+            // animation. The old onClick only called deactivate(),
+            // which animated the canvas back to idle but left the
+            // mic recording and Tony still trying to speak — exact
+            // bug the founder reported ("Dismiss is supposed to stop
+            // everything but it doesn't").
+            onClick={shutdownVoiceMode}
           >
             Dismiss
           </button>
