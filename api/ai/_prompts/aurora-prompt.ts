@@ -36,6 +36,7 @@
 
 import { AURORA_CORE } from "./aurora-core";
 import { AURORA_MENTAL_HEALTH } from "./aurora-mental-health";
+import { AURORA_WELLBEING } from "./aurora-wellbeing";
 import { AURORA_RELATIONSHIPS } from "./aurora-relationships";
 import { AURORA_LEGAL } from "./aurora-legal";
 import { AURORA_BUSINESS } from "./aurora-business";
@@ -43,6 +44,8 @@ import { AURORA_PRODUCTIVITY } from "./aurora-productivity";
 import { AURORA_HONESTY } from "./aurora-honesty";
 import { AURORA_SAFETY } from "./aurora-safety";
 import { AURORA_STYLE } from "./aurora-style";
+import { AURORA_TUTORING_CORE } from "./aurora-tutoring-core";
+import { AURORA_TUTORING_ENRICHMENT } from "./aurora-tutoring-enrichment";
 
 /**
  * Build the full Aurora system prompt for a single chat call.
@@ -100,6 +103,16 @@ export function buildAuroraPrompt(ctx: {
   // Compose. Each block is separated by a blank line so Anthropic
   // sees them as distinct sections rather than a wall of text.
   // SAFETY is placed LAST — see the file header for why.
+  //
+  // ORDERING NOTE for tutoring + wellbeing blocks:
+  // AURORA_TUTORING_* and AURORA_WELLBEING are copies of basudrus.com's
+  // own prompts. They include their own "You are Tony Starrk / You are
+  // Sherlock" identity lines. Placed AFTER the core/scope sections,
+  // they read as additional CAPABILITY blocks ("when teaching mode is
+  // active, here's how..." / "when mental-health support is needed,
+  // here's the deep approach..."). If they ever start to dominate
+  // unexpectedly, consider gating them in the endpoint (only inject
+  // when the last user message looks academic/emotional).
   const sections = [
     AURORA_CORE,
     "# What you help with",
@@ -110,6 +123,13 @@ export function buildAuroraPrompt(ctx: {
     AURORA_PRODUCTIVITY,
     AURORA_HONESTY,
     AURORA_STYLE,
+    // Capability deep-dives (copied from basudrus.com — see header
+    // files for the verbatim-copy rationale and pruning advice).
+    "# Tutoring capability (use when the user asks about academic work)",
+    AURORA_TUTORING_CORE,
+    AURORA_TUTORING_ENRICHMENT,
+    "# Mental-health depth (use when the user needs serious emotional support)",
+    AURORA_WELLBEING,
     ctxBlock.trim() ? ctxBlock.trim() : "",
     langLock.trim(),
     AURORA_SAFETY,
