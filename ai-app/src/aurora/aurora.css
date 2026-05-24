@@ -69,8 +69,12 @@
 */
 body.aurora-presenting-left .aurora-app .aurora-matrix {
   transform-origin: center;
+  /* Math derives from the JARVIS ring position (top:240px, right:28px,
+     140px square). Ring center = (W - 98px, 310px). Starting from
+     canvas center (50vw, 50vh), translate by (50vw - 98px) right
+     and (310px - 50vh) down to land the center on the ring. */
   transform:
-    translate(calc(36vw - 60px), calc(-50vh + 320px))
+    translate(calc(50vw - 98px), calc(310px - 50vh))
     scale(0.22);
 }
 /* MIRROR for 3D-design mode (future): orb moves to the LEFT instead
@@ -79,7 +83,7 @@ body.aurora-presenting-left .aurora-app .aurora-matrix {
 body.aurora-presenting-right .aurora-app .aurora-matrix {
   transform-origin: center;
   transform:
-    translate(calc(-36vw + 60px), calc(-50vh + 320px))
+    translate(calc(-50vw + 98px), calc(310px - 50vh))
     scale(0.22);
 }
 /* Vignette fades out when presenting so the bright A4 paper has
@@ -112,10 +116,16 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   border-radius: 6px;
   padding: 56px 64px 64px;
   pointer-events: auto;
+  /* Integrated with the dark theme via a subtle CYAN OUTER GLOW around
+     the paper edges. Makes the paper feel like part of the JARVIS HUD
+     instead of a generic popup. The inner shadow (white-ish, 0.5px)
+     keeps the paper feeling like a real physical sheet. */
   box-shadow:
     0 1px 2px rgba(0,0,0,0.20),
     0 30px 80px rgba(0,0,0,0.55),
-    0 0 0 0.5px rgba(0,0,0,0.10);
+    0 0 0 1px rgba(140,200,255,0.18),     /* sharp cyan border */
+    0 0 40px rgba(140,200,255,0.22),      /* soft cyan outer glow */
+    inset 0 0 0 0.5px rgba(255,255,255,0.45); /* paper-edge highlight */
   /* Subtle paper texture via a faint gradient */
   background-image:
     linear-gradient(to bottom, rgba(0,0,0,0.015) 0%, transparent 12%),
@@ -161,6 +171,100 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   letter-spacing: 0.26em;
   text-transform: uppercase;
   color: rgba(0,0,0,0.55);
+}
+
+/* Dismiss button — small "X" on the right side of the header. Closes
+   voice mode entirely via shutdownVoiceMode. Sits inline with the
+   header so it doesn't intrude on the paper body. */
+.aurora-app .aurora-present-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.04);
+  border: 0.5px solid rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.55);
+  cursor: pointer;
+  transition: background 160ms, color 160ms, transform 160ms;
+  padding: 0;
+  font-family: inherit;
+}
+.aurora-app .aurora-present-close:hover {
+  background: rgba(0,0,0,0.08);
+  color: rgba(0,0,0,0.85);
+  transform: scale(1.08);
+}
+.aurora-app .aurora-present-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── JARVIS-style indicator ring around the shrunken corner orb ───
+   Sits at the orb's final position (under the widget shelf on the
+   right). Pure decoration — a glowing circular border + "TONY" text.
+   The dot-matrix canvas animates INSIDE this ring, so the orb keeps
+   its "soul" (dots moving) while gaining the polished JARVIS frame. */
+.aurora-app .aurora-jarvis-ring {
+  position: fixed;
+  width: 140px;
+  height: 140px;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 50%;
+  border: 1.5px solid rgba(140,200,255,0.65);
+  box-shadow:
+    0 0 24px rgba(140,200,255,0.45),     /* outer cyan glow */
+    inset 0 0 24px rgba(140,200,255,0.20); /* inner cyan glow */
+  display: grid;
+  place-items: center;
+  animation: aurora-jarvis-pulse 3.2s ease-in-out infinite;
+}
+/* Anchor to the same column as the widget shelf (right edge),
+   under the widgets (which end around top:200px). 240px from top,
+   28px from right. Math matches the canvas-transform calculation
+   in body.aurora-presenting-left .aurora-matrix so the ring lines
+   up around the shrunken orb. */
+.aurora-app .aurora-jarvis-ring.aurora-jarvis-left {
+  top: 240px;
+  right: 28px;
+}
+/* Mirror for future 3D-mode (orb on the left, content on the right). */
+.aurora-app .aurora-jarvis-ring.aurora-jarvis-right {
+  top: 240px;
+  left: 28px;
+}
+@keyframes aurora-jarvis-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 24px rgba(140,200,255,0.45),
+      inset 0 0 24px rgba(140,200,255,0.20);
+    border-color: rgba(140,200,255,0.65);
+  }
+  50% {
+    box-shadow:
+      0 0 36px rgba(140,200,255,0.65),
+      inset 0 0 32px rgba(140,200,255,0.32);
+    border-color: rgba(170,220,255,0.85);
+  }
+}
+/* When Tony is actually speaking, intensify the pulse so the ring
+   visibly reacts. */
+.aurora-app .aurora-jarvis-ring.is-speaking {
+  animation-duration: 1.4s;
+}
+.aurora-app .aurora-jarvis-text {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  color: rgba(220,240,255,0.85);
+  text-shadow: 0 0 12px rgba(140,200,255,0.7);
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-transform: uppercase;
 }
 
 /* Body — Tony's text rendered like writing on paper. Serif feel via

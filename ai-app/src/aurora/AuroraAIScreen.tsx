@@ -911,25 +911,56 @@ export function AuroraAIScreen() {
           mirror-image panel on the LEFT when Tony shows 3D/map
           content (body.aurora-presenting-right). */}
       {isPresenting && (
-        <div className={`aurora-present-panel aurora-present-${presentingSide}`}>
-          <div className="aurora-present-header">
-            <div className="aurora-present-dot" />
-            <span className="aurora-present-label">
-              TONY · {voice.isSpeaking
-                ? "SPEAKING"
-                : voice.isListening
-                  ? "LISTENING"
-                  : "ACTIVE"}
-            </span>
-          </div>
-          <div className="aurora-present-body">
-            {presentingText || (
-              <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>
-                Tap the mic and start talking — Tony will write his replies here.
+        <>
+          <div className={`aurora-present-panel aurora-present-${presentingSide}`}>
+            <div className="aurora-present-header">
+              <div className="aurora-present-dot" />
+              <span className="aurora-present-label">
+                TONY · {voice.isSpeaking
+                  ? "SPEAKING"
+                  : voice.isListening
+                    ? "LISTENING"
+                    : "ACTIVE"}
               </span>
-            )}
+              {/* Dismiss button — closes voice mode and the panel.
+                  Uses shutdownVoiceMode (already used by Dismiss
+                  button in voice-mode UI + on navigation) so the
+                  cleanup is consistent: mic released, TTS stopped,
+                  canvas reset. */}
+              <button
+                type="button"
+                className="aurora-present-close"
+                onClick={shutdownVoiceMode}
+                aria-label="Close voice mode"
+                title="Close voice mode"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="aurora-present-body">
+              {presentingText || (
+                <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>
+                  Tap the mic and start talking — Tony will write his replies here.
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+          {/* JARVIS-style glowing ring around the shrunken orb. Pure
+              decoration — sits at the orb's final position so the
+              dot-matrix animates inside a halo of cyan light, the
+              way the JARVIS indicator in the reference photos has
+              that iconic glowing circle. The ring's pulse syncs
+              with voice.isSpeaking so it visibly reacts when Tony
+              is talking. */}
+          <div
+            className={`aurora-jarvis-ring aurora-jarvis-${presentingSide}${voice.isSpeaking ? " is-speaking" : ""}`}
+            aria-hidden
+          >
+            <span className="aurora-jarvis-text">TONY</span>
+          </div>
+        </>
       )}
 
       <div className="aurora-ui">
