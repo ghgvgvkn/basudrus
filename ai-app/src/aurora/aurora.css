@@ -48,128 +48,116 @@
      to feel JARVIS-y (slight overshoot at the start, settles cleanly). */
   transition: transform 700ms cubic-bezier(.2,.85,.3,1);
 }
-/* When Tony is speaking and a text panel is open on the RIGHT, slide
-   the canvas/orb to the LEFT to make visual room. The translate is
-   in viewport units so it scales with screen size. */
-body.aurora-presenting-left .aurora-app .aurora-matrix {
-  transform: translateX(-20vw);
-}
-/* Mirror image: orb slides RIGHT when a 3D/visualization panel
-   takes the LEFT side. Reserved for future (Stage 4 of the visual-aids
-   roadmap). */
+/* When Tony is speaking, shrink the orb canvas and tuck it into the
+   bottom-right corner — turns it into a small JARVIS-style indicator
+   (per founder's reference photos: big content in the middle, small
+   AI badge in the corner). transform-origin centered so the shrink
+   visually feels like it's collapsing into itself before flying to
+   the corner. */
+body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix {
-  transform: translateX(20vw);
+  transform-origin: center;
+  transform: translate(38vw, 38vh) scale(0.20);
 }
-/* The dim background vignette also shifts a touch so it feels like
-   the whole scene tilts, not just a sprite. Half the canvas amount
-   to avoid feeling unmoored. */
-body.aurora-presenting-left .aurora-app .aurora-vignette {
-  transform: translateX(-10vw);
-  transition: transform 700ms cubic-bezier(.2,.85,.3,1);
-}
+/* Vignette fades out when presenting so the white A4 paper has more
+   visual contrast — the dim background no longer competes with the
+   bright paper. */
+body.aurora-presenting-left .aurora-app .aurora-vignette,
 body.aurora-presenting-right .aurora-app .aurora-vignette {
-  transform: translateX(10vw);
-  transition: transform 700ms cubic-bezier(.2,.85,.3,1);
+  opacity: 0.45;
+  transition: opacity 700ms ease;
 }
 
-/* ── Presentation panel (JARVIS-style HUD overlay) ───────────────── */
+/* ── A4 Paper Presentation (JARVIS-style: big content + corner orb) ── */
 .aurora-app .aurora-present-panel {
   position: fixed;
-  top: 80px;
-  bottom: 120px;
-  width: min(440px, 38vw);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, 80vw);
+  /* A4 paper aspect ratio is roughly 1:1.41 (210x297mm). We honor it
+     loosely — height is capped at viewport so it fits on short screens. */
+  aspect-ratio: 1 / 1.32;
+  max-height: 82vh;
   z-index: 4;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 22px 24px;
-  background: rgba(10,20,38,0.55);
-  border: 0.5px solid rgba(140,200,255,0.28);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  box-shadow:
-    0 24px 80px rgba(0,0,0,0.45),
-    inset 0 0 60px rgba(140,200,255,0.06),
-    0 0 0 0.5px rgba(140,200,255,0.10);
-  border-radius: 18px;
-  overflow: hidden;
+  gap: 18px;
+  /* Paper surface — off-white with a subtle warm tint, layered shadow
+     to feel like it's actually floating above the dark canvas */
+  background: #faf9f6;
+  color: #1a1a1a;
+  border-radius: 6px;
+  padding: 56px 64px 64px;
   pointer-events: auto;
-  /* Slide-in animation when the panel mounts (driven by React
-     conditional render, no need for separate open/close classes). */
-  animation: aurora-present-in 600ms cubic-bezier(.2,.85,.3,1) both;
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.20),
+    0 30px 80px rgba(0,0,0,0.55),
+    0 0 0 0.5px rgba(0,0,0,0.10);
+  /* Subtle paper texture via a faint gradient */
+  background-image:
+    linear-gradient(to bottom, rgba(0,0,0,0.015) 0%, transparent 12%),
+    linear-gradient(to top, rgba(0,0,0,0.015) 0%, transparent 12%);
+  overflow: hidden;
+  animation: aurora-paper-in 650ms cubic-bezier(.2,.85,.3,1) both;
 }
-.aurora-app .aurora-present-panel.aurora-present-left {
-  right: 32px;
-}
-.aurora-app .aurora-present-panel.aurora-present-right {
-  left: 32px;
-}
-@keyframes aurora-present-in {
+@keyframes aurora-paper-in {
   from {
     opacity: 0;
-    transform: translateX(40px);
+    transform: translate(-50%, -48%) scale(0.94);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
-  }
-}
-.aurora-app .aurora-present-panel.aurora-present-right {
-  animation-name: aurora-present-in-left;
-}
-@keyframes aurora-present-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-40px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 
-/* Header: pulsing dot + "TONY · SPEAKING" label */
+/* Header on the paper — small label at the top edge like the
+   document title on real paper */
 .aurora-app .aurora-present-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-bottom: 12px;
-  border-bottom: 0.5px solid rgba(140,200,255,0.18);
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(0,0,0,0.10);
 }
 .aurora-app .aurora-present-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #4af0c8;
-  box-shadow: 0 0 14px rgba(74,240,200,0.85);
+  background: #4a90e2;
+  box-shadow: 0 0 8px rgba(74,144,226,0.55);
   animation: aurora-present-pulse 1.6s ease-in-out infinite;
 }
 @keyframes aurora-present-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.5; transform: scale(0.75); }
+  50%      { opacity: 0.4; transform: scale(0.7); }
 }
 .aurora-app .aurora-present-label {
   font-family: 'Geist Mono', ui-monospace, monospace;
   font-size: 10px;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: rgba(180,220,255,0.85);
+  color: rgba(0,0,0,0.55);
 }
 
-/* Body: the actual text Tony is speaking, large and readable */
+/* Body — Tony's text rendered like writing on paper. Serif feel via
+   slightly larger leading and the warm paper background; using
+   Urbanist (the project font) for consistency but with paper-like
+   sizing. */
 .aurora-app .aurora-present-body {
   flex: 1;
   overflow-y: auto;
-  font-size: 17px;
-  line-height: 1.55;
-  color: rgba(255,255,255,0.92);
+  font-size: 19px;
+  line-height: 1.75;
+  color: #1a1a1a;
   white-space: pre-wrap;
   word-wrap: break-word;
+  letter-spacing: -0.005em;
 }
-/* Subtle scrollbar so the panel doesn't show the default chunky one */
 .aurora-app .aurora-present-body::-webkit-scrollbar { width: 4px; }
 .aurora-app .aurora-present-body::-webkit-scrollbar-thumb {
-  background: rgba(140,200,255,0.20);
+  background: rgba(0,0,0,0.15);
   border-radius: 2px;
 }
 
