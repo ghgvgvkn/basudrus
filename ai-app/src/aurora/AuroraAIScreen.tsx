@@ -246,23 +246,13 @@ export function AuroraAIScreen() {
     });
   }, []);
 
-  // Keep the AudioContext warm. Browsers revoke the user-gesture
-  // activation that lets AudioContext.resume() work after ~5s of
-  // inactivity. If Tony tries to speak more than a few seconds after
-  // the last user interaction, ctx is suspended and the BufferSource
-  // plays silently (or worse, hangs the JARVIS panel forever).
-  //
-  // Fix: on ANY click anywhere on the Aurora screen, call primeAudio.
-  // This re-arms the AudioContext if it had been suspended. Cheap
-  // (idempotent), invisible (no sound), and keeps the audio pipeline
-  // ready for whenever Tony next needs to speak.
-  useEffect(() => {
-    const onClick = () => {
-      try { voice.primeAudio(); } catch { /* noop */ }
-    };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
-  }, [voice]);
+  // (Removed the global click → primeAudio handler. Safari's
+  //  transient user-activation is single-use per gesture, and
+  //  having primeAudio fire on EVERY click was consuming the
+  //  activation that getUserMedia needed for the mic button.
+  //  Tony's speak() now does its own suspended-context detection
+  //  and surfaces a clear "tap to enable audio" error if needed —
+  //  that's enough recovery without stealing every click's gesture.)
 
   // Auto-scroll thread to bottom on new content
   useEffect(() => {
@@ -383,13 +373,37 @@ export function AuroraAIScreen() {
   const beginListening = useCallback(async () => {
     if (!voiceModeActiveRef.current) return;
     auroraRef.current?.activate();
-    await voice.startRecording({
+    // startRecording wraps navigator.mediaDevices.getUserMedia. If
+    // Safari has denied mic permission for this site, this returns
+    // { ok: false, error: "Microphone permission denied" }. Surface
+    // it visibly in the chat — the previous behavior was to set
+    // voice.error state and not show it anywhere, so users hit
+    // "tap mic, nothing happens" with no clue why.
+    const result = await voice.startRecording({
       handsFree: {
         silenceMs: 1400,
         onSilence: () => { void endVoiceUtteranceRef.current(); },
         onLevel: (rms) => { micLevelRef.current = rms; },
       },
     });
+    if (!result.ok) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: "ai",
+          text: `(mic unavailable: ${result.error ?? "unknown error"}). ` +
+            (result.error?.includes("denied")
+              ? "On Safari: tap aA in the address bar → Website Settings → set Microphone to Allow, then reload."
+              : "Check your browser's mic permission for this site."),
+        },
+      ]);
+      // Reset voice-mode state so the orb returns to idle and the
+      // next mic tap can try again from a clean slate.
+      voiceModeActiveRef.current = false;
+      setVoiceModeActive(false);
+      auroraRef.current?.deactivate();
+    }
   }, [voice]);
 
   /**
@@ -554,17 +568,36 @@ export function AuroraAIScreen() {
       await voice.stopRecording();
       return;
     }
-    // CRITICAL: prime the audio pipeline NOW, inside the click handler's
-    // synchronous gesture stack. The TTS reply arrives several seconds
-    // later (record → silence → STT → Anthropic stream → TTS fetch),
-    // well past the autoplay-policy gesture window. Without this prime
-    // call, audio.play() throws NotAllowedError and Tony stays silent.
-    // Calling it before any async work guarantees the gesture is fresh.
-    voice.primeAudio();
+    // SAFARI-CRITICAL ORDERING: get the mic IMMEDIATELY, with as few
+    // async hops as possible between the click and the
+    // getUserMedia() call. Safari's transient user-activation window
+    // is short and easily consumed. Anything that adds an await
+    // before getUserMedia risks Safari losing the activation and
+    // either (a) refusing the call silently or (b) never showing
+    // the permission prompt.
+    //
+    // The previous structure routed through `void beginListening()`
+    // which itself had multiple await boundaries before reaching
+    // getUserMedia — that's what caused Safari to "thinking thinking
+    // thinking" with no permission prompt and no recording.
+    //
+    // Now: synchronous setup → kick beginListening directly in this
+    // same tick (still uses the existing await chain inside
+    // beginListening, but minimizing the gap before getUserMedia).
+    // primeAudio happens AFTER mic acquisition so it doesn't compete
+    // for the gesture activation.
     voiceSessionGenRef.current += 1;
     voiceModeActiveRef.current = true;
     setVoiceModeActive(true);
-    void beginListening();
+    // Fire-and-forget; beginListening surfaces errors directly into
+    // the chat thread now (see the result.ok check inside it).
+    void beginListening().then(() => {
+      // primeAudio AFTER mic is acquired — needed for the TTS reply
+      // playback later. It's idempotent and gesture-safe to call
+      // from inside an async chain because by this point the AudioContext
+      // creation cost is borne and we're just making sure it's running.
+      voice.primeAudio();
+    });
   }, [voice, isAuthed, beginListening]);
 
   // Belt-and-braces cleanup: if Aurora unmounts mid-conversation,
