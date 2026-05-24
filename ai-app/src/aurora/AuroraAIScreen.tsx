@@ -246,6 +246,24 @@ export function AuroraAIScreen() {
     });
   }, []);
 
+  // Keep the AudioContext warm. Browsers revoke the user-gesture
+  // activation that lets AudioContext.resume() work after ~5s of
+  // inactivity. If Tony tries to speak more than a few seconds after
+  // the last user interaction, ctx is suspended and the BufferSource
+  // plays silently (or worse, hangs the JARVIS panel forever).
+  //
+  // Fix: on ANY click anywhere on the Aurora screen, call primeAudio.
+  // This re-arms the AudioContext if it had been suspended. Cheap
+  // (idempotent), invisible (no sound), and keeps the audio pipeline
+  // ready for whenever Tony next needs to speak.
+  useEffect(() => {
+    const onClick = () => {
+      try { voice.primeAudio(); } catch { /* noop */ }
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [voice]);
+
   // Auto-scroll thread to bottom on new content
   useEffect(() => {
     const el = threadRef.current;

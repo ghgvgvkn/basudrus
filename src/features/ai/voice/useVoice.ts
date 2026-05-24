@@ -399,10 +399,23 @@ export function useVoice(): UseVoiceResult {
     }
 
     const { ctx, analyser } = ensureAudioContext();
-    // Resume context if a previous tab-throttle suspended it (Chrome
-    // suspends background contexts; we revive on next gesture).
+    // Resume context if a previous tab-throttle suspended it. Chrome
+    // (and especially mobile Safari) suspends background contexts.
+    // We try to revive it — but if the user's gesture activation has
+    // expired (no clicks for a while), resume() silently fails and
+    // ctx.state stays "suspended". A suspended context still ACCEPTS
+    // src.start() calls but never advances currentTime, so the
+    // BufferSource never produces sound AND its "ended" event never
+    // fires — leaving isSpeaking stuck true forever. We surface a
+    // clear error in that case so the UI can prompt the user to
+    // tap the screen.
     if (ctx.state === "suspended") {
       try { await ctx.resume(); } catch { /* noop */ }
+    }
+    if (ctx.state === "suspended") {
+      const msg = "Audio is blocked — tap anywhere on the page to enable";
+      setError(msg);
+      return { ok: false, error: msg };
     }
 
     // decodeAudioData mutates the ArrayBuffer in some browsers, so
@@ -425,12 +438,23 @@ export function useVoice(): UseVoiceResult {
 
     setIsSpeaking(true);
     const ended = new Promise<void>((resolve) => {
-      src.addEventListener("ended", () => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
         try { src.disconnect(); } catch { /* noop */ }
         if (bufferSourceRef.current === src) bufferSourceRef.current = null;
         setIsSpeaking(false);
         resolve();
-      }, { once: true });
+      };
+      src.addEventListener("ended", finish, { once: true });
+      // Safety net: if the AudioContext gets suspended mid-playback
+      // (user switches tabs, OS sleeps mic) the "ended" event never
+      // fires and isSpeaking stays true forever. The buffer's known
+      // duration plus a 5-second slop is the maximum reasonable
+      // playback time; after that we force-finish.
+      const maxMs = Math.ceil((decoded.duration + 5) * 1000);
+      window.setTimeout(finish, maxMs);
     });
 
     try {
