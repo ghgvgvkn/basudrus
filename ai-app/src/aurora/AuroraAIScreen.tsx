@@ -187,53 +187,10 @@ export function AuroraAIScreen() {
     };
   }, [focusMode, railHidden]);
 
-  // ── Presentation mode (JARVIS-style HUD inspiration) ─────────────
-  //
-  // When Tony is speaking aloud (TTS audio playing), the central
-  // orb slides aside and a glass panel opens to show what he's
-  // saying as readable text. When he stops speaking, the panel
-  // closes and the orb returns to center.
-  //
-  // Convention from the founder's reference images:
-  //   - LEFT orb (panel on RIGHT) → text content. Default mode.
-  //   - RIGHT orb (panel on LEFT) → 3D / map / visualization
-  //     content. Reserved for future when we emit those artifact
-  //     types from the AI.
-  //
-  // Tied strictly to voice.isSpeaking so the panel only appears
-  // when there's actual audio playing — silence = no animation,
-  // matching what the founder asked for ("when he's quiet, nothing
-  // supposed to go").
-  const isPresenting = voice.isSpeaking;
-  const presentingSide: "left" | "right" = "left"; // text-only for v1
-  useEffect(() => {
-    if (isPresenting) {
-      document.body.classList.add("aurora-presenting");
-      document.body.classList.add(`aurora-presenting-${presentingSide}`);
-    } else {
-      document.body.classList.remove("aurora-presenting");
-      document.body.classList.remove("aurora-presenting-left");
-      document.body.classList.remove("aurora-presenting-right");
-    }
-    return () => {
-      document.body.classList.remove("aurora-presenting");
-      document.body.classList.remove("aurora-presenting-left");
-      document.body.classList.remove("aurora-presenting-right");
-    };
-  }, [isPresenting, presentingSide]);
-
-  // The text Tony is currently speaking — pulled from the most
-  // recent AI message in the thread. The panel renders this so the
-  // user sees what's being said as it's being said (HUD-style
-  // overlay of the assistant's reply).
-  const presentingText = useMemo(() => {
-    if (!isPresenting) return "";
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "ai" && m.text.trim()) return m.text;
-    }
-    return "";
-  }, [isPresenting, messages]);
+  // (Presentation-mode block — body class + presentingText derivation
+  //  — moved to AFTER the voiceModeActive useState declaration further
+  //  down. JS hoisting doesn't apply to `const` so we had to put the
+  //  derivation in the same scope, below the state it reads.)
 
   // Pre-warm the Aurora edge function on mount so the user's first
   // message doesn't pay the cold-start tax. GET / is a cheap no-auth
@@ -334,6 +291,56 @@ export function AuroraAIScreen() {
    */
   const voiceModeActiveRef = useRef(false);
   const [voiceModeActive, setVoiceModeActive] = useState(false);
+
+  // ── Presentation mode (JARVIS-style HUD: A4 paper + corner orb) ─
+  //
+  // Founder's spec: while voice MODE is open (not just while Tony
+  // is speaking), the central orb shrinks and tucks under the
+  // widgets on the right side, and an A4-shaped white paper opens
+  // in the middle showing what Tony is saying. The paper persists
+  // for the WHOLE voice session — it doesn't flash on and off as
+  // Tony pauses between sentences.
+  //
+  // Direction convention (matches the reference photos):
+  //   - "left"  (default) → A4 PAPER in center, orb shrunk to
+  //     the bottom-right under the widget shelf. Used for text
+  //     presentation (Tony's reply rendered like writing on paper).
+  //   - "right" → reserved for future 3D / map / visualization
+  //     content where the orb moves to the LEFT instead so the
+  //     visualization can use the right side of the screen.
+  //
+  // Tied to voiceModeActive (not voice.isSpeaking) so the paper
+  // stays open through the whole conversation — opens on mic tap,
+  // closes only when the user dismisses voice mode.
+  const isPresenting = voiceModeActive;
+  const presentingSide: "left" | "right" = "left";
+  useEffect(() => {
+    if (isPresenting) {
+      document.body.classList.add("aurora-presenting");
+      document.body.classList.add(`aurora-presenting-${presentingSide}`);
+    } else {
+      document.body.classList.remove("aurora-presenting");
+      document.body.classList.remove("aurora-presenting-left");
+      document.body.classList.remove("aurora-presenting-right");
+    }
+    return () => {
+      document.body.classList.remove("aurora-presenting");
+      document.body.classList.remove("aurora-presenting-left");
+      document.body.classList.remove("aurora-presenting-right");
+    };
+  }, [isPresenting, presentingSide]);
+
+  // The text Tony is currently speaking — pulled from the most
+  // recent AI message in the thread. The paper renders this so the
+  // user sees what Tony's saying as written-on-paper.
+  const presentingText = useMemo(() => {
+    if (!isPresenting) return "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "ai" && m.text.trim()) return m.text;
+    }
+    return "";
+  }, [isPresenting, messages]);
 
   /**
    * Monotonic counter bumped every time the user opens (or closes)
@@ -903,13 +910,25 @@ export function AuroraAIScreen() {
           class) to make visual room. Reserved for future: a
           mirror-image panel on the LEFT when Tony shows 3D/map
           content (body.aurora-presenting-right). */}
-      {isPresenting && presentingText && (
+      {isPresenting && (
         <div className={`aurora-present-panel aurora-present-${presentingSide}`}>
           <div className="aurora-present-header">
             <div className="aurora-present-dot" />
-            <span className="aurora-present-label">TONY · SPEAKING</span>
+            <span className="aurora-present-label">
+              TONY · {voice.isSpeaking
+                ? "SPEAKING"
+                : voice.isListening
+                  ? "LISTENING"
+                  : "ACTIVE"}
+            </span>
           </div>
-          <div className="aurora-present-body">{presentingText}</div>
+          <div className="aurora-present-body">
+            {presentingText || (
+              <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>
+                Tap the mic and start talking — Tony will write his replies here.
+              </span>
+            )}
+          </div>
         </div>
       )}
 
