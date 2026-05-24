@@ -108,8 +108,18 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
   //         verdict. status → 'active'. Tony's verdict appears in
   //         both browsers on the next poll.
   //
-  //    Guarded by autoAiTriggeredRef so it only fires ONCE per
-  //    judgment per mount (avoids retriggering on every poll).
+  //    THREE-LAYER GUARD against duplicate firings (one bug, two
+  //    safety nets):
+  //      a) In-memory ref — blocks re-runs inside the same component
+  //         mount once a trigger has fired
+  //      b) sessionStorage flag keyed by judgmentId — survives
+  //         component remounts within the same browser tab
+  //      c) Silent error handling — both clients (A and B) will
+  //         race to fire the auto-trigger. Only one wins; the
+  //         other gets HTTP 429 from the rate limiter. That 429
+  //         is NOT a real error — the winner's Tony reply will
+  //         show up on the next poll cycle. We swallow it instead
+  //         of surfacing as a chat error.
   const autoAiTriggeredRef = useRef(false);
   useEffect(() => {
     if (autoAiTriggeredRef.current) return;
@@ -123,15 +133,34 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
       (m) => m.sender_type === "ai" && /<<<VERDICT>>>/i.test(m.text),
     );
     if (hasVerdict) return;
+
+    // sessionStorage guard — survives this component being unmounted
+    // and remounted (refresh, navigation) within the same tab.
+    const sessionKey = `j-autofire:${judgment.id}`;
+    try {
+      if (sessionStorage.getItem(sessionKey)) return;
+      sessionStorage.setItem(sessionKey, "1");
+    } catch { /* sessionStorage may be unavailable in some contexts */ }
     autoAiTriggeredRef.current = true;
-    void askTony();
-    // Note: askTony is defined below — its identity is stable across
-    // renders thanks to useCallback, so referencing it before the
-    // declaration is fine at runtime (closure on the latest reference).
-    // We intentionally don't put it in the deps array — we only want
-    // this effect's body to gate on `messages` (and the ref).
+
+    // Fire the AI call directly here (instead of going through
+    // askTony) so we can SILENTLY swallow rate-limit errors. When
+    // both clients race, one wins; the other's 429 is expected
+    // background noise, NOT a user-facing chat error.
+    void (async () => {
+      setAskingAi(true);
+      const res = await api.askAi({ judgmentId: judgment.id });
+      setAskingAi(false);
+      if (!res.ok) {
+        // Don't setError. If we lost the race the winner's
+        // verdict will arrive on the next poll. If both failed,
+        // the user can still hit "Ask Tony" manually.
+        return;
+      }
+      setMessages((prev) => [...prev, res.data.message]);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, askingAi]);
+  }, [messages, askingAi, judgment.id]);
 
   // Derive party-A vs party-B labels for the speaker chips.
   const aLabel = judgment.party_a_label?.trim() || "Party A";
