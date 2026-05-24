@@ -187,6 +187,54 @@ export function AuroraAIScreen() {
     };
   }, [focusMode, railHidden]);
 
+  // ── Presentation mode (JARVIS-style HUD inspiration) ─────────────
+  //
+  // When Tony is speaking aloud (TTS audio playing), the central
+  // orb slides aside and a glass panel opens to show what he's
+  // saying as readable text. When he stops speaking, the panel
+  // closes and the orb returns to center.
+  //
+  // Convention from the founder's reference images:
+  //   - LEFT orb (panel on RIGHT) → text content. Default mode.
+  //   - RIGHT orb (panel on LEFT) → 3D / map / visualization
+  //     content. Reserved for future when we emit those artifact
+  //     types from the AI.
+  //
+  // Tied strictly to voice.isSpeaking so the panel only appears
+  // when there's actual audio playing — silence = no animation,
+  // matching what the founder asked for ("when he's quiet, nothing
+  // supposed to go").
+  const isPresenting = voice.isSpeaking;
+  const presentingSide: "left" | "right" = "left"; // text-only for v1
+  useEffect(() => {
+    if (isPresenting) {
+      document.body.classList.add("aurora-presenting");
+      document.body.classList.add(`aurora-presenting-${presentingSide}`);
+    } else {
+      document.body.classList.remove("aurora-presenting");
+      document.body.classList.remove("aurora-presenting-left");
+      document.body.classList.remove("aurora-presenting-right");
+    }
+    return () => {
+      document.body.classList.remove("aurora-presenting");
+      document.body.classList.remove("aurora-presenting-left");
+      document.body.classList.remove("aurora-presenting-right");
+    };
+  }, [isPresenting, presentingSide]);
+
+  // The text Tony is currently speaking — pulled from the most
+  // recent AI message in the thread. The panel renders this so the
+  // user sees what's being said as it's being said (HUD-style
+  // overlay of the assistant's reply).
+  const presentingText = useMemo(() => {
+    if (!isPresenting) return "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "ai" && m.text.trim()) return m.text;
+    }
+    return "";
+  }, [isPresenting, messages]);
+
   // Pre-warm the Aurora edge function on mount so the user's first
   // message doesn't pay the cold-start tax. GET / is a cheap no-auth
   // ping that returns 200 + spins up the V8 isolate + imports the
@@ -796,6 +844,23 @@ export function AuroraAIScreen() {
     <div className="aurora-app">
       <AuroraCanvas ref={auroraRef} />
       <div className="aurora-vignette" />
+
+      {/* Presentation panel — JARVIS-style HUD overlay. Slides in
+          from the right while Tony is speaking, showing what he's
+          saying as readable text. Closes when audio stops. The
+          canvas itself slides left (via the body.aurora-presenting-left
+          class) to make visual room. Reserved for future: a
+          mirror-image panel on the LEFT when Tony shows 3D/map
+          content (body.aurora-presenting-right). */}
+      {isPresenting && presentingText && (
+        <div className={`aurora-present-panel aurora-present-${presentingSide}`}>
+          <div className="aurora-present-header">
+            <div className="aurora-present-dot" />
+            <span className="aurora-present-label">TONY · SPEAKING</span>
+          </div>
+          <div className="aurora-present-body">{presentingText}</div>
+        </div>
+      )}
 
       <div className="aurora-ui">
         {/* TOP LEFT — rail toggle + brand */}
