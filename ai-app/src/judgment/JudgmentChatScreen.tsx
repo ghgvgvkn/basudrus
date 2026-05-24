@@ -7,9 +7,11 @@
  * party post follow-up messages, and exposes an "Ask Tony" button
  * to trigger ai_respond.
  *
- * Live updates: we poll every 3 seconds while the screen is visible.
- * Real-time via Supabase Realtime is a v2 enhancement — polling is
- * dead simple and works on every network.
+ * Live updates: Supabase Realtime (WebSocket push) subscribes to
+ * INSERTs on judgment_messages filtered to this judgment_id. New
+ * messages arrive in ~100ms instead of waiting for a poll. Polling
+ * stays as a 15-second fallback for cases where the WebSocket
+ * connection drops or initial subscribe is slow.
  *
  * BOTH PARTY VARIANTS:
  *  - Party A sees this screen right after creating a judgment
@@ -19,6 +21,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
+import { supabase } from "@/lib/supabase";
 import {
   useJudgmentApi,
   type Judgment,
@@ -37,7 +40,10 @@ interface Props {
   onBack?: () => void;
 }
 
-const POLL_INTERVAL_MS = 3000;
+// Realtime is primary. Polling stays at 15s as a safety net for
+// when the WebSocket connection drops (mobile sleeping, network
+// switch, etc.) so the chat stays correct even if we miss a push.
+const POLL_INTERVAL_MS = 15_000;
 
 export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
   const { user } = useSupabaseSession();
@@ -91,6 +97,56 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
     const id = window.setInterval(() => { void refresh(); }, POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [refresh]);
+
+  // ── Realtime: subscribe to INSERTs on judgment_messages for this
+  //    specific judgment. New messages from the other party (or from
+  //    Tony) arrive via WebSocket push within ~100ms instead of
+  //    waiting up to 15s for the next poll.
+  //
+  //    RLS still applies — supabase-js only receives rows the user
+  //    has SELECT permission for. Our judgment_messages SELECT
+  //    policy gates on participation, so we never see other people's
+  //    judgments leak through this channel.
+  //
+  //    Dedupe: if a message arrives via both the realtime push AND
+  //    the next poll (or via the user's own optimistic send/askTony
+  //    response), the id-based filter in setMessages keeps state
+  //    clean. No duplicate bubbles.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`judgment-${judgment.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "judgment_messages",
+          filter: `judgment_id=eq.${judgment.id}`,
+        },
+        (payload) => {
+          const newRow = payload.new as JudgmentMessage | null;
+          if (!newRow || typeof newRow.id !== "string") return;
+          setMessages((prev) => {
+            // Skip if we already have this message (optimistic
+            // append, recent poll, or realtime duplicate).
+            if (prev.some((m) => m.id === newRow.id)) return prev;
+            // Append in chronological order. Realtime delivery is
+            // close to monotonic but we sort defensively in case
+            // an old message arrives out-of-order during reconnect.
+            return [...prev, newRow].sort((a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            );
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      // removeChannel handles WebSocket cleanup AND server-side
+      // unsubscribe so we don't leak listener slots.
+      void supabase.removeChannel(channel);
+    };
+  }, [judgment.id]);
 
   // ── Auto-trigger Tony's opening verdict the moment both sides
   //    have posted AND Tony hasn't said anything beyond his ack.
@@ -157,7 +213,12 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
         // the user can still hit "Ask Tony" manually.
         return;
       }
-      setMessages((prev) => [...prev, res.data.message]);
+      // Dedupe — realtime push will also deliver this row.
+      setMessages((prev) =>
+        prev.some((m) => m.id === res.data.message.id)
+          ? prev
+          : [...prev, res.data.message],
+      );
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, askingAi, judgment.id]);
@@ -196,8 +257,13 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
       return;
     }
     setComposerText("");
-    // Optimistically append (poll will reconcile).
-    setMessages((prev) => [...prev, res.data.message]);
+    // Optimistic append with dedupe — realtime push will also
+    // deliver this same row within ~100ms.
+    setMessages((prev) =>
+      prev.some((m) => m.id === res.data.message.id)
+        ? prev
+        : [...prev, res.data.message],
+    );
   };
 
   const askTony = async () => {
@@ -210,7 +276,12 @@ export function JudgmentChatScreen({ judgment: initialJudgment }: Props) {
       setError(res.error);
       return;
     }
-    setMessages((prev) => [...prev, res.data.message]);
+    // Same dedupe pattern — realtime will also push Tony's message.
+    setMessages((prev) =>
+      prev.some((m) => m.id === res.data.message.id)
+        ? prev
+        : [...prev, res.data.message],
+    );
     // Bump status to 'active' if server flipped it.
     if (judgment.status === "both_in") {
       setJudgment((j) => ({ ...j, status: "active" }));
