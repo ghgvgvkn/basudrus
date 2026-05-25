@@ -1495,78 +1495,119 @@ export function AuroraAIScreen() {
               no artifacts (most replies). All cards are semi-
               transparent dark glass — matches the JARVIS
               holographic feel, no white paper backgrounds. */}
+          {/* GOOGLE KNOWLEDGE-PANEL style unified InfoCard.
+              Founder feedback after the floating-cards design:
+              "redesign it in the Google card panel like I would put
+              the name of the subject and then details and then when
+              it where and when was it depends on the subject."
+              ONE card, all the artifacts consolidated inside it:
+                - Hero image at top (from SHOW Wikipedia thumb)
+                - Subject title (the SHOW query, big serif)
+                - Description (Tony's clean text)
+                - Quick-facts table (STAT + DATA combined)
+                - Map sub-card (if MAP present)
+                - Quote callout (if QUOTE present)
+              Renders ONLY when at least one visual artifact exists. */}
           {(presentingImage || presentingMap || presenting.stat || presenting.data || presenting.quote) && (
-            <div className="aurora-stage-cards">
-              {presentingImage && (
-                <div className="aurora-stage-card aurora-stage-card-photo">
+            <div className="aurora-infocard" role="region" aria-label="Knowledge panel">
+              {/* Hero image — top, full width. Falls back to a
+                  gradient placeholder with subject name if Wikipedia
+                  returned no thumbnail (iPhone disambiguation case). */}
+              <div className="aurora-infocard-hero">
+                {presentingImage ? (
                   <img
                     src={presentingImage}
                     alt={presenting.show?.query ?? ""}
                     loading="eager"
+                    className="aurora-infocard-hero-img"
                   />
-                  {presenting.show?.query && (
-                    <span className="aurora-stage-card-label">
-                      {presenting.show.query.toUpperCase()}
+                ) : (
+                  <div className="aurora-infocard-hero-placeholder" aria-hidden>
+                    <span className="aurora-infocard-hero-placeholder-mark">
+                      {(presenting.show?.query || "TONY STARRK").slice(0, 1).toUpperCase()}
                     </span>
-                  )}
-                </div>
-              )}
-              {presentingMap && (
-                <div className="aurora-stage-card aurora-stage-card-map">
-                  <img
-                    src={presentingMap}
-                    alt={presenting.map?.query ?? ""}
-                    loading="eager"
-                  />
-                  {presenting.map?.query && (
-                    <span className="aurora-stage-card-label">
-                      {presenting.map.query.toUpperCase()}
+                  </div>
+                )}
+                {/* Subject title overlaid bottom-left of hero */}
+                {presenting.show?.query && (
+                  <h2 className="aurora-infocard-title">
+                    {presenting.show.query}
+                  </h2>
+                )}
+              </div>
+
+              <div className="aurora-infocard-body">
+                {/* Stat row — big number first, like Google's
+                    knowledge panel often opens with a key fact. */}
+                {presenting.stat && (
+                  <div className="aurora-infocard-stat">
+                    <span className="aurora-infocard-stat-label">
+                      {presenting.stat.label}
                     </span>
-                  )}
-                </div>
-              )}
-              {presenting.stat && (
-                <div className="aurora-stage-card aurora-stage-card-stat">
-                  <span className="aurora-stage-card-label">
-                    {presenting.stat.label}
-                  </span>
-                  <span className="aurora-stage-stat-big">
-                    {presenting.stat.big}
-                  </span>
-                  {presenting.stat.sub && (
-                    <span className="aurora-stage-stat-sub">
-                      {presenting.stat.sub}
+                    <span className="aurora-infocard-stat-big">
+                      {presenting.stat.big}
                     </span>
-                  )}
-                </div>
-              )}
-              {presenting.data && (
-                <div className="aurora-stage-card aurora-stage-card-data">
-                  <span className="aurora-stage-card-label">
-                    {presenting.data.title}
-                  </span>
-                  <dl className="aurora-stage-data-rows">
-                    {presenting.data.rows.map((r, i) => (
-                      <div className="aurora-stage-data-row" key={i}>
-                        <dt>{r.key}</dt>
-                        <dd>{r.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              )}
-              {presenting.quote && (
-                <blockquote className="aurora-stage-card aurora-stage-card-quote">
-                  <span className="aurora-stage-quote-text">
-                    &ldquo;{presenting.quote.text}&rdquo;
-                  </span>
-                  {presenting.quote.attribution && (
-                    <cite className="aurora-stage-quote-attr">
-                      — {presenting.quote.attribution}
-                    </cite>
-                  )}
-                </blockquote>
-              )}
+                    {presenting.stat.sub && (
+                      <span className="aurora-infocard-stat-sub">
+                        {presenting.stat.sub}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Key-value facts table — DATA rows rendered as the
+                    "Quick facts" section of a Google knowledge panel.
+                    Sits under the stat / above the map / quote. */}
+                {presenting.data && (
+                  <div className="aurora-infocard-facts">
+                    <div className="aurora-infocard-facts-title">
+                      {presenting.data.title}
+                    </div>
+                    <dl className="aurora-infocard-facts-list">
+                      {presenting.data.rows.map((r, i) => (
+                        <div className="aurora-infocard-facts-row" key={i}>
+                          <dt>{r.key}</dt>
+                          <dd>{r.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+
+                {/* Map sub-section — shown inline below the facts
+                    so the location reads as PART of the subject,
+                    not as a separate floating card. */}
+                {presentingMap && (
+                  <div className="aurora-infocard-map">
+                    <img
+                      src={presentingMap}
+                      alt={presenting.map?.query ?? ""}
+                      loading="eager"
+                      className="aurora-infocard-map-img"
+                    />
+                    {presenting.map?.query && (
+                      <span className="aurora-infocard-map-label">
+                        {presenting.map.query}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Quote — pulled to the side as a callout, like a
+                    Google "Did you know" or pull-quote. */}
+                {presenting.quote && (
+                  <blockquote className="aurora-infocard-quote">
+                    <span className="aurora-infocard-quote-text">
+                      &ldquo;{presenting.quote.text}&rdquo;
+                    </span>
+                    {presenting.quote.attribution && (
+                      <cite className="aurora-infocard-quote-attr">
+                        — {presenting.quote.attribution}
+                      </cite>
+                    )}
+                  </blockquote>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -253,35 +253,89 @@ export async function fetchWikipediaThumbnail(
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.url;
   }
-  // Wikipedia's REST API matches on URL-encoded page titles.
-  // Spaces → underscores, then encodeURIComponent for safety.
-  const slug = query.trim().replace(/\s+/g, "_");
+
+  // PRIMARY: try the exact summary endpoint first. Cheap and fast
+  // when the query is unambiguous ("Eiffel Tower" → its page
+  // immediately). Returns null when Wikipedia routes us to a
+  // disambiguation page (no thumbnail) — that's the iPhone case
+  // the founder hit. We fall through to search-then-fetch below.
+  const direct = await fetchSummaryThumb(query.trim(), signal);
+  if (direct) {
+    thumbnailCache.set(key, { url: direct, ts: Date.now() });
+    return direct;
+  }
+
+  // FALLBACK: query Wikipedia search to find the right page, then
+  // fetch its summary. Handles ambiguous queries ("iPhone" →
+  // disambig page) by letting Wikipedia's relevance ranker pick
+  // the most popular matching page (usually the product/concept
+  // page we actually wanted).
+  const searched = await searchAndFetchThumb(query.trim(), signal);
+  thumbnailCache.set(key, { url: searched, ts: Date.now() });
+  return searched;
+}
+
+/**
+ * Direct Wikipedia summary fetch — returns the page's thumbnail if
+ * one exists, otherwise null. Used as the FAST path before falling
+ * back to search.
+ */
+async function fetchSummaryThumb(
+  query: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const slug = query.replace(/\s+/g, "_");
   const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug)}`;
   try {
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
       signal,
     });
-    if (!res.ok) {
-      thumbnailCache.set(key, { url: null, ts: Date.now() });
-      return null;
-    }
+    if (!res.ok) return null;
     const data = (await res.json()) as {
+      type?: string;
       thumbnail?: { source?: string };
       originalimage?: { source?: string };
     };
-    // Prefer the originalimage (full size) over the smaller thumbnail
-    // when available — the paper renders at a decent size, so a
-    // 320x240 thumb looks pixelated.
-    const imgUrl =
-      data.originalimage?.source
-      || data.thumbnail?.source
-      || null;
-    thumbnailCache.set(key, { url: imgUrl, ts: Date.now() });
-    return imgUrl;
+    // Disambiguation pages have type "disambiguation" and usually
+    // no thumbnail — treat them as a miss so the search fallback
+    // can find the right page.
+    if (data.type === "disambiguation") return null;
+    return data.originalimage?.source || data.thumbnail?.source || null;
   } catch {
-    // Network error or aborted — don't cache failures so a transient
-    // network blip doesn't blackball this query forever.
+    return null;
+  }
+}
+
+/**
+ * Search Wikipedia for the query, then fetch the top result's
+ * thumbnail. Slower than direct lookup (two round trips) but
+ * recovers gracefully from ambiguous queries.
+ */
+async function searchAndFetchThumb(
+  query: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const url =
+    `https://en.wikipedia.org/w/api.php?` +
+    `action=query&list=search&format=json&origin=*&utf8=1&` +
+    `srlimit=5&srsearch=${encodeURIComponent(query)}`;
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      query?: { search?: Array<{ title: string }> };
+    };
+    const hits = data.query?.search ?? [];
+    // Try the top 3 results in order — the first hit usually has
+    // a thumbnail, but if it's a stub page we fall through to the
+    // next match. Stops as soon as one returns an image.
+    for (const hit of hits.slice(0, 3)) {
+      const thumb = await fetchSummaryThumb(hit.title, signal);
+      if (thumb) return thumb;
+    }
+    return null;
+  } catch {
     return null;
   }
 }
