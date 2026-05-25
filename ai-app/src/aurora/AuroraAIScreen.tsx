@@ -1253,6 +1253,38 @@ export function AuroraAIScreen() {
   }, [shutdownVoiceMode]);
 
   // ── Computed values for the chrome ────────────────────────────────
+  // Lock-screen / boot-screen state — the @huwprosser JARVIS look.
+  // True when the user has just arrived and hasn't engaged yet (no
+  // messages, no voice, no focus mode). When true, we render the
+  // big arc-reactor ring centered on screen and hide all conventional
+  // chrome (chat bar / widgets / rail / footer). The moment they
+  // type, send, or tap mic, focusMode becomes true → the lock state
+  // ends → standard Aurora chrome fades in.
+  const isLockScreen = !focusMode && !voiceModeActive && messages.length === 0;
+  useEffect(() => {
+    if (isLockScreen) document.body.classList.add("aurora-lock-screen");
+    else document.body.classList.remove("aurora-lock-screen");
+    return () => document.body.classList.remove("aurora-lock-screen");
+  }, [isLockScreen]);
+
+  // Live HH:MM:SS for the lock screen's clock readout under the ring.
+  // Ticks at 1Hz only while the lock screen is showing (no point
+  // burning a setInterval after the user has engaged and the clock
+  // is hidden).
+  const [lockClock, setLockClock] = useState(() => formatHudClock(new Date()));
+  const [lockDate, setLockDate] = useState(() => formatLockDate(new Date()));
+  useEffect(() => {
+    if (!isLockScreen) return;
+    const update = () => {
+      const now = new Date();
+      setLockClock(formatHudClock(now));
+      setLockDate(formatLockDate(now));
+    };
+    update();
+    const id = window.setInterval(update, 1000);
+    return () => window.clearInterval(id);
+  }, [isLockScreen]);
+
   const isPro = subscription.tier === "pro";
   const quotaCurrent = Number.isFinite(subscription.aiQuota) ? subscription.aiQuota : null;
   const quotaCap = Number.isFinite(subscription.aiCap) ? subscription.aiCap : null;
@@ -1289,6 +1321,45 @@ export function AuroraAIScreen() {
     <div className="aurora-app">
       <AuroraCanvas ref={auroraRef} />
       <div className="aurora-vignette" />
+
+      {/* ── @huwprosser JARVIS LOCK SCREEN — arc-reactor centered
+          ring + "TONY STARRK" + live clock. Visible ONLY in the
+          lock state (no messages, no voice, no focus mode). The
+          moment the user engages (types / sends / taps mic), the
+          aurora-lock-screen body class falls off and this fades
+          out, replaced by the standard chat/voice chrome.
+          The ring uses no canvas — it's pure CSS, GPU-cheap,
+          renders identically on any device. */}
+      {isLockScreen && (
+        <div className="aurora-lock" aria-hidden="false">
+          <div className="aurora-lock-ring">
+            {/* Outer faint ring — sits just outside the main one
+                for that "concentric" layered look in the reference. */}
+            <div className="aurora-lock-ring-outer" />
+            {/* The bright primary ring — this is the "arc reactor". */}
+            <div className="aurora-lock-ring-inner" />
+            {/* 24 tick marks around the bezel — pure CSS via
+                conic-gradient masked to a thin band. */}
+            <div className="aurora-lock-ring-ticks" />
+            {/* Center label — "TONY STARRK" (founder's brand) */}
+            <span className="aurora-lock-ring-label">TONY<br />STARRK</span>
+            {/* Soft inner glow under the label for that core
+                "powered-on" feel. */}
+            <div className="aurora-lock-ring-core" />
+          </div>
+          {/* Clock + date below the ring, matching the @huwprosser
+              layout (clock on top, date in tiny grey caps). */}
+          <div className="aurora-lock-clock-block">
+            <div className="aurora-lock-time">{lockClock}</div>
+            <div className="aurora-lock-date">{lockDate}</div>
+          </div>
+          {/* Hint at the bottom — fades out after a few seconds
+              so it doesn't crowd the boot-screen stillness. */}
+          <div className="aurora-lock-hint">
+            Tap the mic or type a message to begin
+          </div>
+        </div>
+      )}
 
       {/* 3D Jarvis View overlay — full-screen 3D model viewer that
           appears when Tony emits a <<<MODEL:name>>> block. Sits
@@ -1941,6 +2012,16 @@ function formatHudClock(d: Date): string {
   const mm = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${hh}:${mm}:${ss}`;
+}
+
+/**
+ * Date readout for the JARVIS lock-screen below the clock.
+ * "WEDNESDAY · 28 APRIL" style matching the @huwprosser reference.
+ */
+function formatLockDate(d: Date): string {
+  const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+  const months = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+  return `${days[d.getDay()]} · ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
 function formatMeta(d: Date): { day: string; clock: string } {
