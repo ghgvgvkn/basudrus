@@ -122,11 +122,32 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   if (!result.ok || !result.response) {
-    // Surface a generic message — never leak ElevenLabs detail to the
-    // client (it can contain plan/usage info).
+    // Map the upstream HTTP status to a SAFE category — we still
+    // never echo ElevenLabs's raw body (which can include plan /
+    // usage info) but we DO tell the user which category of
+    // failure they hit. Founder needs this to debug:
+    //   401/403 → API key invalid or revoked
+    //   402     → ElevenLabs credits exhausted
+    //   429     → rate-limited; try again
+    //   5xx     → ElevenLabs is down (their problem, retry later)
+    //   other   → "Voice synthesis failed (HTTP N)" so support
+    //              can at least see the bucket
+    let friendly: string;
+    const code = result.status;
+    if (code === 401 || code === 403) {
+      friendly = "Voice service authentication failed — API key issue";
+    } else if (code === 402) {
+      friendly = "Voice service credits exhausted";
+    } else if (code === 429) {
+      friendly = "Voice service rate-limited — try again in a moment";
+    } else if (code >= 500 && code < 600) {
+      friendly = `Voice service is down (HTTP ${code})`;
+    } else {
+      friendly = `Voice synthesis failed (HTTP ${code || "unknown"})`;
+    }
     return jsonError(
-      result.status >= 400 && result.status < 600 ? result.status : 502,
-      { error: "Voice synthesis failed", code: result.status },
+      code >= 400 && code < 600 ? code : 502,
+      { error: friendly, code },
       sHeaders,
     );
   }

@@ -71,8 +71,14 @@ body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix,
 body.aurora-presenting-left.aurora-focus-mode .aurora-app .aurora-matrix,
 body.aurora-presenting-right.aurora-focus-mode .aurora-app .aurora-matrix {
-  transform: scale(calc(0.35 + var(--audio-level, 0) * 0.06));
-  transform-origin: 50% 50%;
+  /* Resting scale 0.45 + audio bonus up to 0.51 — founder asked for
+     the orb to be "a little bigger" now that the ring is also bigger
+     and moved up. Plenty of room to grow without crashing into the
+     text below. transform-origin: 50% 42% PULLS the visual center
+     UP from viewport center — matches the ring's new top:42% so
+     the orb sits dead-centered inside the higher-placed ring. */
+  transform: scale(calc(0.45 + var(--audio-level, 0) * 0.06));
+  transform-origin: 50% 42%;
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
   filter: brightness(calc(1 + var(--audio-level, 0) * 0.20));
 }
@@ -167,19 +173,21 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
      - mic-level bars on the left
    All pointer-events: none — clicks pass through to the orb. */
 .aurora-app .aurora-stage-ring {
-  /* Pinned to viewport center via fixed positioning + translate.
-     This MATCHES the orb canvas's own centering (position:fixed
-     inset:0) so the ring and the orb share a true center, no
-     fractional offsets. Founder asked for the cyan ring to be
-     BIGGER — bumped from 36vmin to 56vmin so the ring is a
-     dominant hero element, with the smaller (scale 0.35) orb
-     sitting clearly inside with generous breathing space. */
+  /* Pinned to viewport at 42% from top (NOT center anymore) —
+     founder asked to "move it up for a little bit so the words
+     could be more noticeable" so the lower 58% of the viewport
+     opens up for text + cards. The orb canvas mirrors this with
+     transform-origin: 50% 42% so the dots sit dead-centered
+     inside the ring at the same vertical position.
+     Ring grown to 60vmin (was 56) — "make the ring really big".
+     The big ring + raised position together create the JARVIS
+     hero feel without crowding the text below. */
   position: fixed;
-  top: 50%;
+  top: 42%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: clamp(380px, 56vmin, 680px);
-  height: clamp(380px, 56vmin, 680px);
+  width: clamp(380px, 60vmin, 720px);
+  height: clamp(380px, 60vmin, 720px);
   pointer-events: none;
   border-radius: 50%;
   animation: aurora-stage-ring-in 700ms cubic-bezier(.2,.85,.3,1) both;
@@ -444,40 +452,52 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
 /* Mirror set of bars on the RIGHT side of the ring for symmetry
    — driven by the SAME --mic-level variable so they move in sync. */
 
-/* Dismiss button — floats top-right of the stage. */
+/* BACK TO CHAT button — floats top-LEFT of the stage, larger and
+   more prominent than the previous tiny X-icon close button. The
+   founder explicitly asked for a clear way to "dismiss it and go
+   back to the chat" — this is it. Back-arrow icon + label make
+   the intent unambiguous. */
 .aurora-app .aurora-stage-close {
   position: fixed;
-  top: 80px;
-  right: 28px;
+  top: 22px;
+  left: 28px;
   z-index: 6;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px 10px 12px;
-  background: rgba(10,20,40,0.55);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border: 0.5px solid rgba(140,200,255,0.45);
+  gap: 10px;
+  padding: 12px 20px 12px 16px;
+  background: rgba(10,20,40,0.65);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(140,200,255,0.55);
   border-radius: 999px;
-  color: rgba(220,240,255,0.95);
+  color: rgba(220,240,255,1);
   font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   cursor: pointer;
   pointer-events: auto;
-  transition: background 160ms, border-color 160ms, transform 160ms;
-  box-shadow: 0 0 16px rgba(140,200,255,0.20);
+  transition: background 160ms, border-color 160ms, transform 160ms, box-shadow 160ms;
+  box-shadow:
+    0 0 24px rgba(140,200,255,0.30),
+    inset 0 0.5px 0 rgba(180,225,255,0.30);
   animation: aurora-stage-in 600ms 200ms cubic-bezier(.2,.85,.3,1) both;
+  text-shadow: 0 0 8px rgba(140,200,255,0.50);
 }
 .aurora-app .aurora-stage-close:hover {
-  background: rgba(20,40,75,0.70);
-  border-color: rgba(180,225,255,0.75);
+  background: rgba(20,45,85,0.85);
+  border-color: rgba(190,230,255,0.95);
   transform: translateY(-1px);
+  box-shadow:
+    0 0 32px rgba(140,200,255,0.50),
+    inset 0 0.5px 0 rgba(180,225,255,0.50);
 }
 .aurora-app .aurora-stage-close svg {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
+  filter: drop-shadow(0 0 4px rgba(140,200,255,0.55));
 }
 
 /* TONY'S WORDS — flex child of the stage (now anchored to bottom).

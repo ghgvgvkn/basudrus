@@ -1211,19 +1211,23 @@ export function AuroraAIScreen() {
             <span className="aurora-stage-brand" aria-hidden>TONY · STARRK</span>
           </div>
 
-          {/* Dismiss button — top-right of the stage. Floats over
-              everything. Closes voice mode entirely. */}
+          {/* BACK TO CHAT button — prominent floating pill, top-left
+              of the stage. Closes voice mode entirely and returns
+              the user to the conventional chat view (with the
+              keyboard / send / history rail). Founder wanted this
+              to be CLEARLY labeled and visible — previous "Close"
+              X-icon was too cryptic for the moment. */}
           <button
             type="button"
             className="aurora-stage-close"
             onClick={shutdownVoiceMode}
-            aria-label="Close voice mode"
-            title="Close voice mode (Esc)"
+            aria-label="Back to chat"
+            title="Back to chat (Esc)"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18M6 6l12 12" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
-            <span>Close</span>
+            <span>Back to chat</span>
           </button>
 
           {/* TONY'S WORDS — floating glowing typography below the
