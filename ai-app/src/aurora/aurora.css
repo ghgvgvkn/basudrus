@@ -882,6 +882,10 @@ body.aurora-active .aurora-back-btn {
 }
 
 /* ── Top bar (meta strip) ───────────────────────────────────────── */
+/* Top meta strip — bumped font 11→13px and weight 400→500 for
+   readability. The previous size was hugging the visual-noise
+   threshold and the founder couldn't read the footer text (same
+   problem here). */
 .aurora-app .aurora-top-bar {
   position: absolute;
   top: 22px;
@@ -889,13 +893,14 @@ body.aurora-active .aurora-back-btn {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 20px;
   font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.28em;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: #ffffff;
-  text-shadow: 0 0 18px rgba(255,255,255,0.35);
+  text-shadow: 0 0 18px rgba(255,255,255,0.40);
   opacity: 0;
   animation: aurora-fadeIn 1.4s 0.4s forwards;
   transition: opacity 400ms;
@@ -1526,26 +1531,34 @@ body.aurora-active .aurora-app .aurora-status {
 }
 
 /* ── Footer ─────────────────────────────────────────────────────── */
+/* Footer info strip — was too small / dim to read (founder feedback).
+   Bumped font size 10→12px, letter spacing tightened a hair, and
+   the color opacity nearly doubled (0.45→0.75) so the text is
+   actually legible against the dark background. Larger separator
+   dot too. */
 .aurora-app .aurora-footer-info {
   position: absolute;
   bottom: 28px;
   right: 28px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   font-family: 'Geist Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.20em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.75);
+  text-shadow: 0 0 12px rgba(255,255,255,0.20);
   opacity: 0;
   animation: aurora-fadeIn 1.4s 1s forwards;
 }
 .aurora-app .aurora-footer-info .aurora-dot {
-  width: 4px;
-  height: 4px;
-  background: rgba(255,255,255,0.22);
+  width: 5px;
+  height: 5px;
+  background: rgba(255,255,255,0.55);
   border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255,255,255,0.40);
 }
 
 /* ── Sign-in pill (anonymous visitors, shown in place of avatar) ─ */
@@ -1617,69 +1630,81 @@ body.aurora-rail-hidden .aurora-chat-rail {
   transition: transform 400ms cubic-bezier(.2,.7,.2,1), opacity 360ms;
   z-index: 4;
 }
+/* Apple Liquid Glass rail cards — same recipe as the widgets and
+   chat bar. Frosted bright glass with luminous edges. Founder
+   wanted this design extended to the history rail too. */
 .aurora-app .aurora-rail-card {
-  background: rgba(255,255,255,0.04);
-  border: 0.5px solid rgba(255,255,255,0.12);
-  border-radius: 16px;
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.22);
+  border: 0.5px solid rgba(255,255,255,0.55);
+  border-radius: 20px;
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    inset 0 -0.5px 0 rgba(0,0,0,0.08),
+    inset 0 0 0 0.5px rgba(255,255,255,0.18),
+    0 12px 36px rgba(0,0,0,0.40),
+    0 2px 8px rgba(0,0,0,0.20);
   padding: 14px;
   flex-shrink: 0;
+  color: #0E1622;
 }
 .aurora-app .aurora-rail-card h3 {
   font-family: 'Geist Mono', monospace;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.45);
-  font-weight: 500;
+  color: rgba(14,22,34,0.70);
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .aurora-app .aurora-count {
-  color: rgba(255,255,255,0.22);
+  color: rgba(14,22,34,0.40);
 }
 .aurora-app .aurora-new-chat {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 12px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.06);
-  border: 0.5px solid rgba(255,255,255,0.24);
+  padding: 12px 14px;
+  border-radius: 12px;
+  /* Solid darker pill against the bright glass — high contrast
+     so the action stands out as a primary CTA. */
+  background: rgba(14,22,34,0.85);
+  border: 0.5px solid rgba(255,255,255,0.18);
   color: #ffffff;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 160ms;
+  transition: background 160ms, transform 160ms;
   width: 100%;
   font-family: 'Urbanist', sans-serif;
 }
 .aurora-app .aurora-new-chat:hover {
-  background: rgba(255,255,255,0.10);
+  background: rgba(14,22,34,0.95);
+  transform: translateY(-1px);
 }
 .aurora-app .aurora-new-chat svg {
   width: 18px;
   height: 18px;
 }
 .aurora-app .aurora-rail-close {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(255,255,255,0.06);
+  background: rgba(14,22,34,0.10);
   border: none;
-  color: rgba(255,255,255,0.55);
+  color: rgba(14,22,34,0.65);
   cursor: pointer;
   transition: background 160ms, color 160ms, transform 200ms;
 }
 .aurora-app .aurora-rail-close:hover {
-  background: rgba(255,255,255,0.14);
-  color: #fff;
+  background: rgba(14,22,34,0.18);
+  color: #0E1622;
   transform: translateX(-2px);
 }
 .aurora-app .aurora-rail-close svg {
@@ -1698,17 +1723,20 @@ body.aurora-rail-hidden .aurora-chat-rail {
   width: 4px;
 }
 .aurora-app .aurora-history::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.12);
+  background: rgba(14,22,34,0.20);
   border-radius: 2px;
 }
 .aurora-app .aurora-h-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 10px;
-  border-radius: 9px;
-  color: rgba(255,255,255,0.45);
-  font-size: 12.5px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  /* Dark text on bright glass — needs much higher contrast than
+     before. Bumped from 0.45 to 0.75 for readability. */
+  color: rgba(14,22,34,0.75);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   transition: background 140ms, color 140ms;
   text-align: left;
@@ -1718,23 +1746,23 @@ body.aurora-rail-hidden .aurora-chat-rail {
   font-family: 'Urbanist', sans-serif;
 }
 .aurora-app .aurora-h-item:hover {
-  background: rgba(255,255,255,0.045);
-  color: #ffffff;
+  background: rgba(14,22,34,0.08);
+  color: #0E1622;
 }
 .aurora-app .aurora-h-item.aurora-h-active {
-  background: rgba(255,255,255,0.07);
-  color: #ffffff;
+  background: rgba(14,22,34,0.14);
+  color: #0E1622;
 }
 .aurora-app .aurora-dotmark {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.22);
+  background: rgba(14,22,34,0.30);
   flex-shrink: 0;
 }
 .aurora-app .aurora-h-item.aurora-h-active .aurora-dotmark {
-  background: #fff;
-  box-shadow: 0 0 6px rgba(255,255,255,0.8);
+  background: #4a90e2;
+  box-shadow: 0 0 8px rgba(74,144,226,0.85);
 }
 .aurora-app .aurora-h-label {
   flex: 1;
@@ -1744,18 +1772,19 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-h-when {
   font-family: 'Geist Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.22);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: rgba(14,22,34,0.45);
   text-transform: uppercase;
 }
 .aurora-app .aurora-h-divider {
   font-family: 'Geist Mono', monospace;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.22);
-  padding: 10px 10px 4px;
+  color: rgba(14,22,34,0.45);
+  font-weight: 600;
+  padding: 12px 10px 6px;
 }
 
 /* ── Top widget shelf (Quota + Streak) ──────────────────────────── */
