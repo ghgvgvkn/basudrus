@@ -2277,6 +2277,109 @@ body.aurora-focus-mode .aurora-app .aurora-vignette {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   CONTENT MODE — @huwprosser-inspired corner-shift pattern
+   ═══════════════════════════════════════════════════════════════════
+   When Tony emits a visual artifact (photo / map / stat / data /
+   quote) WHILE in voice mode, we enter "content mode": the orb
+   ring shrinks to the bottom-right corner, the content fills the
+   main area as the hero, and Tony's text becomes a subtitle.
+
+   This matches the founder's reference video where the JARVIS ring
+   sits in the corner while a map of London fills the rest of the
+   screen.
+*/
+
+/* The stage ring (the cyan-glow circle around the orb) animates
+   from center → bottom-right corner. translate is layered over the
+   existing position:fixed top:46%/left:50%/translate(-50%,-50%) so
+   we use scale + an absolute-position override. */
+body.aurora-content-mode .aurora-app .aurora-stage-ring {
+  /* Pin to bottom-right corner instead of center. The transform
+     translates(-50%, -50%) is no longer needed — we want the ring's
+     top-left at the calculated position. */
+  top: auto !important;
+  left: auto !important;
+  bottom: 32px !important;
+  right: 32px !important;
+  transform: none !important;
+  width: clamp(120px, 14vmin, 160px) !important;
+  height: clamp(120px, 14vmin, 160px) !important;
+  transition:
+    width 700ms cubic-bezier(.2, .85, .3, 1),
+    height 700ms cubic-bezier(.2, .85, .3, 1),
+    top 700ms cubic-bezier(.2, .85, .3, 1),
+    left 700ms cubic-bezier(.2, .85, .3, 1),
+    bottom 700ms cubic-bezier(.2, .85, .3, 1),
+    right 700ms cubic-bezier(.2, .85, .3, 1);
+}
+
+/* Shrink the orb canvas to match the ring's corner position so the
+   dots animate alongside it. The audio-reactive scale + brightness
+   still applies via the existing rule (dual-class wins). */
+body.aurora-content-mode.aurora-presenting-left .aurora-app .aurora-matrix,
+body.aurora-content-mode.aurora-presenting-right .aurora-app .aurora-matrix {
+  transform:
+    translate(calc(50vw - 110px), calc(50vh - 110px))
+    scale(calc(0.18 + var(--audio-level, 0) * 0.04)) !important;
+  transition: transform 700ms cubic-bezier(.2, .85, .3, 1);
+}
+
+/* Hide the stage's mic-level bars, brand text, status text in
+   corner mode — they crowd the small corner ring. */
+body.aurora-content-mode .aurora-app .aurora-stage-bars,
+body.aurora-content-mode .aurora-app .aurora-stage-brand,
+body.aurora-content-mode .aurora-app .aurora-stage-clock {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+/* Keep the status word but shrink + reposition under the corner ring */
+body.aurora-content-mode .aurora-app .aurora-stage-status {
+  bottom: -22px !important;
+  font-size: 8px !important;
+  letter-spacing: 0.22em !important;
+}
+/* Hide echo rings in corner mode — they look weird at small scale */
+body.aurora-content-mode .aurora-app .aurora-stage-echo,
+body.aurora-content-mode .aurora-app .aurora-stage-radar,
+body.aurora-content-mode .aurora-app .aurora-stage-sweep {
+  display: none;
+}
+
+/* Text moves to TOP of viewport as a subtitle instead of crowding
+   the corner ring at the bottom. */
+body.aurora-content-mode .aurora-app .aurora-stage-text-wrap {
+  position: fixed !important;
+  top: 80px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: min(720px, calc(100vw - 80px)) !important;
+  max-height: 22vh !important;
+  pointer-events: auto;
+}
+
+/* The artifact cards expand to fill the main area as the HERO.
+   They were previously a small flex row at the bottom; now they
+   stretch to take most of the screen. */
+body.aurora-content-mode .aurora-app .aurora-stage-cards {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(960px, calc(100vw - 80px)) !important;
+  bottom: auto !important;
+}
+/* Photo and map cards become much bigger in content mode */
+body.aurora-content-mode .aurora-app .aurora-stage-card-photo,
+body.aurora-content-mode .aurora-app .aurora-stage-card-map {
+  width: min(720px, 60vw) !important;
+}
+body.aurora-content-mode .aurora-app .aurora-stage-card-photo img,
+body.aurora-content-mode .aurora-app .aurora-stage-card-map img {
+  height: clamp(280px, 50vh, 480px) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    JARVIS LOCK SCREEN — @huwprosser-inspired boot/idle state
    ═══════════════════════════════════════════════════════════════════
    When the user first arrives (no messages yet, no voice active),

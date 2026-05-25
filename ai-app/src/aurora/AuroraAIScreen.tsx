@@ -373,6 +373,27 @@ export function AuroraAIScreen() {
   }, [isPresenting, messages]);
   const presentingText = presenting.cleanText;
 
+  // True when in voice mode AND Tony's current reply has ANY visual
+  // artifact attached (photo, map, stat, data, quote). Triggers the
+  // @huwprosser-style "corner-shift" pattern: the centered orb +
+  // arc-reactor ring shrink to the bottom-right corner, and the
+  // artifact content fills the main area as the hero. When false,
+  // the standard centered-orb-with-text-below layout is used.
+  // MODEL artifacts are excluded here because they open the
+  // separate full-screen 3D viewer which handles its own takeover.
+  const hasHeroContent = isPresenting && !!(
+    presenting.show
+    || presenting.map
+    || presenting.stat
+    || presenting.data
+    || presenting.quote
+  );
+  useEffect(() => {
+    if (hasHeroContent) document.body.classList.add("aurora-content-mode");
+    else document.body.classList.remove("aurora-content-mode");
+    return () => document.body.classList.remove("aurora-content-mode");
+  }, [hasHeroContent]);
+
   // True when the user is in voice mode and Tony is mid-reply — i.e.
   // the last message in the thread is still from the USER, or the
   // streaming `loading` flag is set, or Tony's reply is still empty.
