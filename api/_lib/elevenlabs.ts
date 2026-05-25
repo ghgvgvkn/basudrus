@@ -40,12 +40,16 @@ const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io";
 // against a client passing a random voice_id and racking up cost on
 // a voice we haven't validated.
 const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
-  "nPczCjzI2devNBz1zQrb", // Brian — natural, conversational male (Tony Starrk default — more human + faster pacing than Adam)
+  // Daniel + George added for the Tony Stark-style deep British male
+  // tier — Daniel is the new default, George is the formal alternative.
+  "onwK4e9ZLuTAKqWW03F9", // Daniel — DEFAULT Tony voice (deep British)
+  "JBFqnCBsd6RMkjVDRZzb", // George — formal deep British, alternative
+  "nPczCjzI2devNBz1zQrb", // Brian — American calm narrator (previous default)
   "29vD33N1CtxCmqQRPOHJ", // Drew — friendly American male, well-paced
   "2EiwWnXFnvU5JabPnv8n", // Clyde — energetic American male, characterful
-  "IKne3meq5aSn9XLyUdCD", // Charlie — casual Australian male, conversational
+  "IKne3meq5aSn9XLyUdCD", // Charlie — casual Australian male
   "TX3LPaxmHKxFdv7VOQHJ", // Liam — articulate American male
-  "pNInz6obpgDQGcFmaJgB", // Adam — deep, calm male (legacy default, kept for fallback)
+  "pNInz6obpgDQGcFmaJgB", // Adam — deep, calm male (legacy default)
   "21m00Tcm4TlvDq8ikWAM", // Rachel — clear female, neutral US
   "AZnzlk1XvdvUeBnXmlld", // Domi — strong, confident female
   "EXAVITQu4vr4xnSDxMaL", // Bella — warm, friendly female
@@ -55,23 +59,37 @@ const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
   "TxGEqnHWrfWFTfGW9XjX", // Josh — calm, deep male
 ]);
 
-// Brian is more human + faster-paced than Adam — better fit for Tony
-// Starrk's witty, conversational energy. Adam stays in the allowlist
-// as a fallback. To override per-deploy without code, set
+// DANIEL — deep British male voice. The closest match in ElevenLabs'
+// library to the actual Tony Stark cadence: confident, slightly dry,
+// understated power. Replaces Brian (an American narrator-style voice
+// that fit "calm/warm" but lacked the dry-wit edge Tony Starrk's
+// persona calls for). To override per-deploy without code, set
 // ELEVENLABS_DEFAULT_VOICE_ID in Vercel env.
-export const DEFAULT_VOICE_ID = "nPczCjzI2devNBz1zQrb"; // Brian
+//
+// Alternative voices to try if Daniel doesn't fit:
+//   - Brian   "nPczCjzI2devNBz1zQrb" — American, calm narrator
+//   - Adam    "pNInz6obpgDQGcFmaJgB" — deep American, professional
+//   - Antoni  "ErXwobaYiN019PkySvjV" — well-rounded American
+//   - George  "JBFqnCBsd6RMkjVDRZzb" — deep British, formal
+export const DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"; // Daniel
 export const DEFAULT_TTS_MODEL = "eleven_flash_v2_5";
 export const DEFAULT_STT_MODEL = "scribe_v1";
 
-// Default voice_settings tuned for conversational expressiveness.
-// Lower stability = more dynamic / less robotic delivery; higher
-// style = more character. Speaker boost helps cut through quiet
-// playback environments. These are sane defaults — speak.ts can
-// override per-request if needed.
+// Voice settings tuned for Tony Starrk's persona: confident, witty,
+// slightly dry, formal-but-warm. Compared to the previous Brian
+// settings:
+//   - stability bumped 0.35 → 0.45 (less inconsistent across turns —
+//     a "dry wit" voice needs to land jokes the same way every time)
+//   - similarity_boost up 0.75 → 0.80 (keeps Daniel sounding like
+//     Daniel even when voice_settings push the style further)
+//   - style up 0.45 → 0.60 (more character, leans into Daniel's
+//     natural reserve — less "audiobook narrator," more "spoken
+//     with conviction")
+//   - speaker_boost stays on (cuts through low-volume playback)
 export const DEFAULT_VOICE_SETTINGS = {
-  stability: 0.35,        // 0.5 default; lower = more expressive
-  similarity_boost: 0.75, // keeps voice recognizable
-  style: 0.45,            // adds character without sounding theatrical
+  stability: 0.45,        // consistent dry-wit landing
+  similarity_boost: 0.80, // recognizable Daniel timbre
+  style: 0.60,            // more character / conviction
   use_speaker_boost: true,
 } as const;
 
