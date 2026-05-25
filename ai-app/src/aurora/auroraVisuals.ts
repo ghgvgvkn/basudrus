@@ -369,24 +369,48 @@ async function searchAndFetchThumb(
  * aesthetic: night-mode map with cyan-blue water, low-contrast roads,
  * blends into the dark UI shell instead of fighting it.
  */
-const mapCache = new Map<string, { url: string | null; ts: number }>();
+/**
+ * Two-frame "fly-in" map result. The CITY url is the close-up
+ * zoom (the destination); the WORLD url is the wide "from space"
+ * shot used as the starting frame for the CSS fly-in animation.
+ * Either or both can be null if the geocode failed or if Mapbox
+ * isn't configured — callers handle nulls gracefully (the
+ * InfoCard hero-placeholder picks up the slack).
+ */
+export interface MapboxFlyImages {
+  /** Tight zoom (~14) on the target — the destination view. */
+  city: string | null;
+  /** Wide "from space" zoom (~3) showing the continent/region —
+   *  the starting frame for the fly-in animation. */
+  world: string | null;
+}
+
+const mapCache = new Map<string, { result: MapboxFlyImages; ts: number }>();
 const MAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
-export async function fetchMapboxStaticImage(
+/**
+ * Two-frame fly-in version. Returns BOTH a wide world view and a
+ * close-up city view of the same coordinates. The InfoCard's CSS
+ * crossfades from world → city for the "Google Earth dive-in"
+ * effect, but on a single geocode lookup (no extra Mapbox cost
+ * compared to two separate calls — same coordinates, two URL
+ * constructions, both billed as static map loads).
+ *
+ * Total Mapbox spend per MAP block: 2 static image loads.
+ * At free tier (50k/month) that's 25k MAP blocks/month free.
+ */
+export async function fetchMapboxFlyImages(
   query: string,
   signal?: AbortSignal,
-): Promise<string | null> {
-  // Read the token at runtime — Vite injects import.meta.env at build
-  // time. If the env var isn't set, the value is undefined and we
-  // return null cleanly without ever hitting Mapbox.
+): Promise<MapboxFlyImages> {
   const token = (import.meta as { env?: Record<string, string | undefined> })
     .env?.VITE_MAPBOX_TOKEN;
-  if (!token) return null;
+  if (!token) return { city: null, world: null };
   const key = query.trim().toLowerCase();
-  if (!key) return null;
+  if (!key) return { city: null, world: null };
   const cached = mapCache.get(key);
   if (cached && Date.now() - cached.ts < MAP_CACHE_TTL_MS) {
-    return cached.url;
+    return cached.result;
   }
   const geocodeUrl =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query.trim())}.json` +
@@ -394,54 +418,52 @@ export async function fetchMapboxStaticImage(
   try {
     const res = await fetch(geocodeUrl, { signal });
     if (!res.ok) {
-      mapCache.set(key, { url: null, ts: Date.now() });
-      return null;
+      mapCache.set(key, { result: { city: null, world: null }, ts: Date.now() });
+      return { city: null, world: null };
     }
     const data = (await res.json()) as {
-      features?: Array<{
-        center?: [number, number];
-        place_type?: string[];
-      }>;
+      features?: Array<{ center?: [number, number]; place_type?: string[] }>;
     };
     const feature = data.features?.[0];
     if (!feature?.center) {
-      mapCache.set(key, { url: null, ts: Date.now() });
-      return null;
+      mapCache.set(key, { result: { city: null, world: null }, ts: Date.now() });
+      return { city: null, world: null };
     }
     const [lng, lat] = feature.center;
-    // Wider zoom for big regions (country / state / city), tighter
-    // for specific landmarks. Tony usually asks for the latter, but
-    // when he says "Iraq" we don't want a 14-zoom on Baghdad — we
-    // want the country outline.
+    // City close-up: zoom 14 (street-level for a landmark) or 7
+    // for a country/region. Same wide-vs-narrow heuristic the
+    // single-image version used.
     const wideTypes = new Set(["country", "region", "place"]);
     const isWide = feature.place_type?.some((t) => wideTypes.has(t));
-    const zoom = isWide ? 5 : 14;
-    // Static image params:
-    //   style: env-overridable (default streets-v12 for the Google
-    //          Maps "Earth view" look the founder asked for —
-    //          previous dark-v11 was too stylized / abstract)
-    //   overlay: small cyan pin at the target location
-    //   size: 600x400@2x retina (≈400px wide in the panel layout)
-    // Cyan pin (`4a90e2`) ties into the same palette as the corner
-    // brackets + JARVIS ring elsewhere in Aurora.
-    //
-    // Other style options the user can switch to via env var
-    // VITE_MAPBOX_STYLE (just the style name, e.g. "satellite-v9"):
-    //   - streets-v12          (default — clean Google-Maps look)
-    //   - satellite-streets-v12 (satellite with road labels)
-    //   - satellite-v9         (pure satellite — no labels)
-    //   - dark-v11             (previous JARVIS-style dark theme)
-    //   - outdoors-v12         (topographic / terrain feel)
-    const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-    const style = (env?.VITE_MAPBOX_STYLE || "streets-v12").trim();
-    const staticUrl =
-      `https://api.mapbox.com/styles/v1/mapbox/${encodeURIComponent(style)}/static/` +
+    const cityZoom = isWide ? 7 : 14;
+    // World "from space": zoom 2 shows the continent containing
+    // the target — the natural "satellite from orbit" starting
+    // shot for the fly-in.
+    const worldZoom = 2;
+    // Satellite styles per layer:
+    //   World view → satellite-v9 (pure satellite, no labels —
+    //     reads as "Earth from orbit")
+    //   City view → satellite-streets-v12 (satellite + street
+    //     labels — reads as "landed at the destination")
+    const cityUrl =
+      `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/` +
       `pin-s+4a90e2(${lng},${lat})/` +
-      `${lng},${lat},${zoom},0/600x400@2x` +
+      `${lng},${lat},${cityZoom},0/600x400@2x` +
       `?access_token=${token}`;
-    mapCache.set(key, { url: staticUrl, ts: Date.now() });
-    return staticUrl;
+    const worldUrl =
+      `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/` +
+      `${lng},${lat},${worldZoom},0/600x400@2x` +
+      `?access_token=${token}`;
+    const result = { city: cityUrl, world: worldUrl };
+    mapCache.set(key, { result, ts: Date.now() });
+    return result;
   } catch {
-    return null;
+    return { city: null, world: null };
   }
 }
+
+// The legacy fetchMapboxStaticImage() (single-image fetch) was
+// removed when AuroraAIScreen migrated to fetchMapboxFlyImages.
+// Nothing else in the codebase used it. If a future caller needs
+// just one image, they can call fetchMapboxFlyImages(query) and
+// use the .city URL — same Mapbox cost.

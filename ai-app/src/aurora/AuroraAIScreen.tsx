@@ -44,7 +44,7 @@ import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
-import { parseArtifacts, fetchWikipediaThumbnail, fetchMapboxStaticImage } from "./auroraVisuals";
+import { parseArtifacts, fetchWikipediaThumbnail, fetchMapboxFlyImages, type MapboxFlyImages } from "./auroraVisuals";
 // JarvisView is lazy-loaded — the R3F/Drei/Three.js bundle is ~850KB
 // and we only need it when the user actually opens a 3D model. Most
 // sessions never trigger one, so don't ship it on the initial paint.
@@ -446,23 +446,24 @@ export function AuroraAIScreen() {
     };
   }, [presenting.show?.query]);
 
-  // Lazy-fetch the Mapbox static image for Tony's current MAP
-  // block. Same shape as the SHOW pipeline — module-level cache,
-  // null on failure (no token / geocode miss / network error) so
-  // the UI silently degrades to text + photo without a map. The
-  // call only hits Mapbox when VITE_MAPBOX_TOKEN is configured;
-  // until then this is effectively a no-op.
-  const [presentingMap, setPresentingMap] = useState<string | null>(null);
+  // Lazy-fetch the Mapbox TWO-FRAME fly-in images for Tony's current
+  // MAP block. Founder wanted a Google-Earth-style "from space, dive
+  // in to the location" effect — but on a weak MacBook so no WebGL.
+  // Solution: fetch TWO static images per map (wide world view +
+  // tight city view) and let CSS crossfade-and-scale between them
+  // for the "fly-in" feeling. ~Zero perf cost on any device.
+  // Null result = either no token configured, or geocode failed.
+  const [presentingMap, setPresentingMap] = useState<MapboxFlyImages>({ city: null, world: null });
   useEffect(() => {
     if (!presenting.map) {
-      setPresentingMap(null);
+      setPresentingMap({ city: null, world: null });
       return;
     }
     let cancelled = false;
     const ctl = new AbortController();
-    void fetchMapboxStaticImage(presenting.map.query, ctl.signal).then((url) => {
+    void fetchMapboxFlyImages(presenting.map.query, ctl.signal).then((result) => {
       if (cancelled) return;
-      setPresentingMap(url);
+      setPresentingMap(result);
     });
     return () => {
       cancelled = true;
@@ -1508,7 +1509,7 @@ export function AuroraAIScreen() {
                 - Map sub-card (if MAP present)
                 - Quote callout (if QUOTE present)
               Renders ONLY when at least one visual artifact exists. */}
-          {(presentingImage || presentingMap || presenting.stat || presenting.data || presenting.quote) && (
+          {(presentingImage || presentingMap.city || presenting.stat || presenting.data || presenting.quote) && (
             <div className="aurora-infocard" role="region" aria-label="Knowledge panel">
               {/* Hero image — top, full width. Falls back to a
                   gradient placeholder with subject name if Wikipedia
@@ -1587,16 +1588,35 @@ export function AuroraAIScreen() {
                   </div>
                 )}
 
-                {/* Map sub-section — shown inline below the facts
-                    so the location reads as PART of the subject,
-                    not as a separate floating card. */}
-                {presentingMap && (
-                  <div className="aurora-infocard-map">
+                {/* Map sub-section — Google-Earth-style fly-in.
+                    Two layered images: the "world" view (zoom 2,
+                    satellite, no labels) loads first, then the
+                    "city" view (zoom 14, satellite-streets) fades
+                    in on top with a scale animation. Reads as
+                    flying from orbit down to the destination.
+                    Zero WebGL = friendly to weak hardware. */}
+                {presentingMap.city && (
+                  <div className="aurora-infocard-map aurora-fly-in">
+                    {/* World layer — starts visible, fades out as
+                        the city layer rises in. */}
+                    {presentingMap.world && (
+                      <img
+                        src={presentingMap.world}
+                        alt=""
+                        loading="eager"
+                        className="aurora-infocard-map-img aurora-fly-world"
+                        aria-hidden
+                      />
+                    )}
+                    {/* City layer — destination shot. Animates in
+                        with scale (so it looks like the camera is
+                        descending) and opacity (so it crossfades
+                        from the world view). */}
                     <img
-                      src={presentingMap}
+                      src={presentingMap.city}
                       alt={presenting.map?.query ?? ""}
                       loading="eager"
-                      className="aurora-infocard-map-img"
+                      className="aurora-infocard-map-img aurora-fly-city"
                     />
                     {presenting.map?.query && (
                       <span className="aurora-infocard-map-label">
