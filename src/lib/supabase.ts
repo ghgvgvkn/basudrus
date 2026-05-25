@@ -15,8 +15,11 @@
  */
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string)?.trim() || '';
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string)?.trim() || '';
+
+// Allow the app to run without Supabase in development when keys are missing
+const SUPABASE_CONFIGURED = Boolean(supabaseUrl && supabaseAnonKey);
 
 // ── Cross-subdomain SSO storage ────────────────────────────────────────────
 // We're about to launch a second front-door at ai.basudrus.com that shares
@@ -83,22 +86,26 @@ const ssoStorage: Storage | { getItem: (k: string) => string | null; setItem: (k
   },
 };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-    // Custom storage: cookie on *.basudrus.com (cross-subdomain SSO),
-    // localStorage on everything else. See ssoStorage above.
-    storage: ssoStorage as Storage,
-  },
-  realtime: {
-    params: { eventsPerSecond: 10 },
-  },
-  global: {
-    headers: { "x-client-info": "bas-udrus-redesign/1.0" },
-  },
-});
+// Only create the Supabase client if both URL and key are configured
+// This allows the app to run in development without Supabase
+export const supabase = SUPABASE_CONFIGURED 
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+        // Custom storage: cookie on *.basudrus.com (cross-subdomain SSO),
+        // localStorage on everything else. See ssoStorage above.
+        storage: ssoStorage as Storage,
+      },
+      realtime: {
+        params: { eventsPerSecond: 10 },
+      },
+      global: {
+        headers: { "x-client-info": "bas-udrus-redesign/1.0" },
+      },
+    })
+  : null as unknown as ReturnType<typeof createClient>;
 
 type SessionResult = Awaited<ReturnType<typeof supabase.auth.getSession>>;
 let sessionInflight: Promise<SessionResult> | null = null;
@@ -106,6 +113,9 @@ let sessionCache: { at: number; result: SessionResult } | null = null;
 const SESSION_TTL_MS = 2000;
 
 export function getSessionCached(): Promise<SessionResult> {
+  if (!SUPABASE_CONFIGURED) {
+    return Promise.resolve({ data: { session: null }, error: null });
+  }
   const now = Date.now();
   if (sessionCache && now - sessionCache.at < SESSION_TTL_MS) {
     return Promise.resolve(sessionCache.result);
@@ -117,14 +127,16 @@ export function getSessionCached(): Promise<SessionResult> {
   return sessionInflight;
 }
 
-supabase.auth.onAuthStateChange((event) => {
-  if (event === "SIGNED_IN" || event === "SIGNED_OUT" ||
-      event === "TOKEN_REFRESHED" || event === "USER_UPDATED" ||
-      event === "PASSWORD_RECOVERY") {
-    sessionCache = null;
-    sessionInflight = null;
-  }
-});
+if (SUPABASE_CONFIGURED) {
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_IN" || event === "SIGNED_OUT" ||
+        event === "TOKEN_REFRESHED" || event === "USER_UPDATED" ||
+        event === "PASSWORD_RECOVERY") {
+      sessionCache = null;
+      sessionInflight = null;
+    }
+  });
+}
 
 // ── Row types — match the live Supabase schema 1-to-1 ──
 
