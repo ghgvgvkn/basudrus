@@ -2009,15 +2009,37 @@ function relativeWhen(iso: string): string {
 }
 
 /**
- * HH:MM:SS clock for the JARVIS corner HUD. Updates at 1Hz via
- * setInterval. Mono font + zero-padded so the digits sit on a fixed
- * width — looks like a hardware readout rather than a wall clock.
+ * Locale-aware clock for the JARVIS HUD. Updates at 1Hz via
+ * setInterval. Founder spec: "make it based on the country not 24
+ * hour like 12:00" — defaults to 12-hour AM/PM format for most
+ * users worldwide. Uses the browser's locale to pick the natural
+ * format for that user (Intl.DateTimeFormat respects regional
+ * conventions like 12-hour with AM/PM for US/UK/Jordan or 24-hour
+ * for European users who prefer it).
+ *
+ * Format: "3:42:18 PM" (US/Jordan default) or "15:42:18" (de-DE etc).
+ * The 'numeric' hour avoids zero-padding the hour ("3" not "03"),
+ * which reads more like a wall clock and less like a server timer.
  */
 function formatHudClock(d: Date): string {
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
+  try {
+    return d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      // Force 12-hour for the JARVIS aesthetic — most cinema/TV AI
+      // UIs use 12-hour even in 24-hour-default locales because
+      // "3:42 PM" reads more human than "15:42:18".
+      hour12: true,
+    });
+  } catch {
+    // Fallback to manual format if Intl throws (very old browsers).
+    const hh = String(d.getHours() % 12 || 12);
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    const ampm = d.getHours() >= 12 ? "PM" : "AM";
+    return `${hh}:${mm}:${ss} ${ampm}`;
+  }
 }
 
 /**
@@ -2034,10 +2056,25 @@ function formatMeta(d: Date): { day: string; clock: string } {
   const wkLong = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
   const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
   const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
+  // 12-hour clock with AM/PM — matches the JARVIS HUD clock format
+  // change (founder request: "make it based on the country not 24
+  // hour like 12:00"). The footer caption shows "MON · 3:42 PM"
+  // instead of the previous "MON · 15:42".
+  let timeStr: string;
+  try {
+    timeStr = d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    const hh = d.getHours() % 12 || 12;
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ampm = d.getHours() >= 12 ? "PM" : "AM";
+    timeStr = `${hh}:${mm} ${ampm}`;
+  }
   return {
     day: `${wkLong[d.getDay()]} · ${d.getDate()} ${months[d.getMonth()]}`,
-    clock: `${days[d.getDay()]} · ${hh}:${mm}`,
+    clock: `${days[d.getDay()]} · ${timeStr}`,
   };
 }

@@ -2364,6 +2364,18 @@ body.aurora-focus-mode .aurora-app .aurora-vignette {
    screen.
 */
 
+/* HIDE the centered arc-reactor (aurora-lock-ring) when content
+   mode is active. The corner version (aurora-stage-ring shrunk
+   below) is the only TONY STARRK that should be visible. Founder
+   spotted this in the iPhone + MacBook screenshots: the central
+   arc-reactor was still showing IN THE MIDDLE OF the content card,
+   creating a duplicate / overlapping look. */
+body.aurora-content-mode .aurora-app .aurora-lock {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 400ms ease;
+}
+
 /* The stage ring (the cyan-glow circle around the orb) animates
    from center → bottom-right corner. translate is layered over the
    existing position:fixed top:46%/left:50%/translate(-50%,-50%) so
@@ -2421,15 +2433,20 @@ body.aurora-content-mode .aurora-app .aurora-stage-sweep {
   display: none;
 }
 
-/* Text moves to TOP of viewport as a subtitle instead of crowding
-   the corner ring at the bottom. */
+/* Text moves to the BOTTOM of viewport in content mode — under the
+   hero artifact, where the user reads it like a caption / Google
+   knowledge-panel description. Founder feedback: "what he's saying
+   down there." Previously it lived at the TOP which made readers
+   scan up-then-down; bottom placement gives a natural top-down
+   flow: hero image → caption. */
 body.aurora-content-mode .aurora-app .aurora-stage-text-wrap {
   position: fixed !important;
-  top: 80px !important;
+  top: auto !important;
+  bottom: 32px !important;
   left: 50% !important;
   transform: translateX(-50%) !important;
   width: min(720px, calc(100vw - 80px)) !important;
-  max-height: 22vh !important;
+  max-height: 18vh !important;
   pointer-events: auto;
 }
 

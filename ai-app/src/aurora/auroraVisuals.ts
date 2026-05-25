@@ -363,13 +363,25 @@ export async function fetchMapboxStaticImage(
     const isWide = feature.place_type?.some((t) => wideTypes.has(t));
     const zoom = isWide ? 5 : 14;
     // Static image params:
-    //   style: mapbox/dark-v11 (night theme — matches JARVIS HUD)
+    //   style: env-overridable (default streets-v12 for the Google
+    //          Maps "Earth view" look the founder asked for —
+    //          previous dark-v11 was too stylized / abstract)
     //   overlay: small cyan pin at the target location
     //   size: 600x400@2x retina (≈400px wide in the panel layout)
     // Cyan pin (`4a90e2`) ties into the same palette as the corner
     // brackets + JARVIS ring elsewhere in Aurora.
+    //
+    // Other style options the user can switch to via env var
+    // VITE_MAPBOX_STYLE (just the style name, e.g. "satellite-v9"):
+    //   - streets-v12          (default — clean Google-Maps look)
+    //   - satellite-streets-v12 (satellite with road labels)
+    //   - satellite-v9         (pure satellite — no labels)
+    //   - dark-v11             (previous JARVIS-style dark theme)
+    //   - outdoors-v12         (topographic / terrain feel)
+    const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+    const style = (env?.VITE_MAPBOX_STYLE || "streets-v12").trim();
     const staticUrl =
-      `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/` +
+      `https://api.mapbox.com/styles/v1/mapbox/${encodeURIComponent(style)}/static/` +
       `pin-s+4a90e2(${lng},${lat})/` +
       `${lng},${lat},${zoom},0/600x400@2x` +
       `?access_token=${token}`;
