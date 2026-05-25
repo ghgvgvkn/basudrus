@@ -2970,3 +2970,218 @@ body.aurora-content-mode .aurora-app .aurora-infocard {
     transition-duration: 50ms !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   COMPARE TABLE — side-by-side spec sheet inside the InfoCard.
+   ═══════════════════════════════════════════════════════════════════
+   Three-column table: key | valueA | valueB. Two header cells with
+   the contestant labels (e.g. "iPhone 16 Pro" / "Pixel 9 Pro"),
+   thin cyan separators between rows, mono font for values to make
+   them feel like spec-sheet data.
+
+   Sits inside .aurora-infocard-body so it inherits the staggered
+   reveal cascade — its own slot in the cascade is added below.
+*/
+.aurora-app .aurora-infocard-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aurora-app .aurora-infocard-compare-title {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(180, 220, 255, 0.70);
+}
+.aurora-app .aurora-infocard-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.aurora-app .aurora-infocard-compare-table th,
+.aurora-app .aurora-infocard-compare-table td {
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 0.5px dashed rgba(140, 200, 255, 0.14);
+}
+.aurora-app .aurora-infocard-compare-table tr:last-child th,
+.aurora-app .aurora-infocard-compare-table tr:last-child td {
+  border-bottom: none;
+}
+/* Header row — the two contestant labels. The leading <th> is
+   empty (the key column has no header), so we only style the
+   value-column heads. */
+.aurora-app .aurora-infocard-compare-head {
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 16px;
+  letter-spacing: -0.005em;
+  color: rgba(245, 250, 255, 1);
+  padding-bottom: 10px !important;
+  border-bottom: 0.5px solid rgba(140, 200, 255, 0.30) !important;
+  text-shadow: 0 0 14px rgba(140, 200, 255, 0.35);
+}
+/* Row key column — same muted look as facts dt. */
+.aurora-app .aurora-infocard-compare-key {
+  font-weight: 400;
+  font-size: 12px;
+  color: rgba(200, 230, 255, 0.65);
+  width: 32%;
+}
+/* Value cells — mono so the numbers/units feel like spec data. */
+.aurora-app .aurora-infocard-compare-val {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(240, 250, 255, 0.95);
+  width: 34%;
+}
+
+/* COMPARE slot in the staggered reveal cascade. Goes between
+   the facts (480ms) and map (580ms) since that's where it
+   renders in the JSX flow. */
+.aurora-app .aurora-infocard-compare {
+  animation: aurora-infocard-rise 500ms 530ms cubic-bezier(.2, .85, .3, 1) both;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MARKDOWN INLINE STYLES
+   ═══════════════════════════════════════════════════════════════════
+   Tony emits light markdown — bold for emphasis, italic for soft
+   emphasis, backticks for inline code/keys, and the occasional
+   link. The renderMarkdown helper wraps each in a tagged span so
+   we can theme them per-context (chat bubble vs stage text vs
+   InfoCard description). Defaults live here; the context overrides
+   that need tweaks are below.
+*/
+.aurora-app .aurora-md-bold {
+  font-weight: 600;
+  color: inherit;
+}
+.aurora-app .aurora-md-italic {
+  font-style: italic;
+  color: inherit;
+}
+.aurora-app .aurora-md-code {
+  /* Mono inline code — pill background with a tight cyan tint so
+     it reads as "this is a literal token" against either light
+     (chat bubble) or dark (stage text) backgrounds. The em-size
+     keeps it from breaking line height. */
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 0.88em;
+  padding: 0.06em 0.4em;
+  border-radius: 4px;
+  background: rgba(140, 200, 255, 0.12);
+  border: 0.5px solid rgba(140, 200, 255, 0.20);
+  color: inherit;
+}
+.aurora-app .aurora-md-link {
+  color: rgba(140, 200, 255, 0.95);
+  text-decoration: underline;
+  text-decoration-color: rgba(140, 200, 255, 0.35);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 200ms ease;
+}
+.aurora-app .aurora-md-link:hover {
+  text-decoration-color: rgba(140, 200, 255, 0.85);
+}
+/* Chat bubble override — the bubble is light gray with dark text,
+   so the cyan code background would clash. Use a warm tint of the
+   bubble color instead. */
+.aurora-app .aurora-bubble .aurora-md-code {
+  background: rgba(14, 22, 34, 0.08);
+  border-color: rgba(14, 22, 34, 0.16);
+  color: #0E1622;
+}
+.aurora-app .aurora-bubble .aurora-md-link {
+  color: #1d4f7a;
+  text-decoration-color: rgba(29, 79, 122, 0.35);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   AUDIO-REACTIVE TEXT GLOW
+   ═══════════════════════════════════════════════════════════════════
+   Couples the cyan text-shadow on Tony's words to the global
+   --audio-level CSS variable that the rAF loop in AuroraAIScreen
+   writes every frame (driven by both mic input AND TTS playback).
+   When Tony's voice is loud, the glow intensifies and reaches
+   further; when he's quiet, the glow contracts back to its idle
+   baseline. Makes the text visibly "speak" along with the audio
+   instead of sitting static.
+
+   Done as a separate rule (not folded into the base text-shadow
+   declarations above) so the audio coupling is opt-in: if a
+   future caller wants static text, they can drop this rule
+   without touching the base styles.
+*/
+.aurora-app .aurora-stage-text {
+  /* Override the static text-shadow from the base rule with an
+     audio-reactive version. The two layered glows grow in BOTH
+     blur radius and alpha as --audio-level climbs from 0 → 1.
+     200ms transition smooths the per-frame jitter into a natural
+     pulse. */
+  text-shadow:
+    0 0 calc(22px + var(--audio-level, 0) * 22px) rgba(140, 200, 255, calc(0.55 + var(--audio-level, 0) * 0.35)),
+    0 0 calc(44px + var(--audio-level, 0) * 36px) rgba(140, 200, 255, calc(0.25 + var(--audio-level, 0) * 0.30));
+  transition: text-shadow 180ms ease-out;
+}
+.aurora-app .aurora-infocard-title {
+  /* Same coupling on the knowledge-panel title — when Tony talks
+     about a subject, the subject name on the card glows brighter
+     in time with his voice. Keeps the dark-overlay shadow stable
+     for legibility against the hero image, only modulates the
+     cyan halo. */
+  text-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.85),
+    0 0 calc(24px + var(--audio-level, 0) * 18px) rgba(140, 200, 255, calc(0.30 + var(--audio-level, 0) * 0.30));
+  transition: text-shadow 180ms ease-out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HERO IMAGE SCAN SWEEP — Tony's "I'm pulling this up" beat.
+   ═══════════════════════════════════════════════════════════════════
+   When voice mode is active, a thin cyan scan line passes over the
+   hero image every few seconds. Reads as Tony's HUD scanning the
+   subject — pure CSS overlay, no JS. Only renders while voice mode
+   is active (body.aurora-presenting). Reduces motion gracefully.
+*/
+.aurora-app .aurora-infocard-hero {
+  position: relative;
+}
+body.aurora-presenting .aurora-app .aurora-infocard-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 45%,
+    rgba(140, 200, 255, 0.30) 49%,
+    rgba(180, 225, 255, 0.55) 50%,
+    rgba(140, 200, 255, 0.30) 51%,
+    transparent 55%,
+    transparent 100%
+  );
+  background-size: 100% 220%;
+  background-position: 0 -120%;
+  mix-blend-mode: screen;
+  animation: aurora-scan-sweep 4200ms ease-in-out infinite;
+}
+@keyframes aurora-scan-sweep {
+  0%   { background-position: 0 -120%; opacity: 0; }
+  20%  { opacity: 0.85; }
+  60%  { opacity: 0.85; }
+  100% { background-position: 0 220%;  opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.aurora-presenting .aurora-app .aurora-infocard-hero::before {
+    animation: none;
+    display: none;
+  }
+}

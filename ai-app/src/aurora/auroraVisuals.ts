@@ -70,6 +70,33 @@ export interface QuoteBlock {
 }
 
 /**
+ * Side-by-side comparison table. Pattern:
+ *   <<<COMPARE:title|labelA vs labelB|key:valA;valB|key:valA;valB|...>>>
+ *   <<<COMPARE:iPhone vs Pixel|iPhone 16 Pro vs Pixel 9 Pro|Chip:A18 Pro;Tensor G4|Camera:48MP;50MP|Price:$999;$999>>>
+ *
+ * Renders as a Google "knowledge panel comparison" — two header
+ * cells with the contestant labels, then rows of attribute/valueA/
+ * valueB. Perfect for "X vs Y" research moments where Tony wants
+ * to lay out the spec sheet instead of describing differences in
+ * prose. Pairs naturally with a SHOW block for one of the items.
+ *
+ * Body format breakdown:
+ *   - parts[0] = title (e.g. "iPhone vs Pixel")
+ *   - parts[1] = "labelA vs labelB" header — split on " vs " (case-insensitive)
+ *   - parts[2..] = "key:valA;valB" rows — split on first ":" for key,
+ *     then ";" between the two value cells
+ *
+ * Tolerates rows that are missing a B-value (renders empty cell)
+ * but skips rows with no A-value or no key.
+ */
+export interface CompareBlock {
+  title: string;
+  labelA: string;
+  labelB: string;
+  rows: Array<{ key: string; valueA: string; valueB: string }>;
+}
+
+/**
  * 3D model trigger. Pattern:
  *   <<<MODEL:name>>>
  *   <<<MODEL:atom>>>           — Carbon atom with electron shells
@@ -103,6 +130,8 @@ export interface ParsedMessage {
   data: DataBlock | null;
   /** First QUOTE block found in the text, if any. */
   quote: QuoteBlock | null;
+  /** First COMPARE block found in the text, if any. */
+  compare: CompareBlock | null;
   /** First MODEL block found in the text, if any. */
   model: ModelBlock | null;
   /** Message text with all artifact blocks removed and trailing
@@ -115,6 +144,7 @@ const MAP_BLOCK_RE = /<<<MAP:\s*([^>]+?)\s*>>>/i;
 const STAT_BLOCK_RE = /<<<STAT:\s*([^>]+?)\s*>>>/i;
 const DATA_BLOCK_RE = /<<<DATA:\s*([^>]+?)\s*>>>/i;
 const QUOTE_BLOCK_RE = /<<<QUOTE:\s*([^>]+?)\s*>>>/i;
+const COMPARE_BLOCK_RE = /<<<COMPARE:\s*([^>]+?)\s*>>>/i;
 const MODEL_BLOCK_RE = /<<<MODEL:\s*([^>]+?)\s*>>>/i;
 
 /**
@@ -134,6 +164,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
       stat: null,
       data: null,
       quote: null,
+      compare: null,
       model: null,
       cleanText: rawText ?? "",
     };
@@ -143,6 +174,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
   const statMatch = STAT_BLOCK_RE.exec(rawText);
   const dataMatch = DATA_BLOCK_RE.exec(rawText);
   const quoteMatch = QUOTE_BLOCK_RE.exec(rawText);
+  const compareMatch = COMPARE_BLOCK_RE.exec(rawText);
   const modelMatch = MODEL_BLOCK_RE.exec(rawText);
 
   // Strip ALL block instances (even past the first one) so the
@@ -153,6 +185,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     .replace(/<<<STAT:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<DATA:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<QUOTE:\s*[^>]+?\s*>>>/gi, "")
+    .replace(/<<<COMPARE:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<MODEL:\s*[^>]+?\s*>>>/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -210,6 +243,40 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     }
   }
 
+  // COMPARE body: title|labelA vs labelB|key:valA;valB|key:valA;valB|...
+  // Splits the header on " vs " (case-insensitive) so Tony can write
+  // it naturally. Each row splits the value cell on ";" — if there's
+  // no semicolon (Tony goofed), the second cell is empty but the row
+  // still renders (better than dropping the whole comparison).
+  let compare: CompareBlock | null = null;
+  if (compareMatch?.[1]) {
+    const parts = compareMatch[1].split("|").map((p) => p.trim());
+    if (parts.length >= 3 && parts[0] && parts[1]) {
+      const title = parts[0];
+      // Header looks like "Foo vs Bar" — split on " vs " (any case).
+      const header = parts[1].split(/\s+vs\s+/i).map((s) => s.trim());
+      // Fall back to "A" / "B" if Tony didn't put a "vs" in the header
+      // so the table still renders rather than getting silently dropped.
+      const labelA = header[0] || "A";
+      const labelB = header[1] || "B";
+      const rows = parts.slice(2)
+        .map((p) => {
+          const idx = p.indexOf(":");
+          if (idx < 0) return null;
+          const key = p.slice(0, idx).trim();
+          const valueParts = p.slice(idx + 1).split(";").map((s) => s.trim());
+          const valueA = valueParts[0] ?? "";
+          const valueB = valueParts[1] ?? "";
+          if (!key || !valueA) return null;
+          return { key, valueA, valueB };
+        })
+        .filter(
+          (r): r is { key: string; valueA: string; valueB: string } => r !== null,
+        );
+      if (rows.length > 0) compare = { title, labelA, labelB, rows };
+    }
+  }
+
   const modelName = modelMatch?.[1].trim();
 
   return {
@@ -218,6 +285,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     stat,
     data,
     quote,
+    compare,
     model: modelName ? { name: modelName } : null,
     cleanText,
   };

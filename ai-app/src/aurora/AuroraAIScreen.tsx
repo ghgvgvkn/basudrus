@@ -45,6 +45,7 @@ import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
 import { parseArtifacts, fetchWikipediaThumbnail, fetchMapboxFlyImages, type MapboxFlyImages } from "./auroraVisuals";
+import { renderMarkdown } from "./auroraMarkdown";
 // JarvisView is lazy-loaded — the R3F/Drei/Three.js bundle is ~850KB
 // and we only need it when the user actually opens a 3D model. Most
 // sessions never trigger one, so don't ship it on the initial paint.
@@ -355,6 +356,7 @@ export function AuroraAIScreen() {
     stat: null,
     data: null,
     quote: null,
+    compare: null,
     model: null,
     cleanText: "",
   } as const;
@@ -387,6 +389,7 @@ export function AuroraAIScreen() {
     || presenting.stat
     || presenting.data
     || presenting.quote
+    || presenting.compare
   );
   useEffect(() => {
     if (hasHeroContent) document.body.classList.add("aurora-content-mode");
@@ -418,6 +421,7 @@ export function AuroraAIScreen() {
       && !presenting.stat
       && !presenting.data
       && !presenting.quote
+      && !presenting.compare
     ) {
       return true;
     }
@@ -1481,7 +1485,7 @@ export function AuroraAIScreen() {
                 </span>
               </div>
             ) : presentingText ? (
-              <p className="aurora-stage-text">{presentingText}</p>
+              <p className="aurora-stage-text">{renderMarkdown(presentingText)}</p>
             ) : (
               <p className="aurora-stage-text aurora-stage-text-idle">
                 Tap the mic and talk — Tony's reply will appear here.
@@ -1509,7 +1513,7 @@ export function AuroraAIScreen() {
                 - Map sub-card (if MAP present)
                 - Quote callout (if QUOTE present)
               Renders ONLY when at least one visual artifact exists. */}
-          {(presentingImage || presentingMap.city || presenting.stat || presenting.data || presenting.quote) && (
+          {(presentingImage || presentingMap.city || presenting.stat || presenting.data || presenting.quote || presenting.compare) && (
             <div className="aurora-infocard" role="region" aria-label="Knowledge panel">
               {/* Hero image — top, full width. Falls back to a
                   gradient placeholder with subject name if Wikipedia
@@ -1547,7 +1551,7 @@ export function AuroraAIScreen() {
                     stat, then facts. */}
                 {presentingText && (
                   <p className="aurora-infocard-description">
-                    {extractLeadingSentences(presentingText, 2)}
+                    {renderMarkdown(extractLeadingSentences(presentingText, 2))}
                   </p>
                 )}
                 {/* Stat row — big headline number, like Google's
@@ -1585,6 +1589,48 @@ export function AuroraAIScreen() {
                         </div>
                       ))}
                     </dl>
+                  </div>
+                )}
+
+                {/* Side-by-side comparison table — Google "spec sheet"
+                    pattern. Header row with the two contestant labels,
+                    then attribute rows with valueA / valueB cells.
+                    Renders for any "X vs Y" question Tony lays out.
+                    Sits between facts and map so the comparison reads
+                    as the answer's "receipts" before the map context. */}
+                {presenting.compare && (
+                  <div className="aurora-infocard-compare">
+                    <div className="aurora-infocard-compare-title">
+                      {presenting.compare.title}
+                    </div>
+                    <table className="aurora-infocard-compare-table">
+                      <thead>
+                        <tr>
+                          <th scope="col" />
+                          <th scope="col" className="aurora-infocard-compare-head">
+                            {presenting.compare.labelA}
+                          </th>
+                          <th scope="col" className="aurora-infocard-compare-head">
+                            {presenting.compare.labelB}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {presenting.compare.rows.map((r, i) => (
+                          <tr key={i}>
+                            <th scope="row" className="aurora-infocard-compare-key">
+                              {r.key}
+                            </th>
+                            <td className="aurora-infocard-compare-val">
+                              {r.valueA}
+                            </td>
+                            <td className="aurora-infocard-compare-val">
+                              {r.valueB}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
@@ -1913,7 +1959,9 @@ export function AuroraAIScreen() {
                 {m.role === "ai" && <span className="aurora-pip-mini" />}
                 {m.role === "ai" ? "TONY" : "YOU"}
               </div>
-              <div className="aurora-bubble">{m.text}</div>
+              <div className="aurora-bubble">
+                {m.role === "ai" ? renderMarkdown(m.text) : m.text}
+              </div>
             </div>
           ))}
           {loading && (
@@ -1923,7 +1971,7 @@ export function AuroraAIScreen() {
                 TONY
               </div>
               {partial ? (
-                <div className="aurora-bubble">{partial}</div>
+                <div className="aurora-bubble">{renderMarkdown(partial)}</div>
               ) : (
                 <div className="aurora-bubble aurora-typing-bubble">
                   <i /><i /><i />
