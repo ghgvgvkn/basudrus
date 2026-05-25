@@ -31,7 +31,7 @@
  * basudrus.com (the main tutoring platform) is COMPLETELY untouched.
  * Only ai-app's files have changed.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { useStreamingAI, type ChatMsg } from "@/features/ai/useStreamingAI";
 import { useVoice } from "@/features/ai/voice/useVoice";
@@ -45,6 +45,13 @@ import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
 import { parseArtifacts, fetchWikipediaThumbnail, fetchMapboxStaticImage } from "./auroraVisuals";
+// JarvisView is lazy-loaded — the R3F/Drei/Three.js bundle is ~850KB
+// and we only need it when the user actually opens a 3D model. Most
+// sessions never trigger one, so don't ship it on the initial paint.
+// resolveModelKey is a tiny string-lookup function with no Three.js
+// dependency, so it's imported eagerly from its own module.
+import { resolveModelKey, type ModelKey } from "../jarvis/modelKeys";
+const JarvisView = lazy(() => import("../jarvis/JarvisView").then((m) => ({ default: m.JarvisView })));
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -338,6 +345,7 @@ export function AuroraAIScreen() {
   //   STAT  → big-number tile  (no network)
   //   DATA  → key-value table   (no network)
   //   QUOTE → pull-quote        (no network)
+  //   MODEL → full-screen 3D viewer overlay
   // All render around Tony's text on the workspace. Text is the
   // CLEANED version with all blocks stripped — users never see raw
   // markers, even if Tony emits duplicates.
@@ -347,6 +355,7 @@ export function AuroraAIScreen() {
     stat: null,
     data: null,
     quote: null,
+    model: null,
     cleanText: "",
   } as const;
   const presenting = useMemo(() => {
@@ -439,6 +448,48 @@ export function AuroraAIScreen() {
       ctl.abort();
     };
   }, [presenting.map?.query]);
+
+  // 3D Jarvis viewer state. When Tony emits a <<<MODEL:name>>>
+  // block AND the name resolves to a known model in MODEL_REGISTRY,
+  // we open the full-screen 3D viewer. The user can dismiss via
+  // the overlay's Close button OR Esc key. Tracked as a separate
+  // state (not derived from `presenting`) so the user can close
+  // the viewer without it re-opening on the next render — once
+  // dismissed for the current message, it stays dismissed until
+  // a NEW model block comes through.
+  const [activeJarvisModel, setActiveJarvisModel] = useState<ModelKey | null>(null);
+  // Track which AI-message text we've already "opened" so a single
+  // message only auto-opens the viewer once. Re-mount safe via the
+  // message text comparison (cleanText fragment is stable per
+  // message).
+  const lastAutoOpenedRef = useRef<string>("");
+  useEffect(() => {
+    if (!presenting.model) {
+      lastAutoOpenedRef.current = "";
+      return;
+    }
+    const key = resolveModelKey(presenting.model.name);
+    if (!key) return;
+    // Use the cleanText as the "message fingerprint" so each
+    // distinct AI reply only auto-opens once. Re-opens cleanly
+    // if Tony emits a new model later in the conversation.
+    const fingerprint = `${key}::${presenting.cleanText.slice(0, 60)}`;
+    if (lastAutoOpenedRef.current === fingerprint) return;
+    lastAutoOpenedRef.current = fingerprint;
+    setActiveJarvisModel(key);
+  }, [presenting.model, presenting.cleanText]);
+  // Esc closes the 3D viewer (in addition to its own dismiss button).
+  useEffect(() => {
+    if (!activeJarvisModel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setActiveJarvisModel(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeJarvisModel]);
 
   /**
    * Monotonic counter bumped every time the user opens (or closes)
@@ -1238,6 +1289,21 @@ export function AuroraAIScreen() {
     <div className="aurora-app">
       <AuroraCanvas ref={auroraRef} />
       <div className="aurora-vignette" />
+
+      {/* 3D Jarvis View overlay — full-screen 3D model viewer that
+          appears when Tony emits a <<<MODEL:name>>> block. Sits
+          ABOVE everything (z-index 50 in jarvis.css) so it takes
+          over the screen completely. Dismissed via the overlay's
+          Close button or Esc key. Lazy-loaded — R3F+Three=~850KB
+          bundle only fetched the moment the user opens a model. */}
+      {activeJarvisModel && (
+        <Suspense fallback={null}>
+          <JarvisView
+            modelKey={activeJarvisModel}
+            onClose={() => setActiveJarvisModel(null)}
+          />
+        </Suspense>
+      )}
 
       {/* JARVIS CENTER STAGE — voice mode redesign.
           The A4 paper concept is GONE (founder feedback: "delete the

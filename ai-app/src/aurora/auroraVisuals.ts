@@ -69,6 +69,29 @@ export interface QuoteBlock {
   attribution?: string;
 }
 
+/**
+ * 3D model trigger. Pattern:
+ *   <<<MODEL:name>>>
+ *   <<<MODEL:atom>>>           — Carbon atom with electron shells
+ *   <<<MODEL:solar-system>>>   — Sun + 8 planets
+ *   <<<MODEL:dna>>>            — Double helix
+ *   <<<MODEL:water>>>          — H2O molecule
+ *   <<<MODEL:animal-cell>>>    — Cell with organelles
+ *   <<<MODEL:heart>>>          — Human heart, beating
+ *
+ * Triggers the full-screen JarvisView 3D overlay. The viewer
+ * resolves the name string against MODEL_REGISTRY (with common
+ * aliases — "h2o" → "water", "cell" → "animal-cell", etc.) and
+ * renders the matching procedural Three.js scene.
+ *
+ * Unlike SHOW/MAP, this block is exclusive — when present, the
+ * 3D viewer takes over the screen completely. We DON'T render
+ * other artifact cards underneath it.
+ */
+export interface ModelBlock {
+  name: string;
+}
+
 export interface ParsedMessage {
   /** First SHOW block found in the text, if any. */
   show: ShowBlock | null;
@@ -80,6 +103,8 @@ export interface ParsedMessage {
   data: DataBlock | null;
   /** First QUOTE block found in the text, if any. */
   quote: QuoteBlock | null;
+  /** First MODEL block found in the text, if any. */
+  model: ModelBlock | null;
   /** Message text with all artifact blocks removed and trailing
    *  whitespace collapsed. Safe to render as-is. */
   cleanText: string;
@@ -90,6 +115,7 @@ const MAP_BLOCK_RE = /<<<MAP:\s*([^>]+?)\s*>>>/i;
 const STAT_BLOCK_RE = /<<<STAT:\s*([^>]+?)\s*>>>/i;
 const DATA_BLOCK_RE = /<<<DATA:\s*([^>]+?)\s*>>>/i;
 const QUOTE_BLOCK_RE = /<<<QUOTE:\s*([^>]+?)\s*>>>/i;
+const MODEL_BLOCK_RE = /<<<MODEL:\s*([^>]+?)\s*>>>/i;
 
 /**
  * Parse the first SHOW + MAP block out of an AI message. Strips them
@@ -108,6 +134,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
       stat: null,
       data: null,
       quote: null,
+      model: null,
       cleanText: rawText ?? "",
     };
   }
@@ -116,6 +143,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
   const statMatch = STAT_BLOCK_RE.exec(rawText);
   const dataMatch = DATA_BLOCK_RE.exec(rawText);
   const quoteMatch = QUOTE_BLOCK_RE.exec(rawText);
+  const modelMatch = MODEL_BLOCK_RE.exec(rawText);
 
   // Strip ALL block instances (even past the first one) so the
   // user never sees raw markers if Tony emits duplicates.
@@ -125,6 +153,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     .replace(/<<<STAT:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<DATA:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<QUOTE:\s*[^>]+?\s*>>>/gi, "")
+    .replace(/<<<MODEL:\s*[^>]+?\s*>>>/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
@@ -181,12 +210,15 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     }
   }
 
+  const modelName = modelMatch?.[1].trim();
+
   return {
     show: showQuery ? { query: showQuery } : null,
     map: mapQuery ? { query: mapQuery } : null,
     stat,
     data,
     quote,
+    model: modelName ? { name: modelName } : null,
     cleanText,
   };
 }
