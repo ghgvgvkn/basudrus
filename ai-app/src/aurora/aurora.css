@@ -25,7 +25,7 @@
   width: 100%;
   height: 100%;
   background:
-    radial-gradient(ellipse at 50% 30%, #ffffff 0%, #f4f1ea 55%, #e6e0d4 100%);
+    radial-gradient(ellipse at 50% 30%, #ffffff 0%, #f8f6f1 40%, #f0ece3 70%, #e6e0d4 100%);
   color: #0E1622;
   font-family: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -54,13 +54,24 @@
   pointer-events: none;
   /* Smooth slide when presentation mode toggles. Cubic-bezier picked
      to feel JARVIS-y (slight overshoot at the start, settles cleanly). */
-  transition: transform 700ms cubic-bezier(.2,.85,.3,1);
+  transition: transform 800ms cubic-bezier(.25,.9,.35,1.05), filter 600ms ease;
   /* LIGHT-MODE INVERSION — the AuroraCanvas draws white dots on a
      transparent background. invert(1) flips white→black so the orb
      reads as a sphere of dark points on the new cream-white bg.
      The pink/rose accent dots become teal under inversion, which
      happens to look great with the cyan HUD palette already in use. */
   filter: invert(1);
+  /* Add subtle animation for ambient feel */
+  animation: aurora-canvas-breathe 8s ease-in-out infinite;
+}
+
+@keyframes aurora-canvas-breathe {
+  0%, 100% { 
+    filter: invert(1) brightness(1);
+  }
+  50% { 
+    filter: invert(1) brightness(1.03);
+  }
 }
 /* VOICE MODE — orb condenses into the HUD ring AND breathes with
    sound. Resting scale is 0.35. On top of that we add a live

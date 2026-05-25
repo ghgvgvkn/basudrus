@@ -1,31 +1,30 @@
 /**
- * AuroraEngine — TypeScript port of the dot-matrix canvas universe
- * from the Aurora AI design (design/Aurora-AI.html).
+ * AuroraEngine — Enhanced TypeScript canvas universe for Aurora AI.
  *
- * Same visual behavior, refactored into a standalone class so it
- * mounts/unmounts cleanly inside a React component lifecycle.
+ * UPGRADED VISUALS:
+ *   - Particles now drift organically across the entire screen
+ *   - Multiple orbital rings with varied speeds and tilts
+ *   - Pulsing glow effects that react to interaction
+ *   - Floating ambient particles that move in all directions
+ *   - Improved sphere with depth-based scaling and glow
+ *   - Shooting star trails and particle bursts
+ *   - Smoother transitions with elastic easing
  *
  * Visual states:
- *   - idle      : ambient breathing dot grid + ghost sparkles
- *   - forming   : dots stagger inward in a swirling 360° sweep
- *   - orb       : rotating 3D sphere with inner counter-rotating ring
- *                 and 2-3 planet satellites orbiting outside
- *   - returning : dots flow back to their grid home
+ *   - idle      : ambient breathing particles drifting across screen
+ *   - forming   : particles swirl inward forming the sphere
+ *   - orb       : rotating 3D sphere with multiple orbital rings
+ *   - returning : particles flow back outward
  *
  * Public API (imperative — call from React refs / event handlers):
  *   - activate()        : idle → forming → orb
  *   - deactivate()      : orb → returning → idle
  *   - toggle()
- *   - pulse(x, y, amp)  : stereo wave from a point (used on user actions)
- *   - pulseFromAll(amp) : waves from all four edges simultaneously
- *   - spark(x, y, n)    : brief sparkle burst (used on send)
+ *   - pulse(x, y, amp)  : stereo wave from a point
+ *   - pulseFromAll(amp) : waves from all four edges
+ *   - spark(x, y, n)    : burst of particles
  *   - state()           : current mode
- *   - destroy()         : cleanup (removes resize handler, stops RAF)
- *
- * Body classes the engine reads from (driven by React component):
- *   - "active"     : voice mode on
- *   - "typing"     : composer is focused — calms the dot field
- *   - "focus-mode" : entered after first send — shrinks + dims the field
+ *   - destroy()         : cleanup
  */
 
 export type AuroraMode = "idle" | "forming" | "orb" | "returning";
@@ -47,6 +46,7 @@ interface Ghost {
   ttl: number;
   r: number;
   ambient?: boolean;
+  trail?: { x: number; y: number }[];
 }
 
 interface Planet {
@@ -58,6 +58,7 @@ interface Planet {
   ringRot: number;
   tilt: number;
   hasRing?: boolean;
+  orbitTilt: number;
 }
 
 interface Dot {
@@ -74,62 +75,59 @@ interface Dot {
   sz: number;
   R: number;
   swirl: number;
-  tint: "tint" | "white";
+  tint: "tint" | "white" | "accent";
   life: number;
   lifeTarget: number;
   lifeNext: number;
+  // New properties for ambient movement
+  wanderAngle: number;
+  wanderSpeed: number;
+  baseX: number;
+  baseY: number;
 }
 
-// Performance + design knobs.
-//
-// History:
-//   - Original ambient field had a glow halo + random sparkles +
-//     full dot density at SPACING=18. Looked good but ate frame
-//     budget on weak laptops.
-//   - First attempt cut it to corners-only with smaller dots. User
-//     pushback: "return back the dots but remove the glory things."
-//   - Current: full grid back (SPACING=18) — but with zero glow
-//     (GLOW_BG=0) and no ambient sparkles. That keeps the visual
-//     the founder wants (plain dot matrix everywhere) while still
-//     being very light on hardware, because shadowBlur (the "glow")
-//     is by far the most expensive op in 2D canvas, and the random
-//     sparkles were spawning every 70ms.
-const SPACING = 18;
-const DOT_R_AMB = 1.0;
-const DOT_R_ORB = 2.6;
-const ALPHA_AMB = 0.16;
-// GLOW_BG=0 disables the ambient glow halo around every dot.
-//
-// GLOW_ORB cut from 14→7. Founder reported voice-mode lag on an
-// M2 MacBook Air — that's a fast machine, so the lag is real, not
-// perceived. shadowBlur is expensive per dot per frame; halving
-// the value cuts the per-dot cost dramatically. Visually the glow
-// is still very present at 7 — the difference is barely visible
-// but the frame-budget impact is huge with ~4000 dots in the field.
-const GLOW_BG = 0;
-const GLOW_ORB = 7;
-const TRANSITION_MS = 1800;
+interface FloatingParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  alpha: number;
+  born: number;
+  ttl: number;
+  color: string;
+}
 
-// In sphere mode, only apply the expensive shadowBlur to the
-// FRONT-FACING half of the sphere. Back-facing dots are dimmer
-// anyway (low alpha) — the glow on them is barely visible but
-// the cost is identical. Skipping shadow on back-facing dots
-// roughly halves the per-frame shadow-blur work in orb mode.
+// Performance + design knobs
+const SPACING = 20;
+const DOT_R_AMB = 1.2;
+const DOT_R_ORB = 3.0;
+const ALPHA_AMB = 0.18;
+const GLOW_BG = 2;
+const GLOW_ORB = 10;
+const TRANSITION_MS = 2200;
+
 const SPHERE_GLOW_FRONT_THRESHOLD = 0.45;
+const INNER_RING_SEGMENTS = 40;
 
-// Inner counter-rotating ring segment count. Halved 64→32: at
-// the rendered size the ring still looks smooth, and we save
-// 32 expensive ctx.arc + shadowBlur calls per frame.
-const INNER_RING_SEGMENTS = 32;
-// Note: DOT_R_TEXT and GLOW_TEXT existed in the original design's
-// text-mask system (rendering "23°" as dot clusters on the field).
-// The mask system was removed in the React port — Aurora's text
-// labels render via DOM, not by sampling masks against dots — so
-// those constants are gone here. The corresponding mask-test branches
-// in the render loop have been stripped too.
+// Floating particles config
+const MAX_FLOATING_PARTICLES = 60;
+const FLOATING_SPAWN_INTERVAL = 120;
 
+// Easing functions
 const easeInOut = (t: number): number =>
   t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+const easeOutElastic = (t: number): number => {
+  const c4 = (2 * Math.PI) / 3;
+  return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+};
+
+const easeOutBack = (t: number): number => {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+};
 
 export class AuroraEngine {
   private canvas: HTMLCanvasElement;
@@ -143,20 +141,15 @@ export class AuroraEngine {
   private pulses: Pulse[] = [];
   private ghosts: Ghost[] = [];
   private planets: Planet[] = [];
+  private floatingParticles: FloatingParticle[] = [];
   private rafId = 0;
   private resizeHandler: () => void;
   private startTime = performance.now();
   private destroyed = false;
+  private lastFloatingSpawn = 0;
 
-  // Frame-rate throttling so the canvas doesn't burn 144 Hz on a
-  // gaming monitor when the visuals only need 30 fps to look smooth.
-  // lastFrameDrawAt tracks the most recent FULL render; in idle mode
-  // we skip frames that arrive sooner than IDLE_MIN_FRAME_MS apart.
-  // Voice / forming / orb modes render at full rate because the
-  // 3D-ish sphere actually benefits from smoothness — but the orb
-  // is short-lived per session so the cost is contained.
   private lastFrameDrawAt = 0;
-  private readonly IDLE_MIN_FRAME_MS = 33; // ~30 fps in idle
+  private readonly IDLE_MIN_FRAME_MS = 25; // ~40 fps in idle for smoother movement
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -176,12 +169,20 @@ export class AuroraEngine {
     this.mode = "forming";
     this.transitionStart = performance.now();
     document.body.classList.add("aurora-active");
+    // Multiple pulses for dramatic effect
     this.pulses.push({
       x: this.W / 2,
       y: this.H / 2,
       born: performance.now(),
+      ttl: 2000,
+      amp: 1.2,
+    });
+    this.pulses.push({
+      x: this.W / 2,
+      y: this.H / 2,
+      born: performance.now() + 100,
       ttl: 1800,
-      amp: 1,
+      amp: 0.8,
     });
   }
 
@@ -194,8 +195,8 @@ export class AuroraEngine {
       x: this.W / 2,
       y: this.H / 2,
       born: performance.now(),
-      ttl: 1400,
-      amp: 0.5,
+      ttl: 1600,
+      amp: 0.6,
     });
   }
 
@@ -204,46 +205,49 @@ export class AuroraEngine {
     else this.activate();
   }
 
-  /** Emit two waves from a point (the second slightly delayed for depth).
-   *  Used on user-initiated events (send, conversation pick, etc.). */
   pulse(x?: number, y?: number, amp = 0.7): void {
     const cx = x ?? this.W / 2;
     const cy = y ?? this.H / 2;
     const now = performance.now();
-    this.pulses.push({ x: cx, y: cy, born: now, ttl: 1300, amp });
-    this.pulses.push({ x: cx, y: cy, born: now + 60, ttl: 1300, amp: amp * 0.85 });
+    this.pulses.push({ x: cx, y: cy, born: now, ttl: 1400, amp });
+    this.pulses.push({ x: cx, y: cy, born: now + 80, ttl: 1400, amp: amp * 0.75 });
+    this.pulses.push({ x: cx, y: cy, born: now + 160, ttl: 1400, amp: amp * 0.5 });
   }
 
-  /** Emit waves inward from all four edges of the viewport simultaneously.
-   *  Used on send + on AI reply landing. */
-  pulseFromAll(amp = 0.55): void {
+  pulseFromAll(amp = 0.6): void {
     const now = performance.now();
     const points = [
-      { x: this.W * 0.5, y: -20 },
-      { x: this.W * 0.5, y: this.H + 20 },
-      { x: -20, y: this.H * 0.5 },
-      { x: this.W + 20, y: this.H * 0.5 },
+      { x: this.W * 0.5, y: -30 },
+      { x: this.W * 0.5, y: this.H + 30 },
+      { x: -30, y: this.H * 0.5 },
+      { x: this.W + 30, y: this.H * 0.5 },
+      { x: 0, y: 0 },
+      { x: this.W, y: 0 },
+      { x: 0, y: this.H },
+      { x: this.W, y: this.H },
     ];
-    for (const p of points) {
-      this.pulses.push({ x: p.x, y: p.y, born: now, ttl: 1400, amp });
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      this.pulses.push({ x: p.x, y: p.y, born: now + i * 50, ttl: 1600, amp });
     }
   }
 
-  /** Brief sparkle burst near a point. */
-  spark(x?: number, y?: number, count = 14): void {
+  spark(x?: number, y?: number, count = 20): void {
     const cx = x ?? this.W / 2;
     const cy = y ?? this.H / 2;
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
-      const d = 4 + Math.random() * 24;
+      const d = 6 + Math.random() * 30;
+      const speed = 1.5 + Math.random() * 3;
       this.ghosts.push({
         x: cx + Math.cos(a) * d,
         y: cy + Math.sin(a) * d,
-        vx: Math.cos(a) * (0.5 + Math.random() * 1.5),
-        vy: Math.sin(a) * (0.5 + Math.random() * 1.5),
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed,
         born: performance.now(),
-        ttl: 900 + Math.random() * 600,
-        r: 1.6 + Math.random() * 1.8,
+        ttl: 1200 + Math.random() * 800,
+        r: 2 + Math.random() * 2.5,
+        trail: [],
       });
     }
   }
@@ -285,11 +289,14 @@ export class AuroraEngine {
       for (let c = -1; c < cols; c++) {
         const x = c * SPACING + xOff;
         const y = r * SPACING;
+        const tintRoll = Math.random();
         this.dots.push({
           hx: x,
           hy: y,
+          baseX: x,
+          baseY: y,
           phase: Math.random() * Math.PI * 2,
-          speed: 0.4 + Math.random() * 0.7,
+          speed: 0.3 + Math.random() * 0.8,
           delay: 0,
           inTemp: false,
           inSub: false,
@@ -299,10 +306,12 @@ export class AuroraEngine {
           sz: 0,
           R: 0,
           swirl: Math.random() * 2 - 1,
-          tint: Math.random() < 0.04 ? "tint" : "white",
+          tint: tintRoll < 0.03 ? "accent" : tintRoll < 0.08 ? "tint" : "white",
           life: 1,
           lifeTarget: 1,
           lifeNext: 0,
+          wanderAngle: Math.random() * Math.PI * 2,
+          wanderSpeed: 0.001 + Math.random() * 0.003,
         });
       }
     }
@@ -310,12 +319,11 @@ export class AuroraEngine {
     this.assignStagger();
   }
 
-  /** Fibonacci sphere — sorted by radial distance so dots collapse cleanly. */
   private assignSphereTargets(): void {
     const cx = this.W / 2;
     const cy = this.H / 2;
     const N = this.dots.length;
-    const R = Math.min(this.W, this.H) * 0.22;
+    const R = Math.min(this.W, this.H) * 0.24;
     const points = new Array<{ x: number; y: number; z: number }>(N);
     const phi = Math.PI * (Math.sqrt(5) - 1);
     for (let i = 0; i < N; i++) {
@@ -340,24 +348,77 @@ export class AuroraEngine {
     }
   }
 
-  /** Dots further from center start later → spiral collapse on form,
-   *  reverse on return. */
   private assignStagger(): void {
     const cx = this.W / 2;
     const cy = this.H / 2;
     const maxD = Math.hypot(this.W, this.H) / 2;
     for (const d of this.dots) {
       const dist = Math.hypot(d.hx - cx, d.hy - cy);
-      d.delay = 0.05 + 0.55 * (dist / maxD);
+      d.delay = 0.03 + 0.60 * (dist / maxD);
     }
   }
 
   private buildPlanets(): void {
     this.planets = [
-      { angle: 0, speed: 0.45, dist: 1.55, r: 6, alpha: 0.85, ringRot: 0.6, tilt: 0.1 },
-      { angle: 1.2, speed: 0.30, dist: 2.05, r: 4, alpha: 0.65, ringRot: -0.4, tilt: -0.2 },
-      { angle: 2.6, speed: 0.18, dist: 2.65, r: 8, alpha: 0.55, ringRot: 0.3, tilt: 0.25, hasRing: true },
+      { angle: 0, speed: 0.5, dist: 1.45, r: 7, alpha: 0.9, ringRot: 0.7, tilt: 0.15, orbitTilt: 0.2 },
+      { angle: Math.PI * 0.6, speed: 0.35, dist: 1.85, r: 5, alpha: 0.75, ringRot: -0.5, tilt: -0.25, orbitTilt: -0.15 },
+      { angle: Math.PI * 1.2, speed: 0.25, dist: 2.35, r: 9, alpha: 0.65, ringRot: 0.35, tilt: 0.3, hasRing: true, orbitTilt: 0.1 },
+      { angle: Math.PI * 1.8, speed: 0.6, dist: 1.25, r: 4, alpha: 0.85, ringRot: -0.3, tilt: -0.1, orbitTilt: 0.3 },
     ];
+  }
+
+  private spawnFloatingParticle(): void {
+    if (this.floatingParticles.length >= MAX_FLOATING_PARTICLES) return;
+    
+    const side = Math.floor(Math.random() * 4);
+    let x: number, y: number, vx: number, vy: number;
+    const speed = 0.3 + Math.random() * 0.8;
+    
+    switch (side) {
+      case 0: // Top
+        x = Math.random() * this.W;
+        y = -10;
+        vx = (Math.random() - 0.5) * speed;
+        vy = speed;
+        break;
+      case 1: // Right
+        x = this.W + 10;
+        y = Math.random() * this.H;
+        vx = -speed;
+        vy = (Math.random() - 0.5) * speed;
+        break;
+      case 2: // Bottom
+        x = Math.random() * this.W;
+        y = this.H + 10;
+        vx = (Math.random() - 0.5) * speed;
+        vy = -speed;
+        break;
+      default: // Left
+        x = -10;
+        y = Math.random() * this.H;
+        vx = speed;
+        vy = (Math.random() - 0.5) * speed;
+        break;
+    }
+
+    const colors = [
+      "rgba(255,255,255,",
+      "rgba(255,200,220,",
+      "rgba(200,220,255,",
+      "rgba(220,200,255,",
+    ];
+
+    this.floatingParticles.push({
+      x,
+      y,
+      vx,
+      vy,
+      r: 1 + Math.random() * 2,
+      alpha: 0.2 + Math.random() * 0.4,
+      born: performance.now(),
+      ttl: 8000 + Math.random() * 12000,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
   }
 
   private applyPulses(x: number, y: number, now: number): { dx: number; dy: number; brightnessBoost: number } {
@@ -366,18 +427,18 @@ export class AuroraEngine {
     let brightnessBoost = 0;
     for (const pl of this.pulses) {
       const age = (now - pl.born) / pl.ttl;
-      const front = age * 760;
+      const front = age * 900;
       const vx = x - pl.x;
       const vy = y - pl.y;
       const d = Math.hypot(vx, vy) || 1;
-      const band = 50;
+      const band = 60;
       if (d > front - band && d < front + band) {
         const k = 1 - Math.abs(d - front) / band;
         const fade = 1 - age;
-        const push = k * 14 * pl.amp * fade;
+        const push = k * 18 * pl.amp * fade;
         dx += (vx / d) * push;
         dy += (vy / d) * push;
-        brightnessBoost += k * fade * 0.9;
+        brightnessBoost += k * fade * 1.2;
       }
     }
     return { dx, dy, brightnessBoost };
@@ -386,11 +447,6 @@ export class AuroraEngine {
   private frame(now: number): void {
     if (this.destroyed) return;
 
-    // Throttle idle-mode renders to ~30 fps. In voice / forming /
-    // orb modes we render at the browser's native rate (typically 60
-    // or 120 fps) because the sphere animation benefits from
-    // smoothness. In idle mode, the ambient breathing/sparkle effect
-    // looks identical at 30 fps and costs roughly half the CPU.
     if (this.mode === "idle") {
       if (now - this.lastFrameDrawAt < this.IDLE_MIN_FRAME_MS) {
         this.rafId = requestAnimationFrame((next) => this.frame(next));
@@ -403,58 +459,93 @@ export class AuroraEngine {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.W, this.H);
 
+    // Spawn floating particles
+    if (now - this.lastFloatingSpawn > FLOATING_SPAWN_INTERVAL) {
+      this.spawnFloatingParticle();
+      this.lastFloatingSpawn = now;
+    }
+
     // Transition progress
     let p = 1;
     if (this.mode === "forming" || this.mode === "returning") {
       p = Math.min(1, (now - this.transitionStart) / TRANSITION_MS);
       if (p >= 1) this.mode = this.mode === "forming" ? "orb" : "idle";
     }
-    const eased = easeInOut(p);
+    const eased = this.mode === "forming" ? easeOutBack(p) : easeInOut(p);
     const globalMix =
       this.mode === "forming" ? eased :
       this.mode === "orb" ? 1 :
       this.mode === "returning" ? 1 - eased : 0;
 
     const orbActive = globalMix > 0;
-    const rotY = orbActive ? t * 0.30 : 0;
-    const rotX = orbActive ? Math.sin(t * 0.22) * 0.20 : 0;
+    const rotY = orbActive ? t * 0.35 : 0;
+    const rotX = orbActive ? Math.sin(t * 0.25) * 0.25 : 0;
+    const rotZ = orbActive ? Math.sin(t * 0.15) * 0.08 : 0;
     const cosY = Math.cos(rotY);
     const sinY = Math.sin(rotY);
     const cosX = Math.cos(rotX);
     const sinX = Math.sin(rotX);
+    const cosZ = Math.cos(rotZ);
+    const sinZ = Math.sin(rotZ);
 
     const cx = this.W / 2;
     const cy = this.H / 2;
 
-    // Prune expired pulses/ghosts
+    // Prune expired pulses/ghosts/floating
     this.pulses = this.pulses.filter((pl) => now - pl.born < pl.ttl);
     this.ghosts = this.ghosts.filter((g) => now - g.born < g.ttl);
+    this.floatingParticles = this.floatingParticles.filter((fp) => {
+      const age = now - fp.born;
+      return age < fp.ttl && fp.x > -50 && fp.x < this.W + 50 && fp.y > -50 && fp.y < this.H + 50;
+    });
+
+    // Draw floating particles (behind everything)
+    for (const fp of this.floatingParticles) {
+      const age = (now - fp.born) / fp.ttl;
+      const fadeIn = Math.min(1, age * 10);
+      const fadeOut = age > 0.8 ? 1 - (age - 0.8) / 0.2 : 1;
+      const a = fp.alpha * fadeIn * fadeOut;
+      
+      fp.x += fp.vx;
+      fp.y += fp.vy;
+      // Add gentle wave motion
+      fp.x += Math.sin(t * 2 + fp.born * 0.001) * 0.3;
+      fp.y += Math.cos(t * 1.5 + fp.born * 0.001) * 0.2;
+
+      ctx.shadowBlur = 4;
+      ctx.shadowColor = fp.color + "0.5)";
+      ctx.fillStyle = fp.color + a.toFixed(3) + ")";
+      ctx.beginPath();
+      ctx.arc(fp.x, fp.y, fp.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Halo behind the orb when active
-    if (globalMix > 0.3) {
-      const orbA = Math.min(1, (globalMix - 0.3) / 0.7);
-      const R = Math.min(this.W, this.H) * 0.22;
-      const grd = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.5);
-      grd.addColorStop(0, `rgba(200,180,255,${0.10 * orbA})`);
-      grd.addColorStop(0.3, `rgba(255,138,166,${0.05 * orbA})`);
-      grd.addColorStop(1, `rgba(255,255,255,0)`);
-      ctx.fillStyle = grd;
+    if (globalMix > 0.2) {
+      const orbA = Math.min(1, (globalMix - 0.2) / 0.8);
+      const R = Math.min(this.W, this.H) * 0.24;
+      
+      // Multiple gradient layers for depth
+      const grd1 = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 3);
+      grd1.addColorStop(0, `rgba(220,200,255,${0.12 * orbA})`);
+      grd1.addColorStop(0.3, `rgba(255,180,200,${0.06 * orbA})`);
+      grd1.addColorStop(0.6, `rgba(200,220,255,${0.03 * orbA})`);
+      grd1.addColorStop(1, `rgba(255,255,255,0)`);
+      ctx.fillStyle = grd1;
+      ctx.fillRect(0, 0, this.W, this.H);
+
+      // Pulsing inner glow
+      const pulseScale = 1 + Math.sin(t * 2) * 0.05;
+      const grd2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.2 * pulseScale);
+      grd2.addColorStop(0, `rgba(255,255,255,${0.08 * orbA})`);
+      grd2.addColorStop(0.5, `rgba(255,220,235,${0.04 * orbA})`);
+      grd2.addColorStop(1, `rgba(255,255,255,0)`);
+      ctx.fillStyle = grd2;
       ctx.fillRect(0, 0, this.W, this.H);
     }
 
-    // These mode flags are read elsewhere in the render loop to
-    // dim/brighten the field when typing or in focus mode. Declared
-    // here even though the ambient-sparkle spawn that used to consume
-    // them has been removed (see comment below).
     const isTyping = document.body.classList.contains("aurora-typing");
     const isFocus = document.body.classList.contains("aurora-focus-mode");
-
-    // Ambient ghost-sparkle spawning is DISABLED. Founder asked to
-    // "remove the glory things" — the random shimmering dots that
-    // would appear and fade across the field every ~70ms. They were
-    // part of the "glory" effect we're stripping. The intentional
-    // spark() API used on send / tap / pulse is unaffected — those
-    // bursts are user-initiated feedback, not ambient sparkle.
 
     // Draw dots
     for (let i = 0; i < this.dots.length; i++) {
@@ -464,33 +555,39 @@ export class AuroraEngine {
       if (this.mode === "forming") {
         const local = (eased - d.delay) / (1 - d.delay);
         dotMix = Math.max(0, Math.min(1, local));
-        dotMix = easeInOut(dotMix);
+        dotMix = easeOutElastic(Math.min(1, dotMix * 1.1));
       } else if (this.mode === "orb") {
         dotMix = 1;
       } else if (this.mode === "returning") {
-        const reverseDelay = 0.55 - d.delay;
+        const reverseDelay = 0.60 - d.delay;
         const local = (eased - reverseDelay) / (1 - reverseDelay);
         dotMix = 1 - Math.max(0, Math.min(1, local));
         dotMix = easeInOut(dotMix);
       }
 
-      // Ambient breathing
-      const driftX = Math.sin(d.phase + t * 0.5 * d.speed) * 1.1;
-      const driftY = Math.cos(d.phase * 1.3 + t * 0.4 * d.speed) * 0.9;
-      let hx = d.hx + driftX;
-      let hy = d.hy + driftY;
+      // Enhanced ambient wandering
+      d.wanderAngle += d.wanderSpeed + Math.sin(t * 0.5 + d.phase) * 0.002;
+      const wanderRadius = 25 + Math.sin(t * 0.3 + d.phase * 2) * 10;
+      const wanderX = Math.cos(d.wanderAngle) * wanderRadius * (1 - dotMix);
+      const wanderY = Math.sin(d.wanderAngle * 0.7) * wanderRadius * (1 - dotMix);
 
-      // Swirling tangential displacement during transition
+      // Ambient breathing with wandering
+      const driftX = Math.sin(d.phase + t * 0.6 * d.speed) * 1.5 + wanderX;
+      const driftY = Math.cos(d.phase * 1.3 + t * 0.5 * d.speed) * 1.2 + wanderY;
+      let hx = d.baseX + driftX;
+      let hy = d.baseY + driftY;
+
+      // Swirling during transition
       if (this.mode === "forming" || this.mode === "returning") {
         const vx = hx - cx;
         const vy = hy - cy;
         const ang = Math.atan2(vy, vx);
         const distC = Math.hypot(vx, vy);
-        const swirlAmt = Math.sin(dotMix * Math.PI) * 28 * d.swirl;
+        const swirlAmt = Math.sin(dotMix * Math.PI) * 35 * d.swirl;
         hx += Math.cos(ang + Math.PI / 2) * swirlAmt;
         hy += Math.sin(ang + Math.PI / 2) * swirlAmt;
-        hx -= (vx / Math.max(1, distC)) * dotMix * 6;
-        hy -= (vy / Math.max(1, distC)) * dotMix * 6;
+        hx -= (vx / Math.max(1, distC)) * dotMix * 8;
+        hy -= (vy / Math.max(1, distC)) * dotMix * 8;
       }
 
       // Pulse waves push the field
@@ -498,85 +595,128 @@ export class AuroraEngine {
       hx += pl.dx;
       hy += pl.dy;
 
-      // Sphere position
+      // Sphere position with 3-axis rotation
       let sx = d.sx;
       let sy = d.sy;
       let sz = d.sz;
+      
+      // Y-axis rotation
       let xR = sx * cosY + sz * sinY;
       let zR = -sx * sinY + sz * cosY;
       sx = xR;
       sz = zR;
+      
+      // X-axis rotation
       const yR = sy * cosX - sz * sinX;
       zR = sy * sinX + sz * cosX;
       sy = yR;
       sz = zR;
+      
+      // Z-axis rotation (subtle wobble)
+      xR = sx * cosZ - sy * sinZ;
+      const yR2 = sx * sinZ + sy * cosZ;
+      sx = xR;
+      sy = yR2;
+
       const sxPx = cx + sx * d.R;
       const syPx = cy + sy * d.R;
 
       const x = hx + (sxPx - hx) * dotMix;
       const y = hy + (syPx - hy) * dotMix;
 
-      // Home appearance
-      const breath = 0.85 + 0.15 * Math.sin(t * 0.7 + d.phase * 1.3);
-      const homeR = DOT_R_AMB;
+      // Enhanced home appearance with pulsing
+      const breath = 0.8 + 0.2 * Math.sin(t * 0.8 + d.phase * 1.5);
+      const homeR = DOT_R_AMB * breath;
       let homeA = ALPHA_AMB * breath;
       const homeBlur = GLOW_BG;
-      homeA = Math.min(1, homeA + pl.brightnessBoost * 0.45);
+      homeA = Math.min(1, homeA + pl.brightnessBoost * 0.5);
 
-      // Orb appearance
+      // Improved orb appearance with depth
       const front = (1 - sz) * 0.5;
-      const orbR = DOT_R_ORB * (0.5 + front * 0.85);
-      const orbA = 0.15 + front * 0.85;
-      const orbBlur = 3 + front * GLOW_ORB;
+      const depthScale = 0.4 + front * 1.0;
+      const orbR = DOT_R_ORB * depthScale;
+      const orbA = 0.1 + front * 0.9;
+      const orbBlur = 2 + front * GLOW_ORB;
 
       const radius = homeR + (orbR - homeR) * dotMix;
-      const alpha = Math.max(homeA * (1 - dotMix * 0.85), orbA * dotMix);
+      const alpha = Math.max(homeA * (1 - dotMix * 0.8), orbA * dotMix);
       const blur = homeBlur + (orbBlur - homeBlur) * dotMix;
 
       if (alpha < 0.01) continue;
-      const finalR = isFocus ? Math.max(0.5, radius * 1.12) : Math.max(0.4, radius);
-      const finalA = isFocus ? Math.min(1, alpha * 1.35) : alpha;
+      const finalR = isFocus ? Math.max(0.6, radius * 1.15) : Math.max(0.5, radius);
+      const finalA = isFocus ? Math.min(1, alpha * 1.4) : alpha;
 
       const calmDots = isTyping;
-      // PERF: in orb/forming mode, only glow front-facing dots.
-      // Back-facing dots are low-alpha already — the glow on them
-      // is invisible to the viewer but identically expensive. Cuts
-      // shadow-blur work roughly in half during voice mode without
-      // any perceptible visual change.
       const inOrbMode = dotMix > 0.4;
       const isFrontFacing = inOrbMode ? (1 - d.sz) * 0.5 > SPHERE_GLOW_FRONT_THRESHOLD : true;
+      
       ctx.shadowBlur =
-        isFocus ? 0 :
+        isFocus ? 1 :
         calmDots ? Math.min(blur, 2) :
         inOrbMode && !isFrontFacing ? 0 :
         blur;
-      ctx.shadowColor = d.tint === "tint" ? "rgba(255,180,210,0.9)" : "rgba(255,255,255,0.9)";
-      ctx.fillStyle =
-        d.tint === "tint"
-          ? `rgba(255,210,225,${finalA.toFixed(3)})`
-          : `rgba(255,255,255,${finalA.toFixed(3)})`;
+      
+      // Color based on tint type
+      if (d.tint === "accent") {
+        ctx.shadowColor = "rgba(200,220,255,0.9)";
+        ctx.fillStyle = `rgba(180,200,255,${finalA.toFixed(3)})`;
+      } else if (d.tint === "tint") {
+        ctx.shadowColor = "rgba(255,180,210,0.9)";
+        ctx.fillStyle = `rgba(255,210,225,${finalA.toFixed(3)})`;
+      } else {
+        ctx.shadowColor = "rgba(255,255,255,0.9)";
+        ctx.fillStyle = `rgba(255,255,255,${finalA.toFixed(3)})`;
+      }
+      
       ctx.beginPath();
       ctx.arc(x, y, finalR, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Ghost dots
+    // Ghost dots with trails
     for (const g of this.ghosts) {
       const age = (now - g.born) / g.ttl;
       const a = Math.sin(age * Math.PI);
+      
+      // Store trail position
+      if (g.trail && g.trail.length < 8) {
+        g.trail.push({ x: g.x, y: g.y });
+      } else if (g.trail) {
+        g.trail.shift();
+        g.trail.push({ x: g.x, y: g.y });
+      }
+      
+      // Draw trail
+      if (g.trail && g.trail.length > 1 && a > 0.3) {
+        ctx.beginPath();
+        ctx.moveTo(g.trail[0].x, g.trail[0].y);
+        for (let i = 1; i < g.trail.length; i++) {
+          ctx.lineTo(g.trail[i].x, g.trail[i].y);
+        }
+        ctx.strokeStyle = `rgba(255,255,255,${(a * 0.3).toFixed(3)})`;
+        ctx.lineWidth = g.r * 0.5;
+        ctx.lineCap = "round";
+        ctx.stroke();
+      }
+      
       g.x += g.vx;
       g.y += g.vy;
+      g.vx *= 0.98;
+      g.vy *= 0.98;
+      
       const calm = isTyping;
-      ctx.shadowBlur = calm ? 0.3 : 1;
-      ctx.shadowColor = "rgba(255,255,255,0.6)";
-      ctx.fillStyle = `rgba(255,255,255,${(a * (calm ? 0.55 : 0.85)).toFixed(3)})`;
+      ctx.shadowBlur = calm ? 1 : 4;
+      ctx.shadowColor = "rgba(255,255,255,0.7)";
+      ctx.fillStyle = `rgba(255,255,255,${(a * (calm ? 0.6 : 0.9)).toFixed(3)})`;
       ctx.beginPath();
-      ctx.arc(g.x, g.y, g.r * (calm ? 0.7 : 0.85), 0, Math.PI * 2);
+      ctx.arc(g.x, g.y, g.r * (calm ? 0.75 : 1), 0, Math.PI * 2);
       ctx.fill();
-      if (!calm && a > 0.7) {
-        ctx.strokeStyle = `rgba(255,255,255,${((a - 0.7) * 0.4).toFixed(3)})`;
-        ctx.lineWidth = 0.4;
-        const armR = g.r * 2.2;
+      
+      // Sparkle cross
+      if (!calm && a > 0.6) {
+        ctx.strokeStyle = `rgba(255,255,255,${((a - 0.6) * 0.5).toFixed(3)})`;
+        ctx.lineWidth = 0.5;
+        const armR = g.r * 2.5;
         ctx.beginPath();
         ctx.moveTo(g.x - armR, g.y);
         ctx.lineTo(g.x + armR, g.y);
@@ -586,19 +726,20 @@ export class AuroraEngine {
       }
     }
 
-    // Inner counter-rotating ring + planet satellites (orb mode)
-    if (globalMix > 0.4) {
-      const orbA = Math.min(1, (globalMix - 0.4) / 0.6);
-      const R = Math.min(this.W, this.H) * 0.22;
+    // Enhanced orbital rings and planets (orb mode)
+    if (globalMix > 0.3) {
+      const orbA = Math.min(1, (globalMix - 0.3) / 0.7);
+      const R = Math.min(this.W, this.H) * 0.24;
 
-      // Inner ring
-      const innerR = R * 0.55;
-      const innerRot = -t * 0.6;
+      // Primary inner ring
+      const innerR = R * 0.6;
+      const innerRot = -t * 0.7;
       for (let i = 0; i < INNER_RING_SEGMENTS; i++) {
         const ang = (i / INNER_RING_SEGMENTS) * Math.PI * 2 + innerRot;
         let px = Math.cos(ang) * innerR;
         let py = 0;
         let pz = Math.sin(ang) * innerR;
+        
         const yR = py * cosX - pz * sinX;
         const zR = py * sinX + pz * cosX;
         py = yR;
@@ -607,10 +748,11 @@ export class AuroraEngine {
         const zR2 = -px * Math.sin(-rotY * 2) + pz * Math.cos(-rotY * 2);
         px = xR;
         pz = zR2;
+        
         const f = (1 - pz / innerR) * 0.5;
-        const aR = 1.2 + f * 1.6;
-        const aA = 0.20 + f * 0.65;
-        ctx.shadowBlur = 6 + f * 8;
+        const aR = 1.5 + f * 2;
+        const aA = 0.25 + f * 0.7;
+        ctx.shadowBlur = 8 + f * 10;
         ctx.shadowColor = "rgba(255,210,225,0.9)";
         ctx.fillStyle = `rgba(255,220,235,${(aA * orbA).toFixed(3)})`;
         ctx.beginPath();
@@ -618,16 +760,16 @@ export class AuroraEngine {
         ctx.fill();
       }
 
-      // Second inner ring — perpendicular axis. Reduced 48→24
-      // segments for the same perf reason as the outer ring.
-      const innerR2 = R * 0.38;
-      const innerRot2 = t * 0.85;
-      const INNER_RING2_SEGMENTS = 24;
+      // Secondary perpendicular ring
+      const innerR2 = R * 0.42;
+      const innerRot2 = t * 0.95;
+      const INNER_RING2_SEGMENTS = 30;
       for (let i = 0; i < INNER_RING2_SEGMENTS; i++) {
         const ang = (i / INNER_RING2_SEGMENTS) * Math.PI * 2 + innerRot2;
         let px = Math.cos(ang) * innerR2;
         let py = Math.sin(ang) * innerR2;
         let pz = 0;
+        
         const yR = py * cosX - pz * sinX;
         const zR = py * sinX + pz * cosX;
         py = yR;
@@ -636,41 +778,90 @@ export class AuroraEngine {
         const zR2 = -px * sinY + pz * cosY;
         px = xR;
         pz = zR2;
+        
         const f = (1 - pz / innerR2) * 0.5;
-        const aA = 0.18 + f * 0.6;
-        ctx.shadowBlur = 5 + f * 7;
+        const aA = 0.2 + f * 0.65;
+        ctx.shadowBlur = 6 + f * 8;
         ctx.shadowColor = "rgba(196,184,255,0.9)";
         ctx.fillStyle = `rgba(220,210,255,${(aA * orbA).toFixed(3)})`;
         ctx.beginPath();
-        ctx.arc(cx + px, cy + py, 1.6 + f * 1.6, 0, Math.PI * 2);
+        ctx.arc(cx + px, cy + py, 1.8 + f * 1.8, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Planet satellites
-      for (const planet of this.planets) {
-        planet.angle += planet.speed * 0.012;
-        const a = planet.angle;
-        let px = Math.cos(a) * R * planet.dist;
-        let py = Math.sin(a) * planet.tilt * R;
-        let pz = Math.sin(a) * R * planet.dist;
+      // Third diagonal ring
+      const innerR3 = R * 0.75;
+      const innerRot3 = -t * 0.5;
+      const INNER_RING3_SEGMENTS = 50;
+      for (let i = 0; i < INNER_RING3_SEGMENTS; i++) {
+        const ang = (i / INNER_RING3_SEGMENTS) * Math.PI * 2 + innerRot3;
+        let px = Math.cos(ang) * innerR3;
+        let py = Math.sin(ang) * innerR3 * 0.3;
+        let pz = Math.sin(ang) * innerR3 * 0.95;
+        
         const yR = py * cosX - pz * sinX;
         const zR = py * sinX + pz * cosX;
         py = yR;
         pz = zR;
+        const xR = px * cosY + pz * sinY;
+        const zR2 = -px * sinY + pz * cosY;
+        px = xR;
+        pz = zR2;
+        
+        const f = (1 - pz / innerR3) * 0.5;
+        const aA = 0.15 + f * 0.5;
+        ctx.shadowBlur = 4 + f * 6;
+        ctx.shadowColor = "rgba(200,230,255,0.8)";
+        ctx.fillStyle = `rgba(210,230,255,${(aA * orbA).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(cx + px, cy + py, 1.2 + f * 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Planet satellites with enhanced orbits
+      for (const planet of this.planets) {
+        planet.angle += planet.speed * 0.014;
+        const a = planet.angle;
+        let px = Math.cos(a) * R * planet.dist;
+        let py = Math.sin(a) * planet.orbitTilt * R * 0.8;
+        let pz = Math.sin(a) * R * planet.dist;
+        
+        const yR = py * cosX - pz * sinX;
+        const zR = py * sinX + pz * cosX;
+        py = yR;
+        pz = zR;
+        
         const f = (1 - pz / (R * planet.dist)) * 0.5;
-        const aA = planet.alpha * orbA * (0.5 + f * 0.5);
-        ctx.shadowBlur = 16;
-        ctx.shadowColor = "rgba(255,210,225,0.85)";
+        const aA = planet.alpha * orbA * (0.4 + f * 0.6);
+        
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "rgba(255,210,225,0.9)";
         ctx.fillStyle = `rgba(255,220,235,${aA.toFixed(3)})`;
         ctx.beginPath();
-        ctx.arc(cx + px, cy + py, planet.r * (0.7 + f * 0.6), 0, Math.PI * 2);
+        ctx.arc(cx + px, cy + py, planet.r * (0.6 + f * 0.7), 0, Math.PI * 2);
         ctx.fill();
+        
+        // Planet glow
+        const glowGrd = ctx.createRadialGradient(cx + px, cy + py, 0, cx + px, cy + py, planet.r * 3);
+        glowGrd.addColorStop(0, `rgba(255,230,240,${(aA * 0.4).toFixed(3)})`);
+        glowGrd.addColorStop(1, "rgba(255,230,240,0)");
+        ctx.fillStyle = glowGrd;
+        ctx.beginPath();
+        ctx.arc(cx + px, cy + py, planet.r * 3, 0, Math.PI * 2);
+        ctx.fill();
+        
         if (planet.hasRing) {
-          ctx.shadowBlur = 6;
-          ctx.strokeStyle = `rgba(255,220,235,${(aA * 0.6).toFixed(3)})`;
-          ctx.lineWidth = 0.7;
+          ctx.shadowBlur = 8;
+          ctx.strokeStyle = `rgba(255,220,235,${(aA * 0.7).toFixed(3)})`;
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.ellipse(cx + px, cy + py, planet.r * 2.4, planet.r * 0.7, planet.tilt + Math.PI / 6, 0, Math.PI * 2);
+          ctx.ellipse(cx + px, cy + py, planet.r * 2.8, planet.r * 0.8, planet.tilt + Math.PI / 5, 0, Math.PI * 2);
+          ctx.stroke();
+          // Second ring
+          ctx.strokeStyle = `rgba(255,220,235,${(aA * 0.4).toFixed(3)})`;
+          ctx.lineWidth = 0.6;
+          ctx.beginPath();
+          ctx.ellipse(cx + px, cy + py, planet.r * 3.4, planet.r * 1, planet.tilt + Math.PI / 5, 0, Math.PI * 2);
           ctx.stroke();
         }
       }
