@@ -480,7 +480,13 @@ export function AuroraAIScreen() {
       if (stillMine()) void beginListening();
       return;
     }
-    const result = await voice.transcribe(blob);
+    // Pass "en" as a hard language hint to Scribe. Without a hint,
+    // Scribe auto-detects and routinely mistranscribes English into
+    // Arabic (the founder reported this — they spoke English and got
+    // Arabic text back). Aurora's main audience is English-speaking
+    // for now; if we add a per-user language preference later, swap
+    // this to read from profile.
+    const result = await voice.transcribe(blob, "en");
     if (!stillMine()) return;
     if (!result.ok) {
       setMessages((prev) => [
@@ -941,6 +947,10 @@ export function AuroraAIScreen() {
       {isPresenting && (
         <>
           <div className={`aurora-present-panel aurora-present-${presentingSide}`}>
+            {/* HUD scan-line sweep — animates top→bottom once on
+                paper open, like a JARVIS scanner reading the page
+                into existence. CSS-only, purely decorative. */}
+            <div className="aurora-scanline" aria-hidden />
             <div className="aurora-present-header">
               <div className="aurora-present-dot" />
               <span className="aurora-present-label">
@@ -949,6 +959,12 @@ export function AuroraAIScreen() {
                   : voice.isListening
                     ? "LISTENING"
                     : "ACTIVE"}
+              </span>
+              {/* HUD timestamp — small static-looking label gives
+                  the paper a "live document" feel. Updates every
+                  render so it stays current without an interval. */}
+              <span className="aurora-present-time" aria-hidden>
+                {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
               {/* Dismiss button — closes voice mode and the panel.
                   Uses shutdownVoiceMode (already used by Dismiss

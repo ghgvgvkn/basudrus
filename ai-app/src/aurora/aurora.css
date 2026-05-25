@@ -94,49 +94,119 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   transition: opacity 700ms ease;
 }
 
-/* ── A4 Paper Presentation (JARVIS-style: big content + corner orb) ── */
+/* ── A4 Paper Presentation (JARVIS-style: big content + corner orb)
+   Research-applied: layered animation, HUD corner brackets, scan-
+   line sweep, hex-pattern background, cyan-accented edges. The
+   paper concept stays (white surface, dark readable text) but its
+   FRAME is futuristic — feels like an A4 sheet placed inside a
+   JARVIS holographic interface. */
+
 .aurora-app .aurora-present-panel {
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(720px, 80vw);
-  /* A4 paper aspect ratio is roughly 1:1.41 (210x297mm). We honor it
-     loosely — height is capped at viewport so it fits on short screens. */
   aspect-ratio: 1 / 1.32;
   max-height: 82vh;
   z-index: 4;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  /* Paper surface — off-white with a subtle warm tint, layered shadow
-     to feel like it's actually floating above the dark canvas */
-  background: #faf9f6;
+  gap: 14px;
   color: #1a1a1a;
-  border-radius: 6px;
-  padding: 56px 64px 64px;
+  border-radius: 4px;
+  padding: 54px 60px 60px;
   pointer-events: auto;
-  /* Integrated with the dark theme via a subtle CYAN OUTER GLOW around
-     the paper edges. Makes the paper feel like part of the JARVIS HUD
-     instead of a generic popup. The inner shadow (white-ish, 0.5px)
-     keeps the paper feeling like a real physical sheet. */
+  /* Layered paper surface:
+     - Base: warm off-white
+     - Subtle hex pattern overlay (radial-gradient dots) to echo
+       the Aurora dot-matrix theme — keeps the "dot soul" the
+       founder asked for, applied to the paper too
+     - Vertical edge gradients for paper-fold feeling */
+  background:
+    /* Hex-dot accent (very subtle, gives the paper a "dotted"
+       texture matching the Aurora dot motif) */
+    radial-gradient(circle at 50% 50%, rgba(140,200,255,0.05) 1px, transparent 1.5px) 0 0 / 18px 18px,
+    /* Light top + bottom shading */
+    linear-gradient(to bottom, rgba(0,0,0,0.015) 0%, transparent 12%),
+    linear-gradient(to top, rgba(0,0,0,0.015) 0%, transparent 12%),
+    #faf9f6;
+  /* Sharp cyan border + glow + paper highlight */
   box-shadow:
     0 1px 2px rgba(0,0,0,0.20),
     0 30px 80px rgba(0,0,0,0.55),
-    0 0 0 1px rgba(140,200,255,0.18),     /* sharp cyan border */
-    0 0 40px rgba(140,200,255,0.22),      /* soft cyan outer glow */
-    inset 0 0 0 0.5px rgba(255,255,255,0.45); /* paper-edge highlight */
-  /* Subtle paper texture via a faint gradient */
-  background-image:
-    linear-gradient(to bottom, rgba(0,0,0,0.015) 0%, transparent 12%),
-    linear-gradient(to top, rgba(0,0,0,0.015) 0%, transparent 12%);
+    0 0 0 1px rgba(140,200,255,0.22),
+    0 0 50px rgba(140,200,255,0.28),
+    inset 0 0 0 0.5px rgba(255,255,255,0.45);
   overflow: hidden;
-  animation: aurora-paper-in 650ms cubic-bezier(.2,.85,.3,1) both;
+  animation: aurora-paper-in 700ms cubic-bezier(.2,.85,.3,1) both;
 }
+
+/* Corner brackets — four small JARVIS-style L-shaped marks at the
+   paper corners. They animate in BEFORE the paper itself, then
+   the paper materializes inside them. Pure ::before / ::after on
+   the panel — no extra DOM. */
+.aurora-app .aurora-present-panel::before,
+.aurora-app .aurora-present-panel::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+.aurora-app .aurora-present-panel::before {
+  top: -2px;
+  left: -2px;
+  border-top: 1.5px solid rgba(140,200,255,0.85);
+  border-left: 1.5px solid rgba(140,200,255,0.85);
+  box-shadow: -2px -2px 12px rgba(140,200,255,0.45);
+  animation: aurora-bracket-in 400ms ease-out both;
+}
+.aurora-app .aurora-present-panel::after {
+  bottom: -2px;
+  right: -2px;
+  border-bottom: 1.5px solid rgba(140,200,255,0.85);
+  border-right: 1.5px solid rgba(140,200,255,0.85);
+  box-shadow: 2px 2px 12px rgba(140,200,255,0.45);
+  animation: aurora-bracket-in 400ms 150ms ease-out both;
+}
+@keyframes aurora-bracket-in {
+  from { opacity: 0; transform: scale(0.5); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Scan-line sweep — a thin cyan band that sweeps top→bottom once
+   when the paper opens, like a JARVIS scanner reading the content
+   into existence. Fades out after the sweep. */
+.aurora-app .aurora-present-panel .aurora-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(to right,
+    transparent 0%,
+    rgba(140,200,255,0.0) 10%,
+    rgba(140,200,255,0.65) 50%,
+    rgba(140,200,255,0.0) 90%,
+    transparent 100%);
+  box-shadow: 0 0 14px rgba(140,200,255,0.45);
+  pointer-events: none;
+  animation: aurora-scanline-sweep 1200ms cubic-bezier(.4,.0,.6,1) both;
+}
+@keyframes aurora-scanline-sweep {
+  0%   { top: -2px; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: calc(100% + 2px); opacity: 0; }
+}
+
 @keyframes aurora-paper-in {
   from {
     opacity: 0;
-    transform: translate(-50%, -48%) scale(0.94);
+    transform: translate(-50%, -48%) scale(0.92);
+  }
+  60% {
+    opacity: 1;
   }
   to {
     opacity: 1;
@@ -171,6 +241,16 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   letter-spacing: 0.26em;
   text-transform: uppercase;
   color: rgba(0,0,0,0.55);
+}
+/* HUD timestamp on the right side of the header (between label and
+   dismiss button via margin tricks) — adds "live document" feel. */
+.aurora-app .aurora-present-time {
+  margin-left: auto;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: rgba(0,0,0,0.35);
+  padding-right: 12px;
 }
 
 /* SmartBoard image card — sits ABOVE the body text when Tony has
