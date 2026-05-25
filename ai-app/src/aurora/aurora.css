@@ -71,16 +71,21 @@ body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix,
 body.aurora-presenting-left.aurora-focus-mode .aurora-app .aurora-matrix,
 body.aurora-presenting-right.aurora-focus-mode .aurora-app .aurora-matrix {
-  /* Resting scale 0.45 + audio bonus up to 0.51 — founder asked for
-     the orb to be "a little bigger" now that the ring is also bigger
-     and moved up. Plenty of room to grow without crashing into the
-     text below. transform-origin: 50% 42% PULLS the visual center
-     UP from viewport center — matches the ring's new top:42% so
-     the orb sits dead-centered inside the higher-placed ring. */
-  transform: scale(calc(0.45 + var(--audio-level, 0) * 0.06));
-  transform-origin: 50% 42%;
+  /* Resting scale 0.65 + audio bonus up to 0.75 — founder asked
+     for the dots to "become bigger" so the orb fills more of the
+     ring (was visually swimming in too much empty space).
+     PLUS: translateY follows audio level so the orb LIFTS upward
+     on loud syllables — reads as a character bobbing/nodding
+     while it speaks instead of just pulsing. Combined with the
+     scale change this gives a much more alive, character-like
+     feel. transform-origin: 50% 36% matches the ring's lifted
+     top:36% position so the dots stay centered inside the ring. */
+  transform:
+    translateY(calc(var(--audio-level, 0) * -10px))
+    scale(calc(0.65 + var(--audio-level, 0) * 0.10));
+  transform-origin: 50% 36%;
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
-  filter: brightness(calc(1 + var(--audio-level, 0) * 0.20));
+  filter: brightness(calc(1 + var(--audio-level, 0) * 0.25));
 }
 
 /* HARD-HIDE the conventional chrome in voice mode. Using display: none
@@ -173,17 +178,14 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
      - mic-level bars on the left
    All pointer-events: none — clicks pass through to the orb. */
 .aurora-app .aurora-stage-ring {
-  /* Pinned to viewport at 42% from top (NOT center anymore) —
-     founder asked to "move it up for a little bit so the words
-     could be more noticeable" so the lower 58% of the viewport
-     opens up for text + cards. The orb canvas mirrors this with
-     transform-origin: 50% 42% so the dots sit dead-centered
-     inside the ring at the same vertical position.
-     Ring grown to 60vmin (was 56) — "make the ring really big".
-     The big ring + raised position together create the JARVIS
-     hero feel without crowding the text below. */
+  /* Pinned to viewport at 36% from top — lifted FURTHER up
+     (was 42%) so the lower 64% of the viewport opens up for
+     prominent text + cards. The orb canvas mirrors this with
+     transform-origin: 50% 36% so the dots sit dead-centered
+     inside the ring at the same vertical position. Ring sized
+     to 60vmin to remain a dominant hero element. */
   position: fixed;
-  top: 42%;
+  top: 36%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: clamp(380px, 60vmin, 720px);
@@ -504,17 +506,19 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
    Words sit at the lower portion of the screen, well clear of the
    ring overhead. Cards (when present) appear above this text in
    flex flow. The dark radial backdrop keeps the text readable
-   against the orb glow that bleeds through above. */
+   against the orb glow that bleeds through above. Founder
+   feedback round 5: bumped width + max-height so the text gets
+   the visual real-estate it deserves now that the ring lifted up. */
 .aurora-app .aurora-stage-text-wrap {
   position: relative;
-  width: min(760px, calc(100vw - 80px));
-  max-height: 22vh;
+  width: min(820px, calc(100vw - 80px));
+  max-height: 30vh;
   overflow-y: auto;
   text-align: center;
   pointer-events: auto;
   mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
-  padding: 14px 24px;
+  padding: 18px 32px;
   animation: aurora-stage-in 600ms 280ms cubic-bezier(.2,.85,.3,1) both;
 }
 /* Soft dark radial behind the text so it doesn't compete with
@@ -535,22 +539,22 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
 .aurora-app .aurora-stage-text-wrap::-webkit-scrollbar { width: 0; }
 .aurora-app .aurora-stage-text {
   font-family: 'Instrument Serif', 'Times New Roman', serif;
-  font-size: clamp(20px, 2.6vmin, 26px);
-  line-height: 1.55;
+  font-size: clamp(24px, 3.2vmin, 34px);
+  line-height: 1.5;
   letter-spacing: -0.005em;
-  color: rgba(235,245,255,0.96);
+  color: rgba(240,250,255,1);
   text-shadow:
-    0 0 18px rgba(140,200,255,0.45),
-    0 0 36px rgba(140,200,255,0.20);
+    0 0 22px rgba(140,200,255,0.55),
+    0 0 44px rgba(140,200,255,0.25);
   margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
 .aurora-app .aurora-stage-text.aurora-stage-text-idle {
-  color: rgba(180,220,255,0.55);
+  color: rgba(180,220,255,0.65);
   font-style: italic;
-  font-size: 18px;
-  text-shadow: 0 0 12px rgba(140,200,255,0.25);
+  font-size: clamp(18px, 2.4vmin, 22px);
+  text-shadow: 0 0 14px rgba(140,200,255,0.30);
 }
 
 /* Thinking state on the stage. */

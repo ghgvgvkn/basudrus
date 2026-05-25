@@ -495,6 +495,18 @@ export function AuroraAIScreen() {
   const SMOOTH_ATTACK = 0.45;
   const SMOOTH_RELEASE = 0.10;
 
+  // Audio-driven canvas pulse — triggers a real ripple inside the
+  // dot field when the audio level crosses a threshold, so the orb
+  // visibly reacts to each syllable like a character speaking. The
+  // CSS scale + bob handles SUSTAINED loudness; this pulse handles
+  // ATTACK transients (the punch of a new syllable). Throttled to
+  // 180ms minimum gap so a sustained loud passage doesn't spam
+  // pulses every frame.
+  const lastPulseAtRef = useRef(0);
+  const wasAboveRef = useRef(false);
+  const PULSE_THRESHOLD = 0.35;
+  const PULSE_COOLDOWN_MS = 180;
+
   useEffect(() => {
     if (!isPresenting) return;
     let raf = 0;
@@ -552,6 +564,26 @@ export function AuroraAIScreen() {
       const el = jarvisRingRef.current;
       if (el) el.style.setProperty("--mic-level", out);
       document.body.style.setProperty("--audio-level", out);
+
+      // Audio-driven canvas pulse — fire a real ripple in the dot
+      // field on every audio peak above PULSE_THRESHOLD. Edge-trigger
+      // (only on transitions from below→above the threshold) +
+      // 180ms cooldown so a sustained loud passage doesn't spam
+      // pulses. This is what makes the orb feel like a CHARACTER
+      // speaking instead of just a static breathing sphere — each
+      // new syllable punches a visible ripple through the dots.
+      const above = smoothed > PULSE_THRESHOLD;
+      const now = performance.now();
+      if (above && !wasAboveRef.current && now - lastPulseAtRef.current > PULSE_COOLDOWN_MS) {
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight * 0.36; // matches transform-origin 50% 36%
+        // Pulse intensity scales with the peak — softer ripples on
+        // quieter syllables, bigger ripples on emphasis.
+        auroraRef.current?.pulse(cx, cy, Math.min(0.8, smoothed * 1.2));
+        lastPulseAtRef.current = now;
+      }
+      wasAboveRef.current = above;
+
       raf = window.requestAnimationFrame(tick);
     };
     raf = window.requestAnimationFrame(tick);
