@@ -153,18 +153,54 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   if (!result.ok) {
-    // Surface the underlying error message back to the client so the
-    // founder/users can see WHAT actually failed (auth / format /
-    // ElevenLabs 5xx / network). Previously we returned a flat
-    // "Transcription failed" which was impossible to debug from the
-    // user side. The detail string is already capped to 200 chars
-    // upstream in the ElevenLabs client, so we won't leak verbose
-    // server internals.
+    // Log the FULL upstream error to Vercel function logs for
+    // debugging. Same pattern as speak.ts — gives the founder
+    // a way to see exactly what ElevenLabs said (e.g. the JSON
+    // body that contains "quota_exceeded" / "invalid_api_key" /
+    // "voice_not_found" etc.) without exposing it raw in the
+    // user-facing chat.
+    console.error("[transcribe] ElevenLabs error", {
+      status: result.status,
+      error: result.error,
+    });
+
+    // Classify the upstream HTTP status into a SHORT, READABLE
+    // category for the client. Previously we forwarded the raw
+    // ElevenLabs JSON detail which looked like:
+    //   (transcription failed: ElevenLabs 401: {"detail":
+    //    {"type":"invalid_request","code":"quota_exceeded",
+    //    "message":"This request exceeds your quota of 10000..."}})
+    // ...which is gibberish to the end user AND embarrasses us in
+    // demos. Now we extract the meaning and present cleanly.
+    let friendly: string;
+    const code = result.status;
+    const rawError = result.error || "";
+    // ElevenLabs sometimes returns 401 for both auth AND quota
+    // problems — disambiguate by checking the body content. The
+    // raw error string includes the response body when truncated.
+    const looksLikeQuota = /quota[_ ]exceeded|out of credits|insufficient credits/i.test(rawError);
+
+    if (looksLikeQuota) {
+      friendly = "Voice service credits exhausted — refill needed";
+    } else if (code === 401 || code === 403) {
+      friendly = "Voice service authentication failed — API key issue";
+    } else if (code === 402) {
+      friendly = "Voice service credits exhausted";
+    } else if (code === 422) {
+      friendly = "Voice service rejected the audio format";
+    } else if (code === 429) {
+      friendly = "Voice service rate-limited — try again in a moment";
+    } else if (code && code >= 500 && code < 600) {
+      friendly = `Voice service is down (HTTP ${code})`;
+    } else {
+      friendly = `Transcription failed (HTTP ${code || "unknown"})`;
+    }
+
     return jsonResponse(
       result.status && result.status >= 400 && result.status < 600 ? result.status : 502,
       {
         ok: false,
-        error: result.error || "Transcription failed",
+        error: friendly,
         code: result.status,
       },
       sHeaders,

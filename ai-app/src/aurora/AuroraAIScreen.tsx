@@ -576,9 +576,10 @@ export function AuroraAIScreen() {
       const now = performance.now();
       if (above && !wasAboveRef.current && now - lastPulseAtRef.current > PULSE_COOLDOWN_MS) {
         const cx = window.innerWidth / 2;
-        // Orb's screen position is 36% from top (CSS pulls the canvas
-        // up by 14vh from viewport-center via translateY).
-        const cy = window.innerHeight * 0.36;
+        // Orb's screen position is 46% from top (CSS translateY of
+        // -4vh from viewport-center). Keep this in sync with the
+        // ring + canvas CSS or pulses will fire at the wrong spot.
+        const cy = window.innerHeight * 0.46;
         // Pulse intensity scales with the peak — softer ripples on
         // quieter syllables, bigger ripples on emphasis.
         auroraRef.current?.pulse(cx, cy, Math.min(0.8, smoothed * 1.2));
@@ -859,11 +860,11 @@ export function AuroraAIScreen() {
     // WAKE-UP ANIMATION — founder feedback was that clicking the
     // mic produced no visible reaction beyond the chrome fading.
     // Fire a sequence of pulses from the orb center so the dots
-    // visibly "wake up" + a spark for extra punch. The orb is
-    // dead-center on screen so we pulse at (50vw, 50vh).
+    // visibly "wake up" + a spark for extra punch. The orb sits
+    // at 46% from top (matches the ring's pinned position).
     auroraRef.current?.pulseFromAll(0.9);
     const cx = window.innerWidth / 2;
-    const cy = window.innerHeight / 2;
+    const cy = window.innerHeight * 0.46;
     auroraRef.current?.pulse(cx, cy, 0.95);
     auroraRef.current?.spark(cx, cy, 26);
     // A second smaller pulse a beat later so the orb feels alive

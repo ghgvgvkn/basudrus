@@ -142,9 +142,16 @@ export default async function handler(req: Request): Promise<Response> {
     // Map the upstream HTTP status to a SAFE category for the
     // CLIENT response (we still don't echo ElevenLabs's raw body
     // since it can contain plan / usage info that's private to us).
+    // ElevenLabs sometimes returns 401 for both auth AND quota
+    // problems — disambiguate by sniffing the body content.
     let friendly: string;
     const code = result.status;
-    if (code === 401 || code === 403) {
+    const rawError = result.error || "";
+    const looksLikeQuota = /quota[_ ]exceeded|out of credits|insufficient credits/i.test(rawError);
+
+    if (looksLikeQuota) {
+      friendly = "Voice service credits exhausted — refill needed";
+    } else if (code === 401 || code === 403) {
       friendly = "Voice service authentication failed — API key issue";
     } else if (code === 402) {
       friendly = "Voice service credits exhausted";
