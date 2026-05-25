@@ -61,7 +61,13 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 // Transient upstream Anthropic statuses worth one retry on. 529 is
 // the "overloaded" code Anthropic returns when the cluster is hot.
-const RETRYABLE_STATUSES = new Set([429, 502, 503, 504, 529]);
+// Retryable upstream Anthropic statuses. EXPLICITLY EXCLUDES 429
+// (rate-limited / quota-exhausted) — the previous policy retried
+// 429s with backoff, which AMPLIFIED quota burn 3x when an account
+// was already over its plan. Anthropic's standard guidance for
+// quota responses is "back off, don't immediately retry"; 5xx and
+// 529 (overload) are the only legitimate transient errors here.
+const RETRYABLE_STATUSES = new Set([502, 503, 504, 529]);
 const RETRY_BACKOFF_MS = [700, 1700];
 
 interface AuroraBody {
@@ -190,17 +196,41 @@ export default async function handler(req: Request): Promise<Response> {
     }).catch(() => [] as Awaited<ReturnType<typeof fetchStudentMemoryRelevant>>);
     const memoryBlock = renderMemoryBlock(memoryRows);
 
+    // ── Intent detection (cost lever) ──
+    // The full tutoring (~113KB) + deep wellbeing (~43KB) prompt
+    // blocks together represent ~155KB / ~40k input tokens that
+    // Anthropic was being billed for on EVERY message including
+    // "hey what's up." Reading the last user message + matching
+    // simple keyword regexes lets us include those blocks only when
+    // the user is actually asking for help with academics or
+    // expressing emotional distress.
+    //
+    // Why keyword regex and not a classifier LLM call: the
+    // classifier itself would cost tokens + add latency. A regex
+    // sweep of one sentence is essentially free, and false-negatives
+    // are gentle — Tony still has the lightweight scope blocks
+    // (mental-health, relationships, productivity) always included
+    // so he can handle the topic reasonably even without the deep
+    // capability text. The deep blocks add depth, not basic
+    // competence.
+    //
+    // False-positive bias: when ambiguous, include the block.
+    // Anthropic billing pain < user-feels-shorthanded pain.
+    const ACADEMIC_RE = /\b(homework|exam|test|quiz|study|tutor|teach|explain|professor|syllabus|chapter|textbook|midterm|final|assignment|essay|thesis|paper|grade|gpa|math|calculus|algebra|geometry|statistics|physics|chemistry|biology|history|geography|economics|programming|code|algorithm|equation|formula|theorem|derivative|integral|matrix|vector|function|concept|definition|solve|prove|derive|class|lecture|course|subject|major|cs|engineering|medicine|law|business|finance|marketing|psychology|sociology)\b/i;
+    const EMOTIONAL_RE = /\b(sad|sadness|depress|anxious|anxiety|panic|scared|afraid|fear|lonely|alone|overwhelm|stress|stressed|tired|exhausted|burn(?:ed|t)?\s*out|cry|crying|hate myself|hopeless|worthless|useless|failing|failed|broken|lost|grief|grieve|grieving|died|death|breakup|broke up|heart\s?br?oken?|miss(?:ing)?\s+(?:my|him|her|them)|self[- ]?harm|hurt myself|want to die|kill myself|suicid|cant cope|can'?t cope|no point|nothing matters|feel\s+(?:bad|awful|terrible|empty|nothing|numb)|feeling\s+(?:bad|awful|terrible|empty|nothing|numb))\b/i;
+    // Quick Arabic-script detection — when the user writes in Arabic,
+    // our English keyword regexes won't match, and we'd misclassify
+    // genuine asks as "casual." Default to including BOTH blocks
+    // when Arabic script is present and the message has any
+    // substantive length (>20 chars). Cheap fallback that protects
+    // Arabic-speaking users from getting shallow replies.
+    const hasArabic = /[؀-ۿ]/.test(lastUserText);
+    const wantsTutoring = ACADEMIC_RE.test(lastUserText) || (hasArabic && lastUserText.length > 20);
+    const wantsWellbeing = EMOTIONAL_RE.test(lastUserText) || (hasArabic && lastUserText.length > 20);
+
     // ── System prompt ──
     // buildAuroraPrompt is the ONLY entry point into the personality
-    // text. To edit Tony-on-Aurora, edit aurora-prompt.ts. Do not
-    // splice persona instructions in here directly.
-    // Pass memory INTO buildAuroraPrompt so it lands inside the
-    // "About the person you're talking to" context block — same
-    // structural position as the name/uni/major/year facts. Putting
-    // memory there (rather than appending it after the safety block)
-    // makes Tony actually use it as identity context instead of
-    // treating it as a tacked-on appendix. Without this, Tony "knew"
-    // facts about the user but didn't naturally weave them in.
+    // text. To edit Tony-on-Aurora, edit aurora-prompt.ts.
     const systemPrompt = buildAuroraPrompt({
       studentName,
       uni,
@@ -209,14 +239,26 @@ export default async function handler(req: Request): Promise<Response> {
       personality,
       memory: memoryBlock || undefined,
       lang,
+      // Cost-control flags — gate the giant capability blocks
+      includeTutoring: wantsTutoring,
+      includeWellbeing: wantsWellbeing,
     });
 
-    // ── Call Anthropic with retry-with-backoff ──
+    // ── Call Anthropic with retry-with-backoff + upstream timeout ──
     // Same transient-status policy as tutor.ts (529 overload, 5xx).
     // Streaming SSE response so the client can render words as they
     // arrive — feels alive in voice mode where every second matters.
-    const callAnthropic = () =>
-      fetch("https://api.anthropic.com/v1/messages", {
+    // 25s timeout covers normal streaming responses comfortably;
+    // anything longer than that is upstream stuck and should fail
+    // fast rather than hold an edge invocation hostage.
+    const callAnthropic = () => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(new Error("Anthropic timeout (25s)")), 25_000);
+      // Mirror the client's signal so a user-side disconnect also
+      // cancels the upstream request (saves tokens + invocation time).
+      if (req.signal.aborted) ctl.abort(req.signal.reason);
+      else req.signal.addEventListener("abort", () => ctl.abort(req.signal.reason), { once: true });
+      return fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -230,8 +272,9 @@ export default async function handler(req: Request): Promise<Response> {
           messages: apiMessages,
           stream: true,
         }),
-        signal: req.signal,
-      });
+        signal: ctl.signal,
+      }).finally(() => clearTimeout(t));
+    };
 
     let response = await callAnthropic();
     for (const delay of RETRY_BACKOFF_MS) {

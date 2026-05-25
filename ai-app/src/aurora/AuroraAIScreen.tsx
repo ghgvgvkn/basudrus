@@ -143,9 +143,10 @@ export function AuroraAIScreen() {
   const [focusMode, setFocusMode] = useState(false);
   /** True when the user is hiding the conversation rail. */
   const [railHidden, setRailHidden] = useState(false);
-  /** True when the user used the mic for their LAST message — drives
-   *  auto-TTS playback of Tony's reply. Reset every time they type. */
-  const [lastInputWasVoice, setLastInputWasVoice] = useState(false);
+  // Note: previously had a `lastInputWasVoice` state here that drove
+  // auto-TTS playback. It was dead code — nothing ever set it to
+  // `true`; the voice path uses runSendForText's opts.voice flag
+  // directly. Removed in the perf-audit cleanup pass.
   /** Currently-loaded session id (when resumed from history). null
    *  means "new conversation, no session yet." */
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -507,17 +508,38 @@ export function AuroraAIScreen() {
   const PULSE_THRESHOLD = 0.35;
   const PULSE_COOLDOWN_MS = 180;
 
+  // Stable refs to the bits of `voice` the rAF loop needs. Reading
+  // through refs (instead of listing `voice` in deps) prevents the
+  // whole rAF loop from being torn down and rebuilt every time any
+  // unrelated useVoice state flips — which it does ~10 times during
+  // a single voice turn (isTranscribing toggling, isSpeaking
+  // toggling, etc.). Each rebuild reset --audio-level and dropped
+  // a frame of reactivity. Refs fix that.
+  const voiceAnalyserRef = voice.analyserRef;
+  const voiceIsSpeakingRef = useRef(voice.isSpeaking);
+  useEffect(() => { voiceIsSpeakingRef.current = voice.isSpeaking; }, [voice.isSpeaking]);
+
   useEffect(() => {
     if (!isPresenting) return;
     let raf = 0;
+    // Counter for consecutive idle frames (no audio AND not playing
+    // TTS). When we cross IDLE_FRAMES_TO_SLEEP, we drop from
+    // requestAnimationFrame (60fps) to setTimeout (10fps). Wakes back
+    // up the moment audio activity returns. Cuts steady-state CPU
+    // during silence by ~85% — directly addresses the founder's
+    // "low-end laptop" performance concern.
+    let idleFrames = 0;
+    const IDLE_FRAMES_TO_SLEEP = 30; // ~0.5s of silence before sleep
+    const SLEEP_MS = 100; // 10fps poll during silence
+
     const tick = () => {
       // Sample TTS playback level if Tony is currently speaking.
       // analyserRef is set up lazily by useVoice's ensureAudioContext;
       // it's only non-null after the first speak() call has wired the
       // playback chain.
       let ttsLevel = 0;
-      const analyser = voice.analyserRef.current;
-      if (voice.isSpeaking && analyser) {
+      const analyser = voiceAnalyserRef.current;
+      if (voiceIsSpeakingRef.current && analyser) {
         const len = analyser.fftSize;
         let buf = ttsByteBufRef.current;
         if (!buf || buf.length !== len) {
@@ -587,16 +609,39 @@ export function AuroraAIScreen() {
       }
       wasAboveRef.current = above;
 
-      raf = window.requestAnimationFrame(tick);
+      // Adaptive frame scheduling. When there's no audio activity
+      // (mic silent AND TTS not playing) for ~0.5s, drop to a slow
+      // setTimeout poll. When activity returns, bounce back to
+      // requestAnimationFrame for smooth 60fps reactivity.
+      const isQuiet = smoothed < 0.02 && !voiceIsSpeakingRef.current;
+      if (isQuiet) {
+        idleFrames++;
+      } else {
+        idleFrames = 0;
+      }
+      if (idleFrames > IDLE_FRAMES_TO_SLEEP) {
+        raf = window.setTimeout(tick, SLEEP_MS) as unknown as number;
+      } else {
+        raf = window.requestAnimationFrame(tick);
+      }
     };
     raf = window.requestAnimationFrame(tick);
     return () => {
+      // Cancel BOTH possible scheduler types since we switch between
+      // them. Calling the wrong one is a no-op so this is safe.
       window.cancelAnimationFrame(raf);
+      window.clearTimeout(raf);
       // Reset on exit so the next entry starts from a clean state.
       document.body.style.removeProperty("--audio-level");
       smoothedLevelRef.current = 0;
+      idleFrames = 0;
     };
-  }, [isPresenting, voice]);
+  // Deliberately exclude `voice` from deps — we read it via refs
+  // (voiceAnalyserRef, voiceIsSpeakingRef) so we don't need to tear
+  // down + rebuild this loop every time useVoice re-renders. See
+  // the ref declarations just above this effect for the why.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPresenting]);
   // Status word for the HUD label. Mirrors the present-panel
   // header label but lives down by the corner orb. "READY" is the
   // intermediate state between Tony finishing a reply and the mic
@@ -797,9 +842,18 @@ export function AuroraAIScreen() {
           voice.stopSpeaking();
         },
       });
-      try { await ended; } catch { /* noop */ }
+      // try/finally guarantees the bargeIn mic stream is released
+      // even if the user shuts down voice mode mid-await. Previously
+      // the bargeIn?.stop() below was unreachable in that path, so
+      // the bargeIn mic stream would stay hot forever (red mic dot
+      // in the browser bar).
+      try {
+        try { await ended; } catch { /* noop */ }
+      } finally {
+        bargeIn?.stop();
+        bargeIn = null;
+      }
     }
-    bargeIn?.stop();
     if (stillMine()) void beginListening();
   }, [voice, beginListening]);
 
@@ -930,11 +984,10 @@ export function AuroraAIScreen() {
       content: m.text,
     }));
 
-    // Prefer the explicit param over the (possibly stale) state. The
-    // VAD path passes voice:true; typed input falls through to the
-    // state value as before.
-    const wasVoice = opts?.voice ?? lastInputWasVoice;
-    setLastInputWasVoice(false);
+    // The VAD path passes voice:true to trigger auto-TTS. Typed input
+    // never triggers TTS (founder spec: only voice-mode replies are
+    // spoken aloud, typed replies stay text-only).
+    const wasVoice = opts?.voice ?? false;
 
     // Aurora uses the "aurora" persona → routes to api/ai/aurora.ts
     // (Tony in life-mode). The tutor brain on basudrus.com is a
@@ -1021,7 +1074,7 @@ export function AuroraAIScreen() {
                 : "Something went wrong. Try again in a moment.";
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg }]);
     }
-  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, lastInputWasVoice, voice, history]);
+  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, voice, history]);
 
   // ── Send a message (button / enter) ───────────────────────────────
   const handleSend = useCallback(async () => {
@@ -1654,12 +1707,7 @@ export function AuroraAIScreen() {
             placeholder="Ask Tony anything — your study tutor is listening…"
             autoComplete="off"
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              // Typing — clear the voice flag so Tony doesn't auto-speak
-              // the next reply unless the user mics again.
-              if (lastInputWasVoice) setLastInputWasVoice(false);
-            }}
+            onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

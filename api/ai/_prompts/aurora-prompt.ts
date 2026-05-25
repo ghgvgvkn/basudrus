@@ -55,6 +55,7 @@ import { AURORA_BUSINESS } from "./aurora-business";
 import { AURORA_PRODUCTIVITY } from "./aurora-productivity";
 import { AURORA_HONESTY } from "./aurora-honesty";
 import { AURORA_VISUALS } from "./aurora-visuals";
+import { AURORA_CINEMATIC } from "./aurora-cinematic";
 import { AURORA_SAFETY } from "./aurora-safety";
 import { AURORA_STYLE } from "./aurora-style";
 import { AURORA_TUTORING_CORE } from "./aurora-tutoring-core";
@@ -85,6 +86,17 @@ export function buildAuroraPrompt(ctx: {
   /** Locale lock (en | ar | auto). When "auto", Tony matches the
    *  user's most recent message language. */
   lang?: "en" | "ar" | "auto";
+  /** When true, include AURORA_TUTORING_CORE + _ENRICHMENT (~113KB).
+   *  When false, skip them. Default true (preserves old behavior on
+   *  callers that don't pass the flag). The aurora.ts endpoint sets
+   *  this based on whether the user's last message looks academic;
+   *  see the intent-detection block there for the cost rationale. */
+  includeTutoring?: boolean;
+  /** When true, include AURORA_WELLBEING (~43KB deep capability).
+   *  When false, skip it. Default true. The aurora.ts endpoint
+   *  gates this on emotional keywords detected in the last user
+   *  message. */
+  includeWellbeing?: boolean;
 }): string {
   const name = (ctx.studentName ?? "").trim();
   const uni = (ctx.uni ?? "").trim();
@@ -93,6 +105,14 @@ export function buildAuroraPrompt(ctx: {
   const personality = (ctx.personality ?? "").trim();
   const memory = (ctx.memory ?? "").trim();
   const lang = ctx.lang ?? "auto";
+  // Default the giant capability blocks to INCLUDED if a caller
+  // doesn't pass the flag — preserves the legacy behavior for any
+  // call site that hasn't been updated to do intent detection.
+  // The aurora.ts endpoint sets these explicitly based on keyword
+  // detection on the user's last message; see the [Intent detection]
+  // block there for the cost rationale.
+  const includeTutoring = ctx.includeTutoring !== false;
+  const includeWellbeing = ctx.includeWellbeing !== false;
 
   // Per-user context block — only includes the fields we actually have,
   // so empty profile values don't leak placeholder noise to the model.
@@ -144,17 +164,25 @@ export function buildAuroraPrompt(ctx: {
     AURORA_HONESTY,
     AURORA_STYLE,
     AURORA_VISUALS,
-    // Capability deep-dives (copied from basudrus.com — see header
-    // files for the verbatim-copy rationale and pruning advice).
-    "# Tutoring capability (use when the user asks about academic work)",
-    AURORA_TUTORING_CORE,
-    AURORA_TUTORING_ENRICHMENT,
-    "# Mental-health depth (use when the user needs serious emotional support)",
-    AURORA_WELLBEING,
+    // Cinematic direction — when/how to use the workspace artifacts
+    // for that "JARVIS pulls it up while he talks" feel. Sits AFTER
+    // visuals so it reinforces those rules with stage-direction
+    // cues without contradicting the underlying when-to-emit logic.
+    AURORA_CINEMATIC,
+    // Capability deep-dives. These are LARGE (~155KB total) and
+    // gated by the includeTutoring/includeWellbeing flags so they
+    // only ship when the user's last message actually warrants
+    // them. Without gating, every "hey" exchange was billing the
+    // full block — see the file header for why.
+    includeTutoring && "# Tutoring capability (use when the user asks about academic work)",
+    includeTutoring && AURORA_TUTORING_CORE,
+    includeTutoring && AURORA_TUTORING_ENRICHMENT,
+    includeWellbeing && "# Mental-health depth (use when the user needs serious emotional support)",
+    includeWellbeing && AURORA_WELLBEING,
     ctxBlock.trim() ? ctxBlock.trim() : "",
     langLock.trim(),
     AURORA_SAFETY,
-  ].filter((s) => s.length > 0);
+  ].filter((s): s is string => typeof s === "string" && s.length > 0);
 
   return sections.join("\n\n");
 }

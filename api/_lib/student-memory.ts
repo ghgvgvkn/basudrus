@@ -80,6 +80,13 @@ export async function fetchStudentMemory({
  * leverage facts first. Returns "" when the list is empty so the
  * caller can `.filter(Boolean)` the prompt sections cleanly.
  */
+// Per-fact and total memory caps. Without these, a user with 12
+// long facts could push the memory block past 4KB on every turn —
+// billed every single message. With these caps the block stays
+// bounded regardless of what facts have been stored.
+const MAX_FACT_LEN = 220;       // chars — drops overlong facts to a sentence
+const MAX_MEMORY_TOTAL = 1800;  // chars — overall ceiling
+
 export function renderMemoryBlock(rows: MemoryRow[]): string {
   if (!rows || rows.length === 0) return "";
   // Group by category. Categories appear in a stable order.
@@ -97,24 +104,35 @@ export function renderMemoryBlock(rows: MemoryRow[]): string {
     "the student just said in THIS conversation, the live message wins.",
     "═══════════════════════════════════════════",
   ];
+  // Truncate each fact to MAX_FACT_LEN to bound a single row's cost.
+  const fmt = (r: MemoryRow): string => {
+    const fact = r.fact.length > MAX_FACT_LEN
+      ? r.fact.slice(0, MAX_FACT_LEN - 1).trimEnd() + "…"
+      : r.fact;
+    return `    - ${fact} (importance ${r.importance}/10)`;
+  };
   for (const cat of order) {
     const rowsInCat = byCat[cat];
     if (!rowsInCat || rowsInCat.length === 0) continue;
     lines.push(`• ${cat.toUpperCase()}:`);
-    for (const r of rowsInCat) {
-      lines.push(`    - ${r.fact} (importance ${r.importance}/10)`);
-    }
+    for (const r of rowsInCat) lines.push(fmt(r));
   }
   // Catch any unknown categories.
   for (const cat of Object.keys(byCat)) {
     if ((order as readonly string[]).includes(cat)) continue;
     lines.push(`• ${cat.toUpperCase()}:`);
-    for (const r of byCat[cat]) {
-      lines.push(`    - ${r.fact} (importance ${r.importance}/10)`);
-    }
+    for (const r of byCat[cat]) lines.push(fmt(r));
   }
   lines.push("═══════════════════════════════════════════");
-  return lines.join("\n");
+  const block = lines.join("\n");
+  // Final overall cap. If the block is still too big after per-fact
+  // truncation (lots of medium-length facts), cut it off with a
+  // marker rather than billing the full payload.
+  if (block.length > MAX_MEMORY_TOTAL) {
+    return block.slice(0, MAX_MEMORY_TOTAL - 40).trimEnd()
+      + "\n…(memory truncated — older facts elided)";
+  }
+  return block;
 }
 
 interface FetchRelevantOpts extends FetchOpts {

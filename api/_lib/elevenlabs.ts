@@ -162,6 +162,16 @@ export async function synthesizeSpeechStream(args: SynthesizeArgs): Promise<{
     voice_settings: voiceSettings ?? DEFAULT_VOICE_SETTINGS,
   };
 
+  // Hard timeout — if ElevenLabs hangs, our edge function hangs
+  // until Vercel's 30s kill. Wrap with an AbortController that
+  // fires at 15s. Also honor caller's signal if one was passed,
+  // so a client disconnect short-circuits the upstream call too.
+  const ctl = new AbortController();
+  const timeoutId = setTimeout(() => ctl.abort(new Error("Upstream timeout (15s)")), 15_000);
+  if (signal) {
+    if (signal.aborted) ctl.abort(signal.reason);
+    else signal.addEventListener("abort", () => ctl.abort(signal.reason), { once: true });
+  }
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -171,7 +181,7 @@ export async function synthesizeSpeechStream(args: SynthesizeArgs): Promise<{
         Accept: "audio/mpeg",
       },
       body: JSON.stringify(body),
-      signal,
+      signal: ctl.signal,
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -188,6 +198,8 @@ export async function synthesizeSpeechStream(args: SynthesizeArgs): Promise<{
       status: 502,
       error: e instanceof Error ? e.message : "Network error reaching ElevenLabs",
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -256,6 +268,15 @@ export async function transcribeAudio(args: TranscribeArgs): Promise<TranscribeR
   form.append("model_id", modelId);
   if (languageCode) form.append("language_code", languageCode);
 
+  // Hard timeout — STT can hang on large audio uploads. 25s ceiling
+  // covers ~30s clips comfortably; longer and the user should be
+  // sent to a chunked path anyway.
+  const ctl = new AbortController();
+  const timeoutId = setTimeout(() => ctl.abort(new Error("Upstream timeout (25s)")), 25_000);
+  if (signal) {
+    if (signal.aborted) ctl.abort(signal.reason);
+    else signal.addEventListener("abort", () => ctl.abort(signal.reason), { once: true });
+  }
   try {
     const res = await fetch(`${ELEVENLABS_BASE_URL}/v1/speech-to-text`, {
       method: "POST",
@@ -265,7 +286,7 @@ export async function transcribeAudio(args: TranscribeArgs): Promise<TranscribeR
         // boundary automatically. Setting it manually breaks the upload.
       },
       body: form,
-      signal,
+      signal: ctl.signal,
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -290,5 +311,7 @@ export async function transcribeAudio(args: TranscribeArgs): Promise<TranscribeR
       status: 502,
       error: e instanceof Error ? e.message : "Network error reaching ElevenLabs",
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

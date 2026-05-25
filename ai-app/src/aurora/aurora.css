@@ -85,24 +85,33 @@ body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix,
 body.aurora-presenting-left.aurora-focus-mode .aurora-app .aurora-matrix,
 body.aurora-presenting-right.aurora-focus-mode .aurora-app .aurora-matrix {
-  /* Round 7 — founder screenshot showed the ring CRASHING into the
-     top meta strip ("AURORA AI · AMMAN · MONDAY · 25 MAY · LIVE")
-     because top:36% pulled the ring's upper edge to ~64px from
-     viewport top (the meta strip lives at top:22px). Also asked
-     for the orb dots to be "a little bit bigger."
-     Fixed by:
-       1. Ring moved down: top 36% → 46% (clears the meta strip
-          completely; ring top now ~150px+ from viewport top)
-       2. Orb scale 0.65 → 0.72 (bigger points)
-       3. translateY recalibrated: -14vh → -4vh so the orb
-          tracks the ring's new 46% vertical position
-          (50vh natural - 4vh = 46vh ✓) */
+  /* Resting: orb is shrunk via scale, lifted to ring's center, and
+     gets an additional audio-reactive Y-lift (-10px max) so it
+     bobs on loud syllables — character motion the founder asked
+     for. The whole canvas also sways gently L/R via an infinite
+     animation that drives the `translate` property; combined with
+     the existing transform's translateY, this gives a subtle
+     "looking around the room" feel WITHOUT touching the engine.
+     Using INDIVIDUAL transform properties (translate/scale) means
+     the sway animation on `translate` doesn't conflict with the
+     audio-reactive `transform`. */
   transform:
     translateY(calc(-4vh + var(--audio-level, 0) * -10px))
     scale(calc(0.72 + var(--audio-level, 0) * 0.10));
   transform-origin: 50% 50%;
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
   filter: brightness(calc(1 + var(--audio-level, 0) * 0.25));
+  /* Gentle infinite sway — runs INDEPENDENTLY from the transform
+     above via the dedicated `translate` property (not `transform`).
+     This sways the orb left↔right ~6px on a 14s cycle so it never
+     looks frozen. Suspended in reduced-motion mode. */
+  animation: aurora-orb-sway 14s ease-in-out infinite;
+}
+@keyframes aurora-orb-sway {
+  0%, 100% { translate: 0 0; }
+  25%      { translate: -6px -2px; }
+  50%      { translate: 0 0; }
+  75%      { translate: 6px 1px; }
 }
 
 /* HARD-HIDE the conventional chrome in voice mode. Using display: none
@@ -2438,7 +2447,9 @@ body.aurora-focus-mode .aurora-app .aurora-vignette {
   .aurora-app .aurora-stage-sweep,
   .aurora-app .aurora-mic-btn::before,
   .aurora-app .aurora-logo-mark .aurora-ring,
-  .aurora-app .aurora-pip-mark .aurora-ring {
+  .aurora-app .aurora-pip-mark .aurora-ring,
+  body.aurora-presenting-left .aurora-app .aurora-matrix,
+  body.aurora-presenting-right .aurora-app .aurora-matrix {
     animation: none !important;
   }
   /* Slow pulses to imperceptible cycles instead of nuking them

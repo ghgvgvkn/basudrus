@@ -62,7 +62,10 @@ const RELATIONSHIP_TYPES = new Set([
   "friend", "partner", "family", "colleague", "other",
 ]);
 
-const RETRYABLE = new Set([429, 502, 503, 504, 529]);
+// Excludes 429 deliberately — see aurora.ts for the cost-amplification
+// rationale. Quota-exhausted responses should NOT be retried; that
+// just burns the quota faster the moment it refills.
+const RETRYABLE = new Set([502, 503, 504, 529]);
 const BACKOFFS = [700, 1700];
 
 interface ReqBody {

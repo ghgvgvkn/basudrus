@@ -145,8 +145,16 @@ export class AuroraEngine {
   private planets: Planet[] = [];
   private rafId = 0;
   private resizeHandler: () => void;
+  private visibilityHandler: () => void;
   private startTime = performance.now();
   private destroyed = false;
+  /** When true the rAF loop returns immediately without drawing.
+   *  Flipped by the visibilitychange listener so a backgrounded tab
+   *  doesn't paint 4000 dots every frame. Browsers throttle rAF in
+   *  hidden tabs anyway, but Chrome's throttle still fires once per
+   *  second — multiplied by an orb mode that draws thousands of
+   *  dots that's still wasted CPU we can skip entirely. */
+  private paused = false;
 
   // Frame-rate throttling so the canvas doesn't burn 144 Hz on a
   // gaming monitor when the visuals only need 30 fps to look smooth.
@@ -164,8 +172,19 @@ export class AuroraEngine {
     if (!ctx) throw new Error("AuroraEngine: 2D context unavailable");
     this.ctx = ctx;
     this.resizeHandler = () => this.resize();
+    this.visibilityHandler = () => {
+      this.paused = document.hidden;
+      // When un-hiding, schedule the next frame immediately so the
+      // orb resumes smoothly. The frame loop will short-circuit while
+      // paused; resuming just means it picks up at the next tick.
+      if (!this.paused) {
+        this.lastFrameDrawAt = 0;
+        if (!this.rafId) this.rafId = requestAnimationFrame((t) => this.frame(t));
+      }
+    };
     this.resize();
     window.addEventListener("resize", this.resizeHandler);
+    document.addEventListener("visibilitychange", this.visibilityHandler);
     this.rafId = requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -256,6 +275,7 @@ export class AuroraEngine {
     this.destroyed = true;
     cancelAnimationFrame(this.rafId);
     window.removeEventListener("resize", this.resizeHandler);
+    document.removeEventListener("visibilitychange", this.visibilityHandler);
     document.body.classList.remove("aurora-active");
     document.body.classList.remove("aurora-typing");
     document.body.classList.remove("aurora-focus-mode");
@@ -385,6 +405,17 @@ export class AuroraEngine {
 
   private frame(now: number): void {
     if (this.destroyed) return;
+
+    // Tab is hidden → skip the entire render. Browsers throttle
+    // rAF for backgrounded tabs but Chrome still fires it ~once per
+    // second; for an orb mode that means we'd compute thousands of
+    // dot positions for invisible output. Returning early without
+    // re-scheduling lets the rAF queue go quiet entirely; the
+    // visibilitychange listener restarts it on un-hide.
+    if (this.paused) {
+      this.rafId = 0;
+      return;
+    }
 
     // Throttle idle-mode renders to ~30 fps. In voice / forming /
     // orb modes we render at the browser's native rate (typically 60
