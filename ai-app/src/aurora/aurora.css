@@ -48,25 +48,30 @@
      to feel JARVIS-y (slight overshoot at the start, settles cleanly). */
   transition: transform 700ms cubic-bezier(.2,.85,.3,1);
 }
-/* Voice mode keeps the orb IN THE CENTER (founder feedback: "keep
-   the circle in the middle"). The canvas stays at full size and full
-   opacity — it's the star of the experience. Stage HUD elements
-   (clock, status, mic-level bars, brand) wrap around it; Tony's
-   words + artifact cards float below. Everything except the orb is
-   semi-transparent so the dots breathe through.
+/* VOICE MODE — orb condenses into the HUD ring.
+   Founder screenshot showed the previous attempt (scale 1.04) made
+   the orb fill the entire viewport and visually swallow Tony's text
+   below it. Fix: animate the canvas DOWN to ~45% scale on voice
+   activation so the dots visibly condense into the ring frame and
+   leave proper room below for text + artifact cards.
 
-   Subtle scale-up so the orb feels "armed" when voice opens — like
-   stepping closer to it. */
+   transform-origin: center means the canvas shrinks toward its own
+   center — which is also where the HUD ring lives — so the dots
+   look like they're "going into the ring." */
 body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix {
-  transform: scale(1.04);
+  transform: scale(0.45);
+  transform-origin: 50% 42%;
+  transition: transform 800ms cubic-bezier(.2,.85,.3,1);
 }
 
-/* While presenting, dim and disable the conventional chat chrome.
-   Voice mode is supposed to feel like a completely different
-   experience — chat bar, chat thread, and history rail melt away.
-   Widgets (quota + streak) and the top brand bar stay so the user
-   can still glance at them. */
+/* HARD-HIDE the conventional chrome in voice mode. Using display: none
+   (not just opacity) so these elements take ZERO layout space AND
+   can't be overridden by any other rule. The founder screenshot
+   showed all of these stubbornly visible because the previous
+   opacity:0 rules were being overridden by body.aurora-active's own
+   visibility logic — going nuclear with display:none + !important
+   ends the fight. */
 body.aurora-presenting-left .aurora-app .aurora-chat-bar,
 body.aurora-presenting-right .aurora-app .aurora-chat-bar,
 body.aurora-presenting-left .aurora-app .aurora-chat-thread,
@@ -79,9 +84,7 @@ body.aurora-presenting-left .aurora-app .aurora-status,
 body.aurora-presenting-right .aurora-app .aurora-status,
 body.aurora-presenting-left .aurora-app .aurora-back-btn,
 body.aurora-presenting-right .aurora-app .aurora-back-btn {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 380ms ease;
+  display: none !important;
 }
 /* Vignette deepens while presenting so the orb + stage have more
    visual weight against the background. */
@@ -113,7 +116,10 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
 /* Stage root — a fixed full-viewport container that hosts the
    ring HUD, the text, and the artifact row. Pointer-events none on
    the root so the orb canvas behind it stays interactive; specific
-   children re-enable pointer events where needed. */
+   children re-enable pointer events where needed.
+   The stage uses a 3-row vertical layout (ring | text | cards)
+   with generous gaps so each element has its own breathing room
+   and doesn't visually collide with the others. */
 .aurora-app .aurora-stage {
   position: fixed;
   inset: 0;
@@ -122,7 +128,8 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 48px;
+  padding: 80px 32px 40px;
   pointer-events: none;
   animation: aurora-stage-in 600ms cubic-bezier(.2,.85,.3,1) both;
 }
@@ -142,12 +149,15 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
    All pointer-events: none — clicks pass through to the orb. */
 .aurora-app .aurora-stage-ring {
   position: relative;
-  width: clamp(380px, 42vmin, 540px);
-  height: clamp(380px, 42vmin, 540px);
+  /* Sized to match the canvas's natural orb at scale(0.45) — the
+     orb is roughly 80vmin wide at full scale, so 80vmin × 0.45 ≈
+     36vmin. We make the ring slightly larger (44vmin) so the
+     border frames the orb with a small gap of breathing room
+     between the dots and the ring border. */
+  width: clamp(360px, 44vmin, 520px);
+  height: clamp(360px, 44vmin, 520px);
   flex-shrink: 0;
   pointer-events: none;
-  /* The orb canvas is behind us — we just want to visually frame
-     where it sits. No background here so the dots show through. */
   border-radius: 50%;
   animation: aurora-stage-ring-in 700ms cubic-bezier(.2,.85,.3,1) both;
 }
@@ -156,26 +166,30 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   to   { opacity: 1; transform: scale(1); }
 }
 
-/* Thin inner cyan border line — frames the orb */
+/* Inner cyan border line — frames the orb. Significantly brighter
+   than the corner-mode version because at this scale the bright
+   orb dots wash out any subtle stroke. 1.5px stroke + brighter
+   color + thicker glow halo all combine to keep the ring visible. */
 .aurora-app .aurora-stage-ring-inner {
   position: absolute;
-  inset: 12%;
+  inset: 6%;
   border-radius: 50%;
-  border: 0.5px solid rgba(140,200,255,0.45);
+  border: 1.5px solid rgba(170,220,255,0.75);
   box-shadow:
-    0 0 30px rgba(140,200,255,0.30),
-    inset 0 0 30px rgba(140,200,255,0.15);
+    0 0 40px rgba(140,200,255,0.55),
+    0 0 80px rgba(140,200,255,0.30),
+    inset 0 0 36px rgba(140,200,255,0.22);
   pointer-events: none;
   animation: aurora-stage-pulse 3.6s ease-in-out infinite;
 }
 @keyframes aurora-stage-pulse {
   0%, 100% {
-    border-color: rgba(140,200,255,0.45);
-    box-shadow: 0 0 30px rgba(140,200,255,0.30), inset 0 0 30px rgba(140,200,255,0.15);
+    border-color: rgba(170,220,255,0.75);
+    box-shadow: 0 0 40px rgba(140,200,255,0.55), 0 0 80px rgba(140,200,255,0.30), inset 0 0 36px rgba(140,200,255,0.22);
   }
   50% {
-    border-color: rgba(180,225,255,0.75);
-    box-shadow: 0 0 50px rgba(140,200,255,0.50), inset 0 0 50px rgba(140,200,255,0.28);
+    border-color: rgba(210,240,255,0.95);
+    box-shadow: 0 0 60px rgba(140,200,255,0.75), 0 0 120px rgba(140,200,255,0.40), inset 0 0 54px rgba(140,200,255,0.34);
   }
 }
 .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-ring-inner {
@@ -377,18 +391,35 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
 
 /* TONY'S WORDS — floating glowing text below the ring. No paper.
    Just typography in dark space, with a soft cyan glow so it
-   feels like JARVIS speaking, not Word document. */
+   feels like JARVIS speaking, not Word document. A faint dark
+   radial backdrop sits behind the text so it reads cleanly even
+   when the orb dots fade out near the edge — no halo washout. */
 .aurora-app .aurora-stage-text-wrap {
-  width: min(720px, calc(100vw - 80px));
+  position: relative;
+  width: min(760px, calc(100vw - 80px));
   max-height: 22vh;
   overflow-y: auto;
   text-align: center;
   pointer-events: auto;
-  /* Top + bottom fade so long replies look intentional, not cut off */
-  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
-  padding: 14px 8px;
+  mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  padding: 18px 24px;
   animation: aurora-stage-in 600ms 280ms cubic-bezier(.2,.85,.3,1) both;
+}
+/* Soft dark radial behind the text so it doesn't compete with
+   any leftover orb glow at the edges. Pointer-events: none — the
+   text itself is still selectable above it. */
+.aurora-app .aurora-stage-text-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -10px -40px;
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(8,14,28,0.55) 0%,
+    rgba(8,14,28,0.30) 45%,
+    transparent 80%);
+  pointer-events: none;
+  z-index: -1;
+  border-radius: 50%;
 }
 .aurora-app .aurora-stage-text-wrap::-webkit-scrollbar { width: 0; }
 .aurora-app .aurora-stage-text {
