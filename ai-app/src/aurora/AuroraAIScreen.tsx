@@ -451,14 +451,21 @@ export function AuroraAIScreen() {
    */
   const voiceSessionGenRef = useRef(0);
 
-  // ── HUD around the corner orb (JARVIS-style status frame) ────────
+  // ── HUD around the centered orb (JARVIS-style status frame) ───────
   //
-  // The shrunken orb gets a status frame: clock above it, mic-level
-  // bars to the side, status word ("LISTENING" / "SPEAKING" / "READY")
-  // below. The clock ticks at 1Hz via setInterval; the mic-level bars
-  // tick at 60fps via rAF reading micLevelRef and writing a CSS
-  // variable directly on the ring DOM (so React doesn't re-render the
-  // whole tree at frame rate just to repaint 5 bars).
+  // The stage gets a unified --audio-level CSS variable that combines
+  // BOTH the user's mic level AND Tony's TTS playback level. Wired to
+  // every reactive element (orb scale, ring glow, mic bars, vignette
+  // pulse) so the whole UI breathes with whoever is speaking — your
+  // voice OR Tony's. Founder asked: "make the points inside the
+  // circle or the wall move with the sound when he's speaking and
+  // when I'm speaking."
+  //
+  // Implementation:
+  //   - mic level comes from VAD via micLevelRef (already wired)
+  //   - TTS level sampled from voice.analyserRef when isSpeaking
+  //   - Both written to the SAME CSS variable; whichever is louder
+  //     drives the visuals — clean from the user's POV
   const jarvisRingRef = useRef<HTMLDivElement>(null);
   const [hudClock, setHudClock] = useState(() => formatHudClock(new Date()));
   useEffect(() => {
@@ -469,21 +476,92 @@ export function AuroraAIScreen() {
     }, 1000);
     return () => window.clearInterval(id);
   }, [isPresenting]);
+
+  // Reusable byte buffer for the TTS analyser. Hoisted so we don't
+  // allocate ~2KB per animation frame (the GC churn would show up
+  // on low-end devices the founder explicitly called out).
+  // Typed as Uint8Array<ArrayBuffer> explicitly because TS 5.7+
+  // narrowed the WebAudio analyser signature to require the
+  // non-shared variant.
+  const ttsByteBufRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
+  // Smoothing state for the combined audio level. We low-pass the
+  // raw RMS so the visuals don't twitch on every transient. Tunable:
+  //   - SMOOTH_ATTACK   how fast we ramp UP toward a louder peak
+  //   - SMOOTH_RELEASE  how fast we ramp DOWN when sound stops
+  // Slower release = the orb keeps "breathing" briefly after a word
+  // ends, which reads as more natural than snapping to zero.
+  const smoothedLevelRef = useRef(0);
+  const SMOOTH_ATTACK = 0.45;
+  const SMOOTH_RELEASE = 0.10;
+
   useEffect(() => {
     if (!isPresenting) return;
     let raf = 0;
     const tick = () => {
-      const el = jarvisRingRef.current;
-      if (el) {
-        // Clamp to two decimals so the CSS variable doesn't churn
-        // pointlessly with floating-point noise.
-        el.style.setProperty("--mic-level", micLevelRef.current.toFixed(2));
+      // Sample TTS playback level if Tony is currently speaking.
+      // analyserRef is set up lazily by useVoice's ensureAudioContext;
+      // it's only non-null after the first speak() call has wired the
+      // playback chain.
+      let ttsLevel = 0;
+      const analyser = voice.analyserRef.current;
+      if (voice.isSpeaking && analyser) {
+        const len = analyser.fftSize;
+        let buf = ttsByteBufRef.current;
+        if (!buf || buf.length !== len) {
+          // Allocate via a dedicated ArrayBuffer (not SharedArrayBuffer)
+          // so the Uint8Array<ArrayBuffer> narrowing TS 5.7+ requires
+          // for analyser.getByteTimeDomainData() satisfies the
+          // signature without a cast.
+          buf = new Uint8Array(new ArrayBuffer(len));
+          ttsByteBufRef.current = buf;
+        }
+        // getByteTimeDomainData returns 0-255 centered at 128. Subtract
+        // 128 to get signed -128..127, square, average, square-root →
+        // RMS. Divide by 128 → 0..1.
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        // Stride 4 — sampling every 4th value is plenty for level
+        // tracking (we're not running an FFT) and cuts the per-frame
+        // cost by 75%.
+        for (let i = 0; i < len; i += 4) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / (len / 4));
+        // TTS comes out a lot quieter raw than mic input; boost so
+        // visuals react comparably to the user's voice. Clamp to
+        // 0..1.
+        ttsLevel = Math.min(1, rms * 3.5);
       }
+      // Take the louder of mic vs TTS. Whoever is talking drives the
+      // visuals — clean and intuitive.
+      const target = Math.max(micLevelRef.current, ttsLevel);
+      // Smooth the value with asymmetric attack/release. Attack is
+      // fast so peaks pop; release is slow so the orb keeps
+      // "breathing" briefly after a word ends.
+      const prev = smoothedLevelRef.current;
+      const coef = target > prev ? SMOOTH_ATTACK : SMOOTH_RELEASE;
+      const smoothed = prev + (target - prev) * coef;
+      smoothedLevelRef.current = smoothed;
+      // Write to BOTH the ring (for local-element reactions like the
+      // mic bars) AND the body (so global elements — vignette,
+      // canvas scale — can read the same value). Two-decimal clamp
+      // keeps the CSS var from churning on floating-point noise.
+      const out = smoothed.toFixed(2);
+      const el = jarvisRingRef.current;
+      if (el) el.style.setProperty("--mic-level", out);
+      document.body.style.setProperty("--audio-level", out);
       raf = window.requestAnimationFrame(tick);
     };
     raf = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(raf);
-  }, [isPresenting]);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      // Reset on exit so the next entry starts from a clean state.
+      document.body.style.removeProperty("--audio-level");
+      smoothedLevelRef.current = 0;
+    };
+  }, [isPresenting, voice]);
   // Status word for the HUD label. Mirrors the present-panel
   // header label but lives down by the corner orb. "READY" is the
   // intermediate state between Tony finishing a reply and the mic
@@ -1105,12 +1183,26 @@ export function AuroraAIScreen() {
             <div className="aurora-stage-sweep" aria-hidden />
             {/* Inner thin border ring — visually frames the orb. */}
             <div className="aurora-stage-ring-inner" aria-hidden />
-            {/* Mic-level bars — vertical column on the LEFT of
-                the ring. Driven by --mic-level via rAF (see effect
-                above). */}
-            <div className="aurora-stage-bars" aria-hidden>
+            {/* Mic-level bars — vertical columns flanking the ring
+                on BOTH sides for visual symmetry. Both columns are
+                driven by the same --mic-level CSS variable (set
+                via rAF on the parent ring) so they react in
+                perfect sync to whoever is talking. Mirrors the
+                "audio waveform spike" feel. */}
+            <div className="aurora-stage-bars aurora-stage-bars-left" aria-hidden>
               <i /><i /><i /><i /><i /><i /><i />
             </div>
+            <div className="aurora-stage-bars aurora-stage-bars-right" aria-hidden>
+              <i /><i /><i /><i /><i /><i /><i />
+            </div>
+            {/* Echo rings — three concentric rings that scale outward
+                on every audio peak. Reads as "the sound is rippling
+                away from the orb." Pure CSS-driven by --audio-level,
+                no JS needed. The rings live just outside the radar
+                bezel so they don't clash with the inner ring border. */}
+            <div className="aurora-stage-echo aurora-stage-echo-1" aria-hidden />
+            <div className="aurora-stage-echo aurora-stage-echo-2" aria-hidden />
+            <div className="aurora-stage-echo aurora-stage-echo-3" aria-hidden />
             {/* Clock above the ring. */}
             <span className="aurora-stage-clock" aria-hidden>{hudClock}</span>
             {/* Status word below the ring. */}

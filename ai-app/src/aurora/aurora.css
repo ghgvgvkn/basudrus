@@ -48,21 +48,23 @@
      to feel JARVIS-y (slight overshoot at the start, settles cleanly). */
   transition: transform 700ms cubic-bezier(.2,.85,.3,1);
 }
-/* VOICE MODE — orb condenses into the HUD ring.
-   Founder screenshot showed the previous attempt (scale 1.04) made
-   the orb fill the entire viewport and visually swallow Tony's text
-   below it. Fix: animate the canvas DOWN to ~45% scale on voice
-   activation so the dots visibly condense into the ring frame and
-   leave proper room below for text + artifact cards.
-
-   transform-origin: center means the canvas shrinks toward its own
-   center — which is also where the HUD ring lives — so the dots
-   look like they're "going into the ring." */
+/* VOICE MODE — orb condenses into the HUD ring AND breathes with
+   sound. Resting scale is 0.45 (founder feedback: shrink the orb so
+   it fits inside the HUD frame). On top of that we add a live
+   audio-level bonus so the orb visibly INFLATES when the user OR
+   Tony is speaking. Total scale: 0.45 → ~0.54 at peak volume.
+   --audio-level is set per-frame by the AuroraAIScreen rAF loop;
+   combines mic level and TTS playback into a single 0..1 value with
+   smoothed attack/release. */
 body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix {
-  transform: scale(0.45);
+  transform: scale(calc(0.45 + var(--audio-level, 0) * 0.09));
   transform-origin: 50% 42%;
+  /* Long base transition for the entry animation; the rAF loop
+     overrides this with rapid scale changes during voice mode and
+     the GPU compositor catches up frame-by-frame regardless. */
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
+  filter: brightness(calc(1 + var(--audio-level, 0) * 0.20));
 }
 
 /* HARD-HIDE the conventional chrome in voice mode. Using display: none
@@ -87,11 +89,13 @@ body.aurora-presenting-right .aurora-app .aurora-back-btn {
   display: none !important;
 }
 /* Vignette deepens while presenting so the orb + stage have more
-   visual weight against the background. */
+   visual weight against the background. ALSO reacts to audio-level
+   — the dark vignette LIFTS slightly when audio is loud, like the
+   orb is throwing light off into the room. */
 body.aurora-presenting-left .aurora-app .aurora-vignette,
 body.aurora-presenting-right .aurora-app .aurora-vignette {
-  opacity: 1.3;
-  transition: opacity 700ms ease;
+  opacity: calc(1.3 - var(--audio-level, 0) * 0.35);
+  transition: opacity 120ms linear;
 }
 /* Vignette fades out when presenting so the bright A4 paper has
    more visual contrast — the dim background no longer competes. */
@@ -169,7 +173,9 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
 /* Inner cyan border line — frames the orb. Significantly brighter
    than the corner-mode version because at this scale the bright
    orb dots wash out any subtle stroke. 1.5px stroke + brighter
-   color + thicker glow halo all combine to keep the ring visible. */
+   color + thicker glow halo all combine to keep the ring visible.
+   The ring SCALES outward with audio-level — visible "punch"
+   on every loud syllable. Glow halo also intensifies. */
 .aurora-app .aurora-stage-ring-inner {
   position: absolute;
   inset: 6%;
@@ -181,6 +187,13 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
     inset 0 0 36px rgba(140,200,255,0.22);
   pointer-events: none;
   animation: aurora-stage-pulse 3.6s ease-in-out infinite;
+  transform: scale(calc(1 + var(--audio-level, 0) * 0.06));
+  transition: transform 80ms linear, box-shadow 120ms linear, border-color 120ms linear;
+}
+/* Audio-reactive glow overlay — when sound is loud, the ring
+   border brightens dramatically. Driven entirely by --audio-level. */
+body[style*="--audio-level"] .aurora-stage-ring-inner {
+  filter: brightness(calc(1 + var(--audio-level, 0) * 0.55));
 }
 @keyframes aurora-stage-pulse {
   0%, 100% {
@@ -226,7 +239,50 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
     );
   -webkit-mask: radial-gradient(circle, transparent 0%, transparent 92%, black 93%, black 98%, transparent 99%);
   mask: radial-gradient(circle, transparent 0%, transparent 92%, black 93%, black 98%, transparent 99%);
-  filter: drop-shadow(0 0 6px rgba(140,200,255,0.45));
+  filter: drop-shadow(0 0 calc(6px + var(--audio-level, 0) * 12px) rgba(140,200,255, calc(0.45 + var(--audio-level, 0) * 0.40)));
+  transition: filter 100ms linear;
+}
+
+/* Echo rings — three concentric circular borders that scale outward
+   when audio is loud, like sound rippling away from the orb. Each
+   ring is a thin cyan border that breathes outward on loud peaks.
+   Always faintly pulsing even at rest so the UI never looks static.
+
+   --audio-level (0..1) drives BOTH scale and opacity:
+     - scale: rings expand outward at peak volume
+     - opacity: rings brighten at peak volume
+   Each ring is slightly offset in base scale + animation phase so
+   they don't pulse in lockstep — feels like a real waveform, not a
+   metronome. */
+.aurora-app .aurora-stage-echo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 0.5px solid rgba(140,200,255,0.30);
+  pointer-events: none;
+  transition: transform 100ms linear, opacity 100ms linear, border-color 100ms linear;
+}
+.aurora-app .aurora-stage-echo-1 {
+  transform: scale(calc(1.05 + var(--audio-level, 0) * 0.10));
+  opacity: calc(0.55 + var(--audio-level, 0) * 0.45);
+  border-color: rgba(170,220,255, calc(0.40 + var(--audio-level, 0) * 0.40));
+  animation: aurora-echo-breathe 3.8s ease-in-out infinite;
+}
+.aurora-app .aurora-stage-echo-2 {
+  transform: scale(calc(1.12 + var(--audio-level, 0) * 0.14));
+  opacity: calc(0.35 + var(--audio-level, 0) * 0.50);
+  border-color: rgba(140,200,255, calc(0.25 + var(--audio-level, 0) * 0.45));
+  animation: aurora-echo-breathe 4.4s 0.4s ease-in-out infinite;
+}
+.aurora-app .aurora-stage-echo-3 {
+  transform: scale(calc(1.20 + var(--audio-level, 0) * 0.18));
+  opacity: calc(0.20 + var(--audio-level, 0) * 0.55);
+  border-color: rgba(140,200,255, calc(0.18 + var(--audio-level, 0) * 0.45));
+  animation: aurora-echo-breathe 5.2s 0.8s ease-in-out infinite;
+}
+@keyframes aurora-echo-breathe {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
 }
 
 /* Slow-spinning sweep arc — sits between the inner ring border
@@ -309,12 +365,18 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
 .aurora-app .aurora-stage-bars {
   position: absolute;
   top: 50%;
-  left: -38px;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+.aurora-app .aurora-stage-bars-left {
+  left: -46px;
   align-items: flex-end;
+}
+.aurora-app .aurora-stage-bars-right {
+  right: -46px;
+  align-items: flex-start;
 }
 .aurora-app .aurora-stage-bars i {
   display: block;
@@ -324,34 +386,40 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   box-shadow: 0 0 6px rgba(140,200,255,0.55);
   transition: opacity 120ms linear, width 100ms ease-out;
 }
+/* Bar widths react MORE dramatically — multipliers doubled from
+   the founder's first pass so audio peaks visibly punch the bars
+   outward instead of just nudging them. The middle bars are the
+   tallest (classic "VU meter" or waveform-spike profile). */
 .aurora-app .aurora-stage-bars i:nth-child(1) {
-  width: calc(10px + var(--mic-level, 0) * 14px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(8px + var(--mic-level, 0) * 28px);
+  opacity: calc(0.35 + var(--mic-level, 0) * 0.65);
 }
 .aurora-app .aurora-stage-bars i:nth-child(2) {
-  width: calc(13px + var(--mic-level, 0) * 17px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(12px + var(--mic-level, 0) * 34px);
+  opacity: calc(0.35 + var(--mic-level, 0) * 0.65);
 }
 .aurora-app .aurora-stage-bars i:nth-child(3) {
-  width: calc(16px + var(--mic-level, 0) * 20px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(16px + var(--mic-level, 0) * 40px);
+  opacity: calc(0.35 + var(--mic-level, 0) * 0.65);
 }
 .aurora-app .aurora-stage-bars i:nth-child(4) {
-  width: calc(18px + var(--mic-level, 0) * 22px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(20px + var(--mic-level, 0) * 44px);
+  opacity: calc(0.40 + var(--mic-level, 0) * 0.60);
 }
 .aurora-app .aurora-stage-bars i:nth-child(5) {
-  width: calc(16px + var(--mic-level, 0) * 20px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(16px + var(--mic-level, 0) * 40px);
+  opacity: calc(0.35 + var(--mic-level, 0) * 0.65);
 }
 .aurora-app .aurora-stage-bars i:nth-child(6) {
-  width: calc(13px + var(--mic-level, 0) * 17px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(12px + var(--mic-level, 0) * 34px);
+  opacity: calc(0.35 + var(--mic-level, 0) * 0.65);
 }
 .aurora-app .aurora-stage-bars i:nth-child(7) {
-  width: calc(10px + var(--mic-level, 0) * 14px);
-  opacity: calc(0.30 + var(--mic-level, 0) * 0.70);
+  width: calc(8px + var(--mic-level, 0) * 28px);
+  opacity: calc(0.35 + var(--mic-level, 0) * 0.65);
 }
+/* Mirror set of bars on the RIGHT side of the ring for symmetry
+   — driven by the SAME --mic-level variable so they move in sync. */
 
 /* Dismiss button — floats top-right of the stage. */
 .aurora-app .aurora-stage-close {

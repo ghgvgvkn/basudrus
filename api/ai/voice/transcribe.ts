@@ -153,9 +153,20 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   if (!result.ok) {
+    // Surface the underlying error message back to the client so the
+    // founder/users can see WHAT actually failed (auth / format /
+    // ElevenLabs 5xx / network). Previously we returned a flat
+    // "Transcription failed" which was impossible to debug from the
+    // user side. The detail string is already capped to 200 chars
+    // upstream in the ElevenLabs client, so we won't leak verbose
+    // server internals.
     return jsonResponse(
       result.status && result.status >= 400 && result.status < 600 ? result.status : 502,
-      { ok: false, error: "Transcription failed", code: result.status },
+      {
+        ok: false,
+        error: result.error || "Transcription failed",
+        code: result.status,
+      },
       sHeaders,
     );
   }
