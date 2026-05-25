@@ -49,20 +49,21 @@
   transition: transform 700ms cubic-bezier(.2,.85,.3,1);
 }
 /* VOICE MODE — orb condenses into the HUD ring AND breathes with
-   sound. Resting scale is 0.45 (founder feedback: shrink the orb so
-   it fits inside the HUD frame). On top of that we add a live
-   audio-level bonus so the orb visibly INFLATES when the user OR
-   Tony is speaking. Total scale: 0.45 → ~0.54 at peak volume.
-   --audio-level is set per-frame by the AuroraAIScreen rAF loop;
-   combines mic level and TTS playback into a single 0..1 value with
-   smoothed attack/release. */
+   sound. Resting scale is 0.35 (founder feedback round 2: the orb
+   was still overlapping the text below it at 0.45 — needs to shrink
+   further so it sits CLEANLY inside the HUD ring with clear breathing
+   room below for Tony's words and the artifact cards). On top of
+   that we add a live audio-level bonus so the orb visibly INFLATES
+   when the user OR Tony is speaking. Total scale: 0.35 → ~0.41 at
+   peak volume. The peak boost is also smaller (0.06 vs 0.09) so the
+   orb never grows large enough to crash into the text again.
+   transform-origin: 50% 38% pulls the visual center slightly UP
+   so the shrunken orb sits in the upper portion of the screen,
+   giving the text below it even more clearance. */
 body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix {
-  transform: scale(calc(0.45 + var(--audio-level, 0) * 0.09));
-  transform-origin: 50% 42%;
-  /* Long base transition for the entry animation; the rAF loop
-     overrides this with rapid scale changes during voice mode and
-     the GPU compositor catches up frame-by-frame regardless. */
+  transform: scale(calc(0.35 + var(--audio-level, 0) * 0.06));
+  transform-origin: 50% 38%;
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
   filter: brightness(calc(1 + var(--audio-level, 0) * 0.20));
 }
@@ -153,13 +154,13 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
    All pointer-events: none — clicks pass through to the orb. */
 .aurora-app .aurora-stage-ring {
   position: relative;
-  /* Sized to match the canvas's natural orb at scale(0.45) — the
-     orb is roughly 80vmin wide at full scale, so 80vmin × 0.45 ≈
-     36vmin. We make the ring slightly larger (44vmin) so the
-     border frames the orb with a small gap of breathing room
-     between the dots and the ring border. */
-  width: clamp(360px, 44vmin, 520px);
-  height: clamp(360px, 44vmin, 520px);
+  /* Sized to match the canvas's natural orb at scale(0.35) — the
+     orb is roughly 80vmin wide at full scale, so 80vmin × 0.35 ≈
+     28vmin. We make the ring slightly larger (36vmin) so the border
+     frames the orb with a small gap of breathing room between the
+     dots and the ring border. */
+  width: clamp(300px, 36vmin, 440px);
+  height: clamp(300px, 36vmin, 440px);
   flex-shrink: 0;
   pointer-events: none;
   border-radius: 50%;
