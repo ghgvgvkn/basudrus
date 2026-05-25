@@ -744,6 +744,21 @@ export function AuroraAIScreen() {
     voiceSessionGenRef.current += 1;
     voiceModeActiveRef.current = true;
     setVoiceModeActive(true);
+    // WAKE-UP ANIMATION — founder feedback was that clicking the
+    // mic produced no visible reaction beyond the chrome fading.
+    // Fire a sequence of pulses from the orb center so the dots
+    // visibly "wake up" + a spark for extra punch. The orb is
+    // dead-center on screen so we pulse at (50vw, 50vh).
+    auroraRef.current?.pulseFromAll(0.9);
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    auroraRef.current?.pulse(cx, cy, 0.95);
+    auroraRef.current?.spark(cx, cy, 26);
+    // A second smaller pulse a beat later so the orb feels alive
+    // beyond a single flash.
+    window.setTimeout(() => {
+      auroraRef.current?.pulse(cx, cy, 0.55);
+    }, 320);
     // Fire-and-forget; beginListening surfaces errors directly into
     // the chat thread now (see the result.ok check inside it).
     void beginListening().then(() => {
@@ -997,7 +1012,10 @@ export function AuroraAIScreen() {
     inputRef.current?.focus();
   }, [shutdownVoiceMode]);
 
-  // ⌘A / Ctrl+A toggles voice mode
+  // ⌘A / Ctrl+A toggles voice mode. Esc closes voice mode entirely
+  // (now uses the same hard-shutdown as the dismiss button so the
+  // mic actually releases — previous behavior only deactivated the
+  // canvas which left the mic recording silently).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const inField = document.activeElement === inputRef.current;
@@ -1005,13 +1023,17 @@ export function AuroraAIScreen() {
         e.preventDefault();
         auroraRef.current?.toggle();
       }
-      if (e.key === "Escape" && auroraRef.current?.state() !== "idle") {
-        auroraRef.current?.deactivate();
+      if (e.key === "Escape") {
+        if (voiceModeActiveRef.current) {
+          shutdownVoiceMode();
+        } else if (auroraRef.current?.state() !== "idle") {
+          auroraRef.current?.deactivate();
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [shutdownVoiceMode]);
 
   // ── Computed values for the chrome ────────────────────────────────
   const isPro = subscription.tier === "pro";
@@ -1051,212 +1073,176 @@ export function AuroraAIScreen() {
       <AuroraCanvas ref={auroraRef} />
       <div className="aurora-vignette" />
 
-      {/* Presentation panel — JARVIS-style HUD overlay. Slides in
-          from the right while Tony is speaking, showing what he's
-          saying as readable text. Closes when audio stops. The
-          canvas itself slides left (via the body.aurora-presenting-left
-          class) to make visual room. Reserved for future: a
-          mirror-image panel on the LEFT when Tony shows 3D/map
-          content (body.aurora-presenting-right). */}
+      {/* JARVIS CENTER STAGE — voice mode redesign.
+          The A4 paper concept is GONE (founder feedback: "delete the
+          four paper because I don't find it nice or bring anything").
+          The orb stays in the CENTER of the screen and IS the experience.
+          Around/under it we render a HUD ring (clock, status, mic
+          level), Tony's words as floating glowing typography, and any
+          artifact cards (photo, map, stat, data, quote) as a floating
+          row beneath the text — all sitting in dark space, no paper
+          underneath.
+
+          The full-screen orb canvas stays running BEHIND this stage —
+          we don't shrink it to a corner anymore. The stage layer
+          floats on top via z-index, all elements positioned absolutely
+          so the orb gets to breathe behind the text. */}
       {isPresenting && (
-        <>
-          <div className={`aurora-present-panel aurora-present-${presentingSide}`}>
-            {/* HUD scan-line sweep — animates top→bottom once on
-                paper open, like a JARVIS scanner reading the page
-                into existence. CSS-only, purely decorative. */}
-            <div className="aurora-scanline" aria-hidden />
-            <div className="aurora-present-header">
-              <div className="aurora-present-dot" />
-              <span className="aurora-present-label">
-                TONY · {voice.isSpeaking
-                  ? "SPEAKING"
-                  : voice.isListening
-                    ? "LISTENING"
-                    : "ACTIVE"}
-              </span>
-              {/* HUD timestamp — small static-looking label gives
-                  the paper a "live document" feel. Updates every
-                  render so it stays current without an interval. */}
-              <span className="aurora-present-time" aria-hidden>
-                {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </span>
-              {/* Dismiss button — closes voice mode and the panel.
-                  Uses shutdownVoiceMode (already used by Dismiss
-                  button in voice-mode UI + on navigation) so the
-                  cleanup is consistent: mic released, TTS stopped,
-                  canvas reset. */}
-              <button
-                type="button"
-                className="aurora-present-close"
-                onClick={shutdownVoiceMode}
-                aria-label="Close voice mode"
-                title="Close voice mode"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            {/* Image rendered above the text when Tony emitted a
-                <<<SHOW:query>>> block AND Wikipedia returned a
-                thumbnail. Silent failure: no broken-image icon if
-                the lookup fails, just text only. This is the
-                "live SmartBoard" — Tony talks about something
-                visual, the picture appears above his words. */}
-            {presentingImage && (
-              <div className="aurora-present-image-wrap">
-                <img
-                  src={presentingImage}
-                  alt={presenting.show?.query ?? ""}
-                  className="aurora-present-image"
-                  loading="eager"
-                />
-              </div>
-            )}
-            {/* Map rendered when Tony emitted a <<<MAP:place>>>
-                block AND Mapbox returned a static image. Sits below
-                the photo (if both present), or alone if only a map
-                was requested. Dark-themed map matches the JARVIS
-                aesthetic; framed identically to the photo so the
-                page composition stays unified. */}
-            {presentingMap && (
-              <div className="aurora-present-image-wrap aurora-present-map-wrap">
-                <img
-                  src={presentingMap}
-                  alt={presenting.map?.query ?? ""}
-                  className="aurora-present-image"
-                  loading="eager"
-                />
-                {presenting.map?.query && (
-                  <span className="aurora-present-map-label" aria-hidden>
-                    {presenting.map.query.toUpperCase()}
-                  </span>
-                )}
-              </div>
-            )}
-            {/* STAT tile — one striking number. Renders only when
-                Tony emitted a <<<STAT:...>>> block. */}
-            {presenting.stat && (
-              <div className="aurora-present-stat">
-                <span className="aurora-present-stat-label">
-                  {presenting.stat.label}
-                </span>
-                <span className="aurora-present-stat-big">
-                  {presenting.stat.big}
-                </span>
-                {presenting.stat.sub && (
-                  <span className="aurora-present-stat-sub">
-                    {presenting.stat.sub}
-                  </span>
-                )}
-              </div>
-            )}
-            {/* DATA card — compact key-value table. Up to ~5 rows
-                in practice. Cyan separators between rows. */}
-            {presenting.data && (
-              <div className="aurora-present-data">
-                <span className="aurora-present-data-title">
-                  {presenting.data.title}
-                </span>
-                <dl className="aurora-present-data-rows">
-                  {presenting.data.rows.map((r, i) => (
-                    <div className="aurora-present-data-row" key={i}>
-                      <dt>{r.key}</dt>
-                      <dd>{r.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            )}
-            {/* QUOTE callout — large italic with cyan accent bar. */}
-            {presenting.quote && (
-              <blockquote className="aurora-present-quote">
-                <span className="aurora-present-quote-text">
-                  &ldquo;{presenting.quote.text}&rdquo;
-                </span>
-                {presenting.quote.attribution && (
-                  <cite className="aurora-present-quote-attr">
-                    — {presenting.quote.attribution}
-                  </cite>
-                )}
-              </blockquote>
-            )}
-            <div className="aurora-present-body">
-              {presentingThinking ? (
-                <div className="aurora-present-thinking" aria-live="polite">
-                  <span className="aurora-present-thinking-dots">
-                    <i /><i /><i />
-                  </span>
-                  <span className="aurora-present-thinking-text">
-                    {voice.isTranscribing
-                      ? "Listening to you…"
-                      : "Tony is thinking…"}
-                  </span>
-                </div>
-              ) : presentingText ? (
-                presentingText
-              ) : (
-                <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>
-                  Tap the mic and start talking — Tony will write his replies here.
-                </span>
-              )}
-            </div>
-          </div>
-          {/* JARVIS-style HUD around the shrunken orb. The dot-matrix
-              animates INSIDE this frame; everything around it is the
-              status reader-out (clock, level meter, status word,
-              radar tick marks). Pure decoration — pointer-events:none
-              throughout so it never intercepts clicks on the orb or
-              the canvas behind it. CSS variable --mic-level is set
-              every frame via requestAnimationFrame in the effect
-              above; the 5 vertical bars on the left react to it
-              live.
-              Sync: ring pulse + bar palette react to voice.isSpeaking
-              so users get a clear visual "Tony is talking now"
-              indicator without having to read the status label. */}
+        <div className="aurora-stage" aria-live="polite">
+          {/* HUD frame that wraps the orb — sits at the center,
+              concentric with the main canvas orb. Pure SVG/CSS,
+              no positioning math against the canvas (the canvas
+              centers itself on viewport; so does this).
+              Contains: clock, status word, mic-level signal bars,
+              brand label, dismiss button, radar tick marks. */}
           <div
             ref={jarvisRingRef}
-            className={`aurora-jarvis-ring aurora-jarvis-${presentingSide}${voice.isSpeaking ? " is-speaking" : ""}${voice.isListening ? " is-listening" : ""}`}
-            aria-hidden
+            className={`aurora-stage-ring${voice.isSpeaking ? " is-speaking" : ""}${voice.isListening ? " is-listening" : ""}`}
           >
-            {/* Radar tick marks — 12 ticks at 30° intervals around
-                the ring (CSS conic-gradient), gives the orb a
-                "reactor / radar dish" feel. */}
-            <div className="aurora-jarvis-radar" />
-            {/* Slow rotating cyan sweep arc — like a radar scanner. */}
-            <div className="aurora-jarvis-sweep" />
-            {/* CSS mini-orb — replaces the old approach of
-                scaling/translating the full-viewport canvas into
-                the ring (which drifted out of alignment + cost
-                GPU). Pure CSS: pulsing core + two orbital rings
-                of dots rotating in opposite directions. Reads as
-                "the orb is still alive in there" without any
-                canvas work, and lands EXACTLY centered every
-                time. Driven by --mic-level so the core breathes
-                harder when the user's voice is loud. */}
-            <div className="aurora-mini-orb">
-              <div className="aurora-mini-orb-core" />
-              <div className="aurora-mini-orb-ring aurora-mini-orb-ring-a">
-                <i /><i /><i /><i /><i />
-              </div>
-              <div className="aurora-mini-orb-ring aurora-mini-orb-ring-b">
-                <i /><i /><i />
-              </div>
+            {/* 12-tick radar bezel around the orb. */}
+            <div className="aurora-stage-radar" aria-hidden />
+            {/* Slow-spinning cyan sweep arc inside the bezel. */}
+            <div className="aurora-stage-sweep" aria-hidden />
+            {/* Inner thin border ring — visually frames the orb. */}
+            <div className="aurora-stage-ring-inner" aria-hidden />
+            {/* Mic-level bars — vertical column on the LEFT of
+                the ring. Driven by --mic-level via rAF (see effect
+                above). */}
+            <div className="aurora-stage-bars" aria-hidden>
+              <i /><i /><i /><i /><i /><i /><i />
             </div>
-            {/* Live clock — ticks 1Hz. Above the ring. */}
-            <span className="aurora-jarvis-clock">{hudClock}</span>
-            {/* Mic-level bars — 5 vertical bars on the LEFT side
-                of the ring. Each bar's width + opacity is driven
-                from --mic-level (0..1) via CSS calc(). */}
-            <div className="aurora-jarvis-bars">
-              <i /><i /><i /><i /><i />
-            </div>
-            {/* Brand label below the ring. */}
-            <span className="aurora-jarvis-text">TONY</span>
-            {/* Status word — even smaller, below the brand label. */}
-            <span className="aurora-jarvis-status">{hudStatus}</span>
+            {/* Clock above the ring. */}
+            <span className="aurora-stage-clock" aria-hidden>{hudClock}</span>
+            {/* Status word below the ring. */}
+            <span className="aurora-stage-status" aria-hidden>{hudStatus}</span>
+            {/* Brand label, mono caps, below status. */}
+            <span className="aurora-stage-brand" aria-hidden>TONY · STARRK</span>
           </div>
-        </>
+
+          {/* Dismiss button — top-right of the stage. Floats over
+              everything. Closes voice mode entirely. */}
+          <button
+            type="button"
+            className="aurora-stage-close"
+            onClick={shutdownVoiceMode}
+            aria-label="Close voice mode"
+            title="Close voice mode (Esc)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+            <span>Close</span>
+          </button>
+
+          {/* TONY'S WORDS — floating glowing typography below the
+              orb. No paper. No card. Just the words breathing in
+              dark space, like JARVIS speaking onscreen. Cyan glow
+              ties into the rest of the HUD palette. Auto-fades
+              long replies behind a gradient mask so even a paragraph
+              feels light. */}
+          <div className="aurora-stage-text-wrap">
+            {presentingThinking ? (
+              <div className="aurora-stage-thinking" aria-live="polite">
+                <span className="aurora-stage-thinking-dots">
+                  <i /><i /><i />
+                </span>
+                <span className="aurora-stage-thinking-text">
+                  {voice.isTranscribing
+                    ? "Listening to you"
+                    : "Tony is thinking"}
+                </span>
+              </div>
+            ) : presentingText ? (
+              <p className="aurora-stage-text">{presentingText}</p>
+            ) : (
+              <p className="aurora-stage-text aurora-stage-text-idle">
+                Tap the mic and talk — Tony's reply will appear here.
+              </p>
+            )}
+          </div>
+
+          {/* ARTIFACT ROW — floating horizontal lineup of any
+              media cards Tony emitted. Photo / map / stat / data
+              / quote — only the ones present render, in a flex
+              row, equal heights. Empty row when Tony's reply has
+              no artifacts (most replies). All cards are semi-
+              transparent dark glass — matches the JARVIS
+              holographic feel, no white paper backgrounds. */}
+          {(presentingImage || presentingMap || presenting.stat || presenting.data || presenting.quote) && (
+            <div className="aurora-stage-cards">
+              {presentingImage && (
+                <div className="aurora-stage-card aurora-stage-card-photo">
+                  <img
+                    src={presentingImage}
+                    alt={presenting.show?.query ?? ""}
+                    loading="eager"
+                  />
+                  {presenting.show?.query && (
+                    <span className="aurora-stage-card-label">
+                      {presenting.show.query.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              )}
+              {presentingMap && (
+                <div className="aurora-stage-card aurora-stage-card-map">
+                  <img
+                    src={presentingMap}
+                    alt={presenting.map?.query ?? ""}
+                    loading="eager"
+                  />
+                  {presenting.map?.query && (
+                    <span className="aurora-stage-card-label">
+                      {presenting.map.query.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              )}
+              {presenting.stat && (
+                <div className="aurora-stage-card aurora-stage-card-stat">
+                  <span className="aurora-stage-card-label">
+                    {presenting.stat.label}
+                  </span>
+                  <span className="aurora-stage-stat-big">
+                    {presenting.stat.big}
+                  </span>
+                  {presenting.stat.sub && (
+                    <span className="aurora-stage-stat-sub">
+                      {presenting.stat.sub}
+                    </span>
+                  )}
+                </div>
+              )}
+              {presenting.data && (
+                <div className="aurora-stage-card aurora-stage-card-data">
+                  <span className="aurora-stage-card-label">
+                    {presenting.data.title}
+                  </span>
+                  <dl className="aurora-stage-data-rows">
+                    {presenting.data.rows.map((r, i) => (
+                      <div className="aurora-stage-data-row" key={i}>
+                        <dt>{r.key}</dt>
+                        <dd>{r.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
+              {presenting.quote && (
+                <blockquote className="aurora-stage-card aurora-stage-card-quote">
+                  <span className="aurora-stage-quote-text">
+                    &ldquo;{presenting.quote.text}&rdquo;
+                  </span>
+                  {presenting.quote.attribution && (
+                    <cite className="aurora-stage-quote-attr">
+                      — {presenting.quote.attribution}
+                    </cite>
+                  )}
+                </blockquote>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="aurora-ui">
