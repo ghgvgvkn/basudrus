@@ -11,6 +11,63 @@
 
 /* Fonts loaded from Google Fonts via <link> in index.html */
 
+/* ═══════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — colors only. Aurora's full "Cool Intelligence"
+   palette as recommended by the JARVIS color study. Centralizing
+   colors here means future palette tweaks are a one-line config
+   change instead of a 30-file hex hunt.
+
+   Why these specific values:
+   - Text is #F1F5F9 (off-white), NOT #ffffff. Pure-white-on-black
+     creates a halation/vibration effect for users with astigmatism.
+     This is Material Design's standard dark-mode text color.
+   - Cyan accent is #22D3EE (electric) instead of our previous
+     muted #8CC8FF. Brighter cyan reads as "computer / JARVIS"
+     more strongly against the deep navy background; the muted
+     version was reading as "blue" generally.
+   - Violet #A855F7 is RESERVED for the THINKING state only.
+     Purple has become the "AI gradient cliché" — Tailwind's own
+     indigo-500 default trained generative tools to overuse it.
+     We use it sparingly, exactly where it's earned.
+   - Semantic state colors (success/warning/error) for future
+     hooks where we need to signal those clearly. */
+.aurora-app {
+  /* Background layer (60% of the visual weight) */
+  --aurora-bg-base:      #0A0F1A;  /* near-black with a hint of blue */
+  --aurora-bg-surface:   #111827;  /* card / panel surfaces */
+  --aurora-bg-elevated:  #1E293B;  /* modals, popovers */
+
+  /* Text (against the dark base) */
+  --aurora-text-primary:    #F1F5F9;  /* body — soft white, NO halation */
+  --aurora-text-secondary:  #94A3B8;  /* secondary captions */
+  --aurora-text-tertiary:   #64748B;  /* tertiary labels */
+  --aurora-text-dark:       #0E1622;  /* used on Liquid Glass surfaces */
+
+  /* Accent — the JARVIS cyan (10% of visual weight) */
+  --aurora-accent:         #22D3EE;  /* electric cyan — primary */
+  --aurora-accent-glow:    #67E8F9;  /* brighter glow tint for bloom */
+  --aurora-accent-deep:    #0891B2;  /* darker rim / shadow */
+  /* Soft alphas of the accent for box-shadow glows. The 8/24/40/55
+     scale gives consistent halo intensities across components. */
+  --aurora-accent-08: rgba(34, 211, 238, 0.08);
+  --aurora-accent-20: rgba(34, 211, 238, 0.20);
+  --aurora-accent-35: rgba(34, 211, 238, 0.35);
+  --aurora-accent-55: rgba(34, 211, 238, 0.55);
+  --aurora-accent-75: rgba(34, 211, 238, 0.75);
+
+  /* Voice / agent state colors (use these for the four-state
+     visual language: idle/listening/thinking/speaking) */
+  --aurora-state-idle:      #475569;  /* desaturated slate */
+  --aurora-state-listening: #22D3EE;  /* electric cyan */
+  --aurora-state-thinking:  #A855F7;  /* violet — used SPARINGLY */
+  --aurora-state-speaking:  #38BDF8;  /* slightly bluer cyan */
+
+  /* Semantic state colors — for future success/warning/error UI */
+  --aurora-success: #22C55E;
+  --aurora-warning: #F59E0B;
+  --aurora-error:   #EF4444;
+}
+
 /* DARK VOID — back to a black background that hosts the @huwprosser
    JARVIS arc-reactor look. Pure cream-white killed the cinematic
    tension; this design language fundamentally needs darkness to
@@ -24,7 +81,7 @@
   height: 100%;
   background:
     radial-gradient(ellipse at 50% 30%, #0a1020 0%, #050810 60%, #02040a 100%);
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   font-family: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -426,6 +483,23 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
 }
 .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-status {
   color: rgba(200,235,255,1);
+}
+/* THINKING state — color shifts to violet (--aurora-state-thinking).
+   This is the ONLY place we use purple, per the color study's
+   "AI purple gradient" warning. Violet specifically signals "I'm
+   processing your input" and matches the conventions Alexa /
+   ChatGPT Voice / Gemini all use for the processing-between-turns
+   moment. The status text + the inner ring stroke both shift. */
+.aurora-app .aurora-stage-ring.is-processing .aurora-stage-status {
+  color: var(--aurora-state-thinking);
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.55);
+}
+.aurora-app .aurora-stage-ring.is-processing .aurora-stage-ring-inner {
+  border-color: rgba(168, 85, 247, 0.85);
+  box-shadow:
+    0 0 40px rgba(168, 85, 247, 0.55),
+    0 0 80px rgba(168, 85, 247, 0.30),
+    inset 0 0 36px rgba(168, 85, 247, 0.22);
 }
 
 /* Mic-level signal bars — vertical column to the LEFT of the ring,
@@ -882,7 +956,7 @@ body.aurora-active .aurora-widgets {
   -webkit-backdrop-filter: blur(28px) saturate(160%);
   border: 0.5px solid rgba(255,255,255,0.24);
   border-radius: 999px;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -931,7 +1005,7 @@ body.aurora-active .aurora-back-btn {
   font-weight: 500;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   text-shadow: 0 0 18px rgba(255,255,255,0.40);
   opacity: 0;
   animation: aurora-fadeIn 1.4s 0.4s forwards;
@@ -943,7 +1017,7 @@ body.aurora-active .aurora-back-btn {
   background: rgba(255,255,255,0.5);
 }
 .aurora-app .aurora-top-bar .aurora-live {
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1067,7 +1141,7 @@ body.aurora-active .aurora-back-btn {
 .aurora-app .aurora-icon-btn:hover {
   background: rgba(255,255,255,0.08);
   border-color: rgba(255,255,255,0.24);
-  color: #ffffff;
+  color: var(--aurora-text-primary);
 }
 .aurora-app .aurora-icon-btn svg {
   width: 16px;
@@ -1436,7 +1510,7 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   font-size: 9px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   text-shadow: 0 0 12px rgba(255,255,255,0.45);
   padding: 0 4px;
 }
@@ -1515,7 +1589,7 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   border: 0.5px solid rgba(255,255,255,0.24);
   border-radius: 999px;
-  color: white;
+  color: var(--aurora-text-primary);
   font-size: 13.5px;
   opacity: 0;
   pointer-events: none;
@@ -1559,7 +1633,7 @@ body.aurora-active .aurora-app .aurora-status {
   transition: color 160ms;
 }
 .aurora-app .aurora-dismiss:hover {
-  color: #fff;
+  color: var(--aurora-text-primary);
 }
 
 /* ── Footer ─────────────────────────────────────────────────────── */
@@ -1601,7 +1675,7 @@ body.aurora-active .aurora-app .aurora-status {
   background: linear-gradient(135deg, rgba(255,138,166,0.28), rgba(196,184,255,0.20));
   border: 0.5px solid rgba(255,138,166,0.40);
   border-radius: 999px;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   font-family: 'Urbanist', sans-serif;
   font-size: 12.5px;
   font-weight: 500;
@@ -1706,7 +1780,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
      so the action stands out as a primary CTA. */
   background: rgba(14,22,34,0.85);
   border: 0.5px solid rgba(255,255,255,0.18);
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   font-size: 13.5px;
   font-weight: 500;
   cursor: pointer;
@@ -1956,7 +2030,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   -webkit-backdrop-filter: blur(8px);
   animation: aurora-fadeIn 200ms ease forwards;
   font-family: 'Urbanist', sans-serif;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
 }
 .aurora-signup-card {
   position: relative;
@@ -1996,7 +2070,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-signup-close:hover {
   background: rgba(255, 255, 255, 0.10);
-  color: #ffffff;
+  color: var(--aurora-text-primary);
 }
 
 .aurora-signup-header {
@@ -2016,7 +2090,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   font-weight: 500;
   letter-spacing: -0.01em;
   margin: 0;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
 }
 .aurora-signup-sub {
   margin-top: 6px;
@@ -2056,7 +2130,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   border-radius: 3px;
 }
 .aurora-signup-cross-domain-note strong {
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   font-weight: 600;
 }
 
@@ -2079,7 +2153,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
 .aurora-signup-pending-bubble {
   font-size: 13.5px;
   line-height: 1.5;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   word-wrap: break-word;
 }
 .aurora-signup-pending-foot {
@@ -2169,7 +2243,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   background: transparent;
   border: none;
   outline: none;
-  color: #ffffff;
+  color: var(--aurora-text-primary);
   font-family: 'Urbanist', sans-serif;
   font-size: 14px;
 }
@@ -2238,7 +2312,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   padding: 0;
 }
 .aurora-signup-toggle button:hover {
-  color: #ffffff;
+  color: var(--aurora-text-primary);
 }
 
 .aurora-signup-tos {

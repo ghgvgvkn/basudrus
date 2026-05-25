@@ -1404,7 +1404,7 @@ export function AuroraAIScreen() {
               brand label, dismiss button, radar tick marks. */}
           <div
             ref={jarvisRingRef}
-            className={`aurora-stage-ring${voice.isSpeaking ? " is-speaking" : ""}${voice.isListening ? " is-listening" : ""}`}
+            className={`aurora-stage-ring${voice.isSpeaking ? " is-speaking" : ""}${voice.isListening ? " is-listening" : ""}${voice.isTranscribing ? " is-processing" : ""}`}
           >
             {/* 12-tick radar bezel around the orb. */}
             <div className="aurora-stage-radar" aria-hidden />
