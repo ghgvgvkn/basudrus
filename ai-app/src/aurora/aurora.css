@@ -2393,22 +2393,13 @@ body.aurora-content-mode .aurora-app .aurora-stage-card-map img {
    transform/opacity-animated for compositor-only updates.
 */
 
-/* Hide ALL standard chrome while in lock-screen state */
-body.aurora-lock-screen .aurora-app .aurora-chat-bar,
-body.aurora-lock-screen .aurora-app .aurora-chat-thread,
-body.aurora-lock-screen .aurora-app .aurora-chat-rail,
-body.aurora-lock-screen .aurora-app .aurora-widgets,
-body.aurora-lock-screen .aurora-app .aurora-footer-info,
-body.aurora-lock-screen .aurora-app .aurora-top-bar,
-body.aurora-lock-screen .aurora-app .aurora-back-btn,
-body.aurora-lock-screen .aurora-app .aurora-status {
-  display: none !important;
-}
-/* And dim/hide the full-screen orb canvas — the ring IS the visual
-   in lock state. Canvas comes back the moment they engage. */
-body.aurora-lock-screen .aurora-app .aurora-matrix {
-  opacity: 0;
-}
+/* NO LONGER A LOCK SCREEN — the arc-reactor is now layered INSIDE
+   voice mode, alongside the dot orb. The standard chat / widgets /
+   history rail / footer all stay visible by default. Removing the
+   lock-screen takeover was an URGENT fix after founder feedback:
+   "We deleted everything before. Can you return the chat."
+   The .aurora-lock element renders only when voiceModeActive is
+   true (gated in AuroraAIScreen.tsx). */
 
 /* The lock container — full-viewport flex column, centered. */
 .aurora-app .aurora-lock {

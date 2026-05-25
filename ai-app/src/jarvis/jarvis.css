@@ -219,12 +219,117 @@
   }
 }
 
+/* ── Corner presence (voice-mode active during 3D view) ──────────
+   Small TONY STARRK arc-reactor in the bottom-right of the 3D
+   viewer. Reuses the visual language of the main aurora-lock-ring
+   so the user perceives one consistent "Tony is alive" presence
+   across the app. Pure CSS, GPU-cheap. */
+.jarvis-corner-presence {
+  position: absolute;
+  bottom: 28px;
+  right: 28px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  animation: jarvis-corner-in 600ms 200ms cubic-bezier(.2,.85,.3,1) both;
+}
+@keyframes jarvis-corner-in {
+  from { opacity: 0; transform: scale(0.85) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.jarvis-corner-ring {
+  position: relative;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.jarvis-corner-ring-inner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid rgba(140, 200, 255, 0.85);
+  box-shadow:
+    0 0 14px rgba(140, 200, 255, 0.55),
+    0 0 28px rgba(140, 200, 255, 0.25),
+    inset 0 0 12px rgba(140, 200, 255, 0.25);
+  animation: jarvis-corner-pulse 3.2s ease-in-out infinite;
+}
+@keyframes jarvis-corner-pulse {
+  0%, 100% {
+    border-color: rgba(140, 200, 255, 0.75);
+    box-shadow:
+      0 0 14px rgba(140, 200, 255, 0.50),
+      0 0 28px rgba(140, 200, 255, 0.20),
+      inset 0 0 12px rgba(140, 200, 255, 0.22);
+  }
+  50% {
+    border-color: rgba(190, 230, 255, 1);
+    box-shadow:
+      0 0 22px rgba(140, 200, 255, 0.75),
+      0 0 44px rgba(140, 200, 255, 0.35),
+      inset 0 0 18px rgba(140, 200, 255, 0.35);
+  }
+}
+.jarvis-corner-ring-ticks {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    conic-gradient(
+      from 0deg,
+      rgba(140, 200, 255, 0.85) 0deg, rgba(140, 200, 255, 0.85) 1deg, transparent 1deg, transparent 30deg,
+      rgba(140, 200, 255, 0.85) 30deg, rgba(140, 200, 255, 0.85) 31deg, transparent 31deg, transparent 60deg,
+      rgba(140, 200, 255, 0.85) 60deg, rgba(140, 200, 255, 0.85) 61deg, transparent 61deg, transparent 90deg,
+      rgba(140, 200, 255, 0.85) 90deg, rgba(140, 200, 255, 0.85) 91deg, transparent 91deg, transparent 120deg,
+      rgba(140, 200, 255, 0.85) 120deg, rgba(140, 200, 255, 0.85) 121deg, transparent 121deg, transparent 150deg,
+      rgba(140, 200, 255, 0.85) 150deg, rgba(140, 200, 255, 0.85) 151deg, transparent 151deg, transparent 180deg,
+      rgba(140, 200, 255, 0.85) 180deg, rgba(140, 200, 255, 0.85) 181deg, transparent 181deg, transparent 210deg,
+      rgba(140, 200, 255, 0.85) 210deg, rgba(140, 200, 255, 0.85) 211deg, transparent 211deg, transparent 240deg,
+      rgba(140, 200, 255, 0.85) 240deg, rgba(140, 200, 255, 0.85) 241deg, transparent 241deg, transparent 270deg,
+      rgba(140, 200, 255, 0.85) 270deg, rgba(140, 200, 255, 0.85) 271deg, transparent 271deg, transparent 300deg,
+      rgba(140, 200, 255, 0.85) 300deg, rgba(140, 200, 255, 0.85) 301deg, transparent 301deg, transparent 330deg,
+      rgba(140, 200, 255, 0.85) 330deg, rgba(140, 200, 255, 0.85) 331deg, transparent 331deg
+    );
+  -webkit-mask: radial-gradient(circle, transparent 0%, transparent 86%, black 88%, black 96%, transparent 98%);
+  mask: radial-gradient(circle, transparent 0%, transparent 86%, black 88%, black 96%, transparent 98%);
+  filter: drop-shadow(0 0 4px rgba(140, 200, 255, 0.45));
+}
+.jarvis-corner-ring-label {
+  position: relative;
+  z-index: 2;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  color: rgba(220, 240, 255, 1);
+  text-shadow:
+    0 0 10px rgba(140, 200, 255, 0.85),
+    0 0 20px rgba(140, 200, 255, 0.40);
+}
+.jarvis-corner-status {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.30em;
+  text-transform: uppercase;
+  color: rgba(180, 220, 255, 0.65);
+  text-shadow: 0 0 8px rgba(140, 200, 255, 0.40);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .jarvis-view,
   .jarvis-hud-corner,
   .jarvis-hud-header,
   .jarvis-hud-close,
-  .jarvis-hud-hint {
+  .jarvis-hud-hint,
+  .jarvis-corner-presence,
+  .jarvis-corner-ring-inner {
     animation: none !important;
   }
 }

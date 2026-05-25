@@ -96,9 +96,20 @@ export interface JarvisViewProps {
   modelKey: ModelKey;
   /** Closes the overlay. Wired to the dismiss button + Escape key. */
   onClose: () => void;
+  /** True when Aurora's voice mode is active in the background.
+   *  Drives the corner presence indicator — a small "TONY STARRK"
+   *  arc-reactor that appears bottom-right of the 3D viewer so the
+   *  user knows Tony is still alive in there while the model
+   *  takes the main stage. Founder request: "the 3-D model design
+   *  should be connected when he goes to the right corner." */
+  voiceActive?: boolean;
+  /** Tony's current voice state — drives the corner indicator's
+   *  status label (SPEAKING / LISTENING / READY). Optional; falls
+   *  back to a generic "ACTIVE" string when not provided. */
+  voiceStatus?: "speaking" | "listening" | "processing" | "ready";
 }
 
-export function JarvisView({ modelKey, onClose }: JarvisViewProps) {
+export function JarvisView({ modelKey, onClose, voiceActive, voiceStatus }: JarvisViewProps) {
   const meta = MODEL_REGISTRY[modelKey];
   const ModelComponent = meta.component;
 
@@ -135,6 +146,28 @@ export function JarvisView({ modelKey, onClose }: JarvisViewProps) {
         <div className="jarvis-hud-hint">
           Drag to rotate · Scroll to zoom
         </div>
+
+        {/* Corner presence — when voice mode is active in the
+            background, show a small TONY STARRK arc-reactor in the
+            bottom-right corner so the user knows the conversation
+            is still alive while the 3D model takes the main stage.
+            Pure CSS — matches the aesthetic of the main voice-mode
+            arc-reactor ring. */}
+        {voiceActive && (
+          <div className="jarvis-corner-presence" aria-hidden>
+            <div className="jarvis-corner-ring">
+              <div className="jarvis-corner-ring-inner" />
+              <div className="jarvis-corner-ring-ticks" />
+              <span className="jarvis-corner-ring-label">TONY</span>
+            </div>
+            <span className="jarvis-corner-status">
+              {voiceStatus === "speaking" ? "SPEAKING"
+                : voiceStatus === "listening" ? "LISTENING"
+                : voiceStatus === "processing" ? "PROCESSING"
+                : "READY"}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* The actual 3D scene */}

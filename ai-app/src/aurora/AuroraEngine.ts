@@ -60,6 +60,16 @@ interface Planet {
   hasRing?: boolean;
 }
 
+/**
+ * Dot tint — the color category each particle belongs to. Was just
+ * "tint" (=pink) | "white", but the founder asked for the Google
+ * Antigravity-inspired multi-color particle look — added cyan,
+ * purple, and gold so the dot field has the same colorful-confetti
+ * energy as the reference. Each tint maps to a fill+shadow color
+ * pair in the DOT_TINTS table below.
+ */
+type DotTint = "white" | "pink" | "cyan" | "purple" | "gold";
+
 interface Dot {
   hx: number;
   hy: number;
@@ -74,10 +84,44 @@ interface Dot {
   sz: number;
   R: number;
   swirl: number;
-  tint: "tint" | "white";
+  tint: DotTint;
   life: number;
   lifeTarget: number;
   lifeNext: number;
+}
+
+/**
+ * Color palette for dot tints. fill is the base rgb (alpha appended
+ * by the renderer per-frame); shadow is the glow color. Picked to
+ * sit naturally against the dark void background — none of them
+ * are pure-saturated so the field reads as a unified palette
+ * instead of a Skittles bag.
+ */
+const DOT_TINTS: Record<DotTint, { fill: string; shadow: string }> = {
+  white:  { fill: "255,255,255", shadow: "rgba(255,255,255,0.9)" },
+  pink:   { fill: "255,210,225", shadow: "rgba(255,180,210,0.9)" },
+  cyan:   { fill: "180,225,255", shadow: "rgba(140,200,255,0.95)" },
+  purple: { fill: "220,200,255", shadow: "rgba(180,150,255,0.9)" },
+  gold:   { fill: "255,230,170", shadow: "rgba(255,200,120,0.9)" },
+};
+
+/**
+ * Weighted random tint picker. Most dots are white (the field
+ * should read as a coherent grid first, with colored "punctuation"
+ * second). Total weights = 100 for easy mental math:
+ *   85% white  — bulk of the field
+ *   4%  pink   — preserves the original tint accent
+ *   4%  cyan   — ties into the JARVIS HUD palette
+ *   4%  purple — Antigravity-style accent
+ *   3%  gold   — rare warm punctuation
+ */
+function pickTint(): DotTint {
+  const r = Math.random() * 100;
+  if (r < 85) return "white";
+  if (r < 89) return "pink";
+  if (r < 93) return "cyan";
+  if (r < 97) return "purple";
+  return "gold";
 }
 
 // Performance + design knobs.
@@ -319,7 +363,7 @@ export class AuroraEngine {
           sz: 0,
           R: 0,
           swirl: Math.random() * 2 - 1,
-          tint: Math.random() < 0.04 ? "tint" : "white",
+          tint: pickTint(),
           life: 1,
           lifeTarget: 1,
           lifeNext: 0,
@@ -581,11 +625,14 @@ export class AuroraEngine {
         calmDots ? Math.min(blur, 2) :
         inOrbMode && !isFrontFacing ? 0 :
         blur;
-      ctx.shadowColor = d.tint === "tint" ? "rgba(255,180,210,0.9)" : "rgba(255,255,255,0.9)";
-      ctx.fillStyle =
-        d.tint === "tint"
-          ? `rgba(255,210,225,${finalA.toFixed(3)})`
-          : `rgba(255,255,255,${finalA.toFixed(3)})`;
+      // Multi-tint palette lookup. Each dot's tint is set once at
+      // creation by pickTint() (~85% white, 15% colored mix). The
+      // table-driven lookup keeps the hot loop branch-free —
+      // important because this runs once per dot per frame across
+      // ~4000 dots.
+      const palette = DOT_TINTS[d.tint];
+      ctx.shadowColor = palette.shadow;
+      ctx.fillStyle = `rgba(${palette.fill},${finalA.toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(x, y, finalR, 0, Math.PI * 2);
       ctx.fill();

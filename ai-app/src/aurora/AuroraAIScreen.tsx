@@ -1274,28 +1274,20 @@ export function AuroraAIScreen() {
   }, [shutdownVoiceMode]);
 
   // ── Computed values for the chrome ────────────────────────────────
-  // Lock-screen / boot-screen state — the @huwprosser JARVIS look.
-  // True when the user has just arrived and hasn't engaged yet (no
-  // messages, no voice, no focus mode). When true, we render the
-  // big arc-reactor ring centered on screen and hide all conventional
-  // chrome (chat bar / widgets / rail / footer). The moment they
-  // type, send, or tap mic, focusMode becomes true → the lock state
-  // ends → standard Aurora chrome fades in.
-  const isLockScreen = !focusMode && !voiceModeActive && messages.length === 0;
-  useEffect(() => {
-    if (isLockScreen) document.body.classList.add("aurora-lock-screen");
-    else document.body.classList.remove("aurora-lock-screen");
-    return () => document.body.classList.remove("aurora-lock-screen");
-  }, [isLockScreen]);
-
-  // Live HH:MM:SS for the lock screen's clock readout under the ring.
-  // Ticks at 1Hz only while the lock screen is showing (no point
-  // burning a setInterval after the user has engaged and the clock
-  // is hidden).
+  // Lock-screen takeover REMOVED — founder feedback: "We deleted
+  // everything before. Can you return the chat and these things."
+  // The chat (with all its chrome: chat-bar, history rail, widgets,
+  // footer) is the DEFAULT mode again. The @huwprosser arc-reactor
+  // ring now only appears INSIDE voice mode, layered with the
+  // existing dot orb. Keeping the helper variables below as
+  // constants so the lock-clock JSX still has values to render
+  // (the arc-reactor still shows time + date in voice mode).
   const [lockClock, setLockClock] = useState(() => formatHudClock(new Date()));
   const [lockDate, setLockDate] = useState(() => formatLockDate(new Date()));
   useEffect(() => {
-    if (!isLockScreen) return;
+    // Tick the lock-clock only when voice mode is open so we don't
+    // burn a setInterval the rest of the time.
+    if (!voiceModeActive) return;
     const update = () => {
       const now = new Date();
       setLockClock(formatHudClock(now));
@@ -1304,7 +1296,7 @@ export function AuroraAIScreen() {
     update();
     const id = window.setInterval(update, 1000);
     return () => window.clearInterval(id);
-  }, [isLockScreen]);
+  }, [voiceModeActive]);
 
   const isPro = subscription.tier === "pro";
   const quotaCurrent = Number.isFinite(subscription.aiQuota) ? subscription.aiQuota : null;
@@ -1343,41 +1335,25 @@ export function AuroraAIScreen() {
       <AuroraCanvas ref={auroraRef} />
       <div className="aurora-vignette" />
 
-      {/* ── @huwprosser JARVIS LOCK SCREEN — arc-reactor centered
-          ring + "TONY STARRK" + live clock. Visible ONLY in the
-          lock state (no messages, no voice, no focus mode). The
-          moment the user engages (types / sends / taps mic), the
-          aurora-lock-screen body class falls off and this fades
-          out, replaced by the standard chat/voice chrome.
-          The ring uses no canvas — it's pure CSS, GPU-cheap,
-          renders identically on any device. */}
-      {isLockScreen && (
+      {/* ── @huwprosser JARVIS arc-reactor — appears in VOICE MODE
+          only. Layered with the existing dot orb so users get both
+          aesthetics at once: the colorful particle field + the
+          glowing cyan ring frame with "TONY STARRK" inside.
+          When in content mode (artifact showing), the corner-shift
+          CSS handles the move to bottom-right corner. */}
+      {voiceModeActive && (
         <div className="aurora-lock" aria-hidden="false">
           <div className="aurora-lock-ring">
-            {/* Outer faint ring — sits just outside the main one
-                for that "concentric" layered look in the reference. */}
             <div className="aurora-lock-ring-outer" />
-            {/* The bright primary ring — this is the "arc reactor". */}
             <div className="aurora-lock-ring-inner" />
-            {/* 24 tick marks around the bezel — pure CSS via
-                conic-gradient masked to a thin band. */}
             <div className="aurora-lock-ring-ticks" />
-            {/* Center label — "TONY STARRK" (founder's brand) */}
             <span className="aurora-lock-ring-label">TONY<br />STARRK</span>
-            {/* Soft inner glow under the label for that core
-                "powered-on" feel. */}
             <div className="aurora-lock-ring-core" />
           </div>
-          {/* Clock + date below the ring, matching the @huwprosser
-              layout (clock on top, date in tiny grey caps). */}
+          {/* Clock + date below the ring */}
           <div className="aurora-lock-clock-block">
             <div className="aurora-lock-time">{lockClock}</div>
             <div className="aurora-lock-date">{lockDate}</div>
-          </div>
-          {/* Hint at the bottom — fades out after a few seconds
-              so it doesn't crowd the boot-screen stillness. */}
-          <div className="aurora-lock-hint">
-            Tap the mic or type a message to begin
           </div>
         </div>
       )}
@@ -1393,6 +1369,13 @@ export function AuroraAIScreen() {
           <JarvisView
             modelKey={activeJarvisModel}
             onClose={() => setActiveJarvisModel(null)}
+            voiceActive={voiceModeActive}
+            voiceStatus={
+              voice.isSpeaking ? "speaking"
+                : voice.isListening ? "listening"
+                : voice.isTranscribing ? "processing"
+                : "ready"
+            }
           />
         </Suspense>
       )}
