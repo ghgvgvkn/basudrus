@@ -44,7 +44,7 @@ import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
-import { parseShowBlock, fetchWikipediaThumbnail } from "./auroraVisuals";
+import { parseArtifacts, fetchWikipediaThumbnail, fetchMapboxStaticImage } from "./auroraVisuals";
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -331,20 +331,23 @@ export function AuroraAIScreen() {
     };
   }, [isPresenting, presentingSide]);
 
-  // Pull the latest AI message + parse Tony's <<<SHOW:query>>>
-  // block out of it. The block (if present) tells us what
-  // Wikipedia image to fetch and show ABOVE the text on the
-  // A4 paper. Text rendered on the paper is the CLEANED version
-  // with the block stripped so users don't see raw markers.
+  // Pull the latest AI message + parse Tony's artifact blocks
+  // out of it. SHOW blocks fetch a Wikipedia thumbnail; MAP
+  // blocks fetch a Mapbox dark-themed static image. Both render
+  // ABOVE the text on the A4 paper. Text rendered on the paper
+  // is the CLEANED version with all blocks stripped so users
+  // never see raw markers.
   const presenting = useMemo(() => {
-    if (!isPresenting) return { show: null as null, cleanText: "" };
+    if (!isPresenting) {
+      return { show: null, map: null, cleanText: "" } as const;
+    }
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role === "ai" && m.text.trim()) {
-        return parseShowBlock(m.text);
+        return parseArtifacts(m.text);
       }
     }
-    return { show: null as null, cleanText: "" };
+    return { show: null, map: null, cleanText: "" } as const;
   }, [isPresenting, messages]);
   const presentingText = presenting.cleanText;
 
@@ -370,6 +373,30 @@ export function AuroraAIScreen() {
     };
   }, [presenting.show?.query]);
 
+  // Lazy-fetch the Mapbox static image for Tony's current MAP
+  // block. Same shape as the SHOW pipeline — module-level cache,
+  // null on failure (no token / geocode miss / network error) so
+  // the UI silently degrades to text + photo without a map. The
+  // call only hits Mapbox when VITE_MAPBOX_TOKEN is configured;
+  // until then this is effectively a no-op.
+  const [presentingMap, setPresentingMap] = useState<string | null>(null);
+  useEffect(() => {
+    if (!presenting.map) {
+      setPresentingMap(null);
+      return;
+    }
+    let cancelled = false;
+    const ctl = new AbortController();
+    void fetchMapboxStaticImage(presenting.map.query, ctl.signal).then((url) => {
+      if (cancelled) return;
+      setPresentingMap(url);
+    });
+    return () => {
+      cancelled = true;
+      ctl.abort();
+    };
+  }, [presenting.map?.query]);
+
   /**
    * Monotonic counter bumped every time the user opens (or closes)
    * voice mode. Async pipeline stages capture the generation at start
@@ -381,6 +408,51 @@ export function AuroraAIScreen() {
    * from utterance #1 still write into utterance #2.
    */
   const voiceSessionGenRef = useRef(0);
+
+  // ── HUD around the corner orb (JARVIS-style status frame) ────────
+  //
+  // The shrunken orb gets a status frame: clock above it, mic-level
+  // bars to the side, status word ("LISTENING" / "SPEAKING" / "READY")
+  // below. The clock ticks at 1Hz via setInterval; the mic-level bars
+  // tick at 60fps via rAF reading micLevelRef and writing a CSS
+  // variable directly on the ring DOM (so React doesn't re-render the
+  // whole tree at frame rate just to repaint 5 bars).
+  const jarvisRingRef = useRef<HTMLDivElement>(null);
+  const [hudClock, setHudClock] = useState(() => formatHudClock(new Date()));
+  useEffect(() => {
+    if (!isPresenting) return;
+    setHudClock(formatHudClock(new Date()));
+    const id = window.setInterval(() => {
+      setHudClock(formatHudClock(new Date()));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [isPresenting]);
+  useEffect(() => {
+    if (!isPresenting) return;
+    let raf = 0;
+    const tick = () => {
+      const el = jarvisRingRef.current;
+      if (el) {
+        // Clamp to two decimals so the CSS variable doesn't churn
+        // pointlessly with floating-point noise.
+        el.style.setProperty("--mic-level", micLevelRef.current.toFixed(2));
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [isPresenting]);
+  // Status word for the HUD label. Mirrors the present-panel
+  // header label but lives down by the corner orb. "READY" is the
+  // intermediate state between Tony finishing a reply and the mic
+  // re-opening for the next turn.
+  const hudStatus = voice.isSpeaking
+    ? "SPEAKING"
+    : voice.isListening
+      ? "LISTENING"
+      : voice.isTranscribing
+        ? "PROCESSING"
+        : "READY";
 
   /**
    * Counter for how many consecutive empty utterances we've seen
@@ -999,6 +1071,27 @@ export function AuroraAIScreen() {
                 />
               </div>
             )}
+            {/* Map rendered when Tony emitted a <<<MAP:place>>>
+                block AND Mapbox returned a static image. Sits below
+                the photo (if both present), or alone if only a map
+                was requested. Dark-themed map matches the JARVIS
+                aesthetic; framed identically to the photo so the
+                page composition stays unified. */}
+            {presentingMap && (
+              <div className="aurora-present-image-wrap aurora-present-map-wrap">
+                <img
+                  src={presentingMap}
+                  alt={presenting.map?.query ?? ""}
+                  className="aurora-present-image"
+                  loading="eager"
+                />
+                {presenting.map?.query && (
+                  <span className="aurora-present-map-label" aria-hidden>
+                    {presenting.map.query.toUpperCase()}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="aurora-present-body">
               {presentingText || (
                 <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>
@@ -1007,18 +1100,41 @@ export function AuroraAIScreen() {
               )}
             </div>
           </div>
-          {/* JARVIS-style glowing ring around the shrunken orb. Pure
-              decoration — sits at the orb's final position so the
-              dot-matrix animates inside a halo of cyan light, the
-              way the JARVIS indicator in the reference photos has
-              that iconic glowing circle. The ring's pulse syncs
-              with voice.isSpeaking so it visibly reacts when Tony
-              is talking. */}
+          {/* JARVIS-style HUD around the shrunken orb. The dot-matrix
+              animates INSIDE this frame; everything around it is the
+              status reader-out (clock, level meter, status word,
+              radar tick marks). Pure decoration — pointer-events:none
+              throughout so it never intercepts clicks on the orb or
+              the canvas behind it. CSS variable --mic-level is set
+              every frame via requestAnimationFrame in the effect
+              above; the 5 vertical bars on the left react to it
+              live.
+              Sync: ring pulse + bar palette react to voice.isSpeaking
+              so users get a clear visual "Tony is talking now"
+              indicator without having to read the status label. */}
           <div
-            className={`aurora-jarvis-ring aurora-jarvis-${presentingSide}${voice.isSpeaking ? " is-speaking" : ""}`}
+            ref={jarvisRingRef}
+            className={`aurora-jarvis-ring aurora-jarvis-${presentingSide}${voice.isSpeaking ? " is-speaking" : ""}${voice.isListening ? " is-listening" : ""}`}
             aria-hidden
           >
+            {/* Radar tick marks — 12 ticks at 30° intervals around
+                the ring (CSS conic-gradient), gives the orb a
+                "reactor / radar dish" feel. */}
+            <div className="aurora-jarvis-radar" />
+            {/* Slow rotating cyan sweep arc — like a radar scanner. */}
+            <div className="aurora-jarvis-sweep" />
+            {/* Live clock — ticks 1Hz. Above the ring. */}
+            <span className="aurora-jarvis-clock">{hudClock}</span>
+            {/* Mic-level bars — 5 vertical bars on the LEFT side
+                of the ring. Each bar's width + opacity is driven
+                from --mic-level (0..1) via CSS calc(). */}
+            <div className="aurora-jarvis-bars">
+              <i /><i /><i /><i /><i />
+            </div>
+            {/* Brand label below the ring. */}
             <span className="aurora-jarvis-text">TONY</span>
+            {/* Status word — even smaller, below the brand label. */}
+            <span className="aurora-jarvis-status">{hudStatus}</span>
           </div>
         </>
       )}
@@ -1462,6 +1578,18 @@ function relativeWhen(iso: string): string {
   const weeks = Math.floor(days / 7);
   if (weeks < 5) return `${weeks}w`;
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * HH:MM:SS clock for the JARVIS corner HUD. Updates at 1Hz via
+ * setInterval. Mono font + zero-padded so the digits sit on a fixed
+ * width — looks like a hardware readout rather than a wall clock.
+ */
+function formatHudClock(d: Date): string {
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
 
 function formatMeta(d: Date): { day: string; clock: string } {
