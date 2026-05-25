@@ -331,25 +331,67 @@ export function AuroraAIScreen() {
     };
   }, [isPresenting, presentingSide]);
 
-  // Pull the latest AI message + parse Tony's artifact blocks
-  // out of it. SHOW blocks fetch a Wikipedia thumbnail; MAP
-  // blocks fetch a Mapbox dark-themed static image. Both render
-  // ABOVE the text on the A4 paper. Text rendered on the paper
-  // is the CLEANED version with all blocks stripped so users
-  // never see raw markers.
+  // Pull the latest AI message + parse Tony's artifact blocks out of it.
+  //   SHOW  → Wikipedia thumbnail
+  //   MAP   → Mapbox dark static image
+  //   STAT  → big-number tile  (no network)
+  //   DATA  → key-value table   (no network)
+  //   QUOTE → pull-quote        (no network)
+  // All render around Tony's text on the workspace. Text is the
+  // CLEANED version with all blocks stripped — users never see raw
+  // markers, even if Tony emits duplicates.
+  const EMPTY_PARSE = {
+    show: null,
+    map: null,
+    stat: null,
+    data: null,
+    quote: null,
+    cleanText: "",
+  } as const;
   const presenting = useMemo(() => {
-    if (!isPresenting) {
-      return { show: null, map: null, cleanText: "" } as const;
-    }
+    if (!isPresenting) return EMPTY_PARSE;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role === "ai" && m.text.trim()) {
         return parseArtifacts(m.text);
       }
     }
-    return { show: null, map: null, cleanText: "" } as const;
+    return EMPTY_PARSE;
+  // EMPTY_PARSE is a const declared at function-scope, doesn't change
+  // between renders — no need to list as a dep.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPresenting, messages]);
   const presentingText = presenting.cleanText;
+
+  // True when the user is in voice mode and Tony is mid-reply — i.e.
+  // the last message in the thread is still from the USER, or the
+  // streaming `loading` flag is set, or Tony's reply is still empty.
+  // Drives the workspace's "thinking" indicator so the paper isn't
+  // a dead blank rectangle while the user waits. Matches the chat-
+  // thread typing-bubble behavior.
+  const presentingThinking = useMemo(() => {
+    if (!isPresenting) return false;
+    if (loading) return true;
+    // If no messages yet, we're waiting for the first user utterance.
+    if (messages.length === 0) return false;
+    // If the most recent message is from the USER, we're waiting on Tony.
+    const last = messages[messages.length - 1];
+    if (last.role === "user") return true;
+    // Otherwise we have a Tony reply — but if it parsed to empty
+    // text + no artifacts, treat as still loading (defensive — the
+    // streaming path can transiently hand us an empty assistant msg).
+    if (
+      !presenting.cleanText.trim()
+      && !presenting.show
+      && !presenting.map
+      && !presenting.stat
+      && !presenting.data
+      && !presenting.quote
+    ) {
+      return true;
+    }
+    return false;
+  }, [isPresenting, loading, messages, presenting]);
 
   // Lazy-fetch the Wikipedia thumbnail for Tony's current SHOW
   // block. Re-runs whenever the AI message's SHOW query changes.
@@ -1092,8 +1134,68 @@ export function AuroraAIScreen() {
                 )}
               </div>
             )}
+            {/* STAT tile — one striking number. Renders only when
+                Tony emitted a <<<STAT:...>>> block. */}
+            {presenting.stat && (
+              <div className="aurora-present-stat">
+                <span className="aurora-present-stat-label">
+                  {presenting.stat.label}
+                </span>
+                <span className="aurora-present-stat-big">
+                  {presenting.stat.big}
+                </span>
+                {presenting.stat.sub && (
+                  <span className="aurora-present-stat-sub">
+                    {presenting.stat.sub}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* DATA card — compact key-value table. Up to ~5 rows
+                in practice. Cyan separators between rows. */}
+            {presenting.data && (
+              <div className="aurora-present-data">
+                <span className="aurora-present-data-title">
+                  {presenting.data.title}
+                </span>
+                <dl className="aurora-present-data-rows">
+                  {presenting.data.rows.map((r, i) => (
+                    <div className="aurora-present-data-row" key={i}>
+                      <dt>{r.key}</dt>
+                      <dd>{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+            {/* QUOTE callout — large italic with cyan accent bar. */}
+            {presenting.quote && (
+              <blockquote className="aurora-present-quote">
+                <span className="aurora-present-quote-text">
+                  &ldquo;{presenting.quote.text}&rdquo;
+                </span>
+                {presenting.quote.attribution && (
+                  <cite className="aurora-present-quote-attr">
+                    — {presenting.quote.attribution}
+                  </cite>
+                )}
+              </blockquote>
+            )}
             <div className="aurora-present-body">
-              {presentingText || (
+              {presentingThinking ? (
+                <div className="aurora-present-thinking" aria-live="polite">
+                  <span className="aurora-present-thinking-dots">
+                    <i /><i /><i />
+                  </span>
+                  <span className="aurora-present-thinking-text">
+                    {voice.isTranscribing
+                      ? "Listening to you…"
+                      : "Tony is thinking…"}
+                  </span>
+                </div>
+              ) : presentingText ? (
+                presentingText
+              ) : (
                 <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>
                   Tap the mic and start talking — Tony will write his replies here.
                 </span>
@@ -1123,6 +1225,24 @@ export function AuroraAIScreen() {
             <div className="aurora-jarvis-radar" />
             {/* Slow rotating cyan sweep arc — like a radar scanner. */}
             <div className="aurora-jarvis-sweep" />
+            {/* CSS mini-orb — replaces the old approach of
+                scaling/translating the full-viewport canvas into
+                the ring (which drifted out of alignment + cost
+                GPU). Pure CSS: pulsing core + two orbital rings
+                of dots rotating in opposite directions. Reads as
+                "the orb is still alive in there" without any
+                canvas work, and lands EXACTLY centered every
+                time. Driven by --mic-level so the core breathes
+                harder when the user's voice is loud. */}
+            <div className="aurora-mini-orb">
+              <div className="aurora-mini-orb-core" />
+              <div className="aurora-mini-orb-ring aurora-mini-orb-ring-a">
+                <i /><i /><i /><i /><i />
+              </div>
+              <div className="aurora-mini-orb-ring aurora-mini-orb-ring-b">
+                <i /><i /><i />
+              </div>
+            </div>
             {/* Live clock — ticks 1Hz. Above the ring. */}
             <span className="aurora-jarvis-clock">{hudClock}</span>
             {/* Mic-level bars — 5 vertical bars on the LEFT side

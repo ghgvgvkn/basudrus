@@ -31,11 +31,55 @@ export interface MapBlock {
   query: string;
 }
 
+/**
+ * "Big number" stat tile. Pattern:
+ *   <<<STAT:label|big|sub>>>
+ *   <<<STAT:Population|3.5M|Lombardy, Italy>>>
+ *
+ * Renders as: small label across the top, a giant lightweight
+ * number underneath, optional muted sub-line below it.
+ */
+export interface StatBlock {
+  label: string;
+  big: string;
+  sub?: string;
+}
+
+/**
+ * Key-value data table. Pattern:
+ *   <<<DATA:title|key:value|key:value|...>>>
+ *   <<<DATA:Lake Como facts|Depth:410 m|Length:46 km|Elevation:199 m>>>
+ *
+ * Renders as a JARVIS-style table with thin cyan separators between rows.
+ */
+export interface DataBlock {
+  title: string;
+  rows: Array<{ key: string; value: string }>;
+}
+
+/**
+ * Pull-quote callout. Pattern:
+ *   <<<QUOTE:text|attribution>>>
+ *   <<<QUOTE:Stay hungry, stay foolish.|Steve Jobs>>>
+ *
+ * Renders large + italic + cyan accent bar.
+ */
+export interface QuoteBlock {
+  text: string;
+  attribution?: string;
+}
+
 export interface ParsedMessage {
   /** First SHOW block found in the text, if any. */
   show: ShowBlock | null;
   /** First MAP block found in the text, if any. */
   map: MapBlock | null;
+  /** First STAT block found in the text, if any. */
+  stat: StatBlock | null;
+  /** First DATA block found in the text, if any. */
+  data: DataBlock | null;
+  /** First QUOTE block found in the text, if any. */
+  quote: QuoteBlock | null;
   /** Message text with all artifact blocks removed and trailing
    *  whitespace collapsed. Safe to render as-is. */
   cleanText: string;
@@ -43,6 +87,9 @@ export interface ParsedMessage {
 
 const SHOW_BLOCK_RE = /<<<SHOW:\s*([^>]+?)\s*>>>/i;
 const MAP_BLOCK_RE = /<<<MAP:\s*([^>]+?)\s*>>>/i;
+const STAT_BLOCK_RE = /<<<STAT:\s*([^>]+?)\s*>>>/i;
+const DATA_BLOCK_RE = /<<<DATA:\s*([^>]+?)\s*>>>/i;
+const QUOTE_BLOCK_RE = /<<<QUOTE:\s*([^>]+?)\s*>>>/i;
 
 /**
  * Parse the first SHOW + MAP block out of an AI message. Strips them
@@ -55,20 +102,91 @@ const MAP_BLOCK_RE = /<<<MAP:\s*([^>]+?)\s*>>>/i;
  */
 export function parseArtifacts(rawText: string): ParsedMessage {
   if (typeof rawText !== "string" || rawText.length === 0) {
-    return { show: null, map: null, cleanText: rawText ?? "" };
+    return {
+      show: null,
+      map: null,
+      stat: null,
+      data: null,
+      quote: null,
+      cleanText: rawText ?? "",
+    };
   }
   const showMatch = SHOW_BLOCK_RE.exec(rawText);
   const mapMatch = MAP_BLOCK_RE.exec(rawText);
+  const statMatch = STAT_BLOCK_RE.exec(rawText);
+  const dataMatch = DATA_BLOCK_RE.exec(rawText);
+  const quoteMatch = QUOTE_BLOCK_RE.exec(rawText);
+
+  // Strip ALL block instances (even past the first one) so the
+  // user never sees raw markers if Tony emits duplicates.
   const cleanText = rawText
     .replace(/<<<SHOW:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<MAP:\s*[^>]+?\s*>>>/gi, "")
+    .replace(/<<<STAT:\s*[^>]+?\s*>>>/gi, "")
+    .replace(/<<<DATA:\s*[^>]+?\s*>>>/gi, "")
+    .replace(/<<<QUOTE:\s*[^>]+?\s*>>>/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
   const showQuery = showMatch?.[1].trim();
   const mapQuery = mapMatch?.[1].trim();
+
+  // STAT body: pipe-separated label|big|sub. Defensive: tolerate
+  // 2 or 3 parts. If only one part is given (Tony goofed), drop it
+  // — a stat tile with no number doesn't tell the user anything.
+  let stat: StatBlock | null = null;
+  if (statMatch?.[1]) {
+    const parts = statMatch[1].split("|").map((p) => p.trim());
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      stat = {
+        label: parts[0],
+        big: parts[1],
+        sub: parts[2] || undefined,
+      };
+    }
+  }
+
+  // DATA body: pipe-separated title|key:value|key:value|...
+  // Each row is "key:value". Tolerate keys with colons inside the
+  // value (split only on FIRST colon).
+  let data: DataBlock | null = null;
+  if (dataMatch?.[1]) {
+    const parts = dataMatch[1].split("|").map((p) => p.trim());
+    if (parts.length >= 2 && parts[0]) {
+      const title = parts[0];
+      const rows = parts.slice(1)
+        .map((p) => {
+          const idx = p.indexOf(":");
+          if (idx < 0) return null;
+          const key = p.slice(0, idx).trim();
+          const value = p.slice(idx + 1).trim();
+          if (!key || !value) return null;
+          return { key, value };
+        })
+        .filter((r): r is { key: string; value: string } => r !== null);
+      if (rows.length > 0) data = { title, rows };
+    }
+  }
+
+  // QUOTE body: pipe-separated text|attribution. Attribution
+  // is optional.
+  let quote: QuoteBlock | null = null;
+  if (quoteMatch?.[1]) {
+    const parts = quoteMatch[1].split("|").map((p) => p.trim());
+    if (parts[0]) {
+      quote = {
+        text: parts[0],
+        attribution: parts[1] || undefined,
+      };
+    }
+  }
+
   return {
     show: showQuery ? { query: showQuery } : null,
     map: mapQuery ? { query: mapQuery } : null,
+    stat,
+    data,
+    quote,
     cleanText,
   };
 }

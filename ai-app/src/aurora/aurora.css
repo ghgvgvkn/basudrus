@@ -48,43 +48,26 @@
      to feel JARVIS-y (slight overshoot at the start, settles cleanly). */
   transition: transform 700ms cubic-bezier(.2,.85,.3,1);
 }
-/* When voice mode is active, shrink the orb canvas and tuck it
-   into a specific spot UNDER THE WIDGET SHELF on the right side.
-   The widgets sit at top:80px, right:28px and run about 140px tall
-   — so we anchor the shrunken orb to top:240px (just below them),
-   right:28px (same right alignment as the widgets) so it lines up
-   visually as one column of right-side elements.
-
-   The orb canvas is full-viewport size, so we scale it down to
-   ~22% (≈ a 280px circle on a 1280px wide screen) AND translate
-   it from center → top-right area. Math:
-     - viewport center is (50vw, 50vh)
-     - we want orb center at approximately (right: 28px + 70px = 98px from right edge, top: 240px + 70px = 310px from top)
-     - which is roughly (100vw - 100px, 310px) → translate by
-       (100vw/2 - 100px, 310px - 50vh) from center
-     - simplified to: translate(calc(36vw - 60px), calc(-50vh + 320px))
-
-   The exact translate is intentionally based on viewport so the
-   orb stays anchored relative to the right edge across screen sizes.
-*/
-body.aurora-presenting-left .aurora-app .aurora-matrix {
-  transform-origin: center;
-  /* Math derives from the JARVIS ring position (top:240px, right:28px,
-     140px square). Ring center = (W - 98px, 310px). Starting from
-     canvas center (50vw, 50vh), translate by (50vw - 98px) right
-     and (310px - 50vh) down to land the center on the ring. */
-  transform:
-    translate(calc(50vw - 98px), calc(310px - 50vh))
-    scale(0.22);
-}
-/* MIRROR for 3D-design mode (future): orb moves to the LEFT instead
-   so the 3D scene can take the right side of the screen. Same
-   under-the-widgets vertical anchor; just on the other side. */
+/* When voice mode is active, the full-viewport orb canvas is HIDDEN
+   entirely. We render a self-contained CSS mini-orb inside the JARVIS
+   ring instead (see .aurora-mini-orb below). This is a deliberate
+   change from the previous design that scaled + translated the canvas
+   into the corner — that approach drifted out of alignment AND ran
+   the full canvas animation off-screen for no visual gain.
+   Benefits:
+     - Mini-orb is always perfectly centered in the ring (no CSS math)
+     - GPU/CPU drops significantly (canvas is invisible, no transform
+       chain on a 1080p element each frame, mini-orb is ~12 DOM nodes
+       with cheap CSS keyframes)
+     - Looks cleaner — the dots inside the corner orb are visually
+       distinct from the dots in the main full-screen orb, so the
+       user gets a clear "here is voice mode" signal */
+body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix {
-  transform-origin: center;
-  transform:
-    translate(calc(-50vw + 98px), calc(310px - 50vh))
-    scale(0.22);
+  opacity: 0;
+  pointer-events: none;
+  /* No transform — keeping the canvas at its natural position means
+     when presenting ends, it fades back in without any layout jump. */
 }
 /* Vignette fades out when presenting so the bright A4 paper has
    more visual contrast — the dim background no longer competes. */
@@ -544,6 +527,336 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
    without the user reading text labels. */
 .aurora-app .aurora-jarvis-ring.is-speaking .aurora-jarvis-sweep {
   animation-duration: 2.5s;
+}
+
+/* ── CSS mini-orb — sits inside the JARVIS ring while presenting.
+   Pure CSS, ~12 DOM nodes, GPU-cheap. Replaces the previous
+   approach of transform-scaling the full-viewport canvas into the
+   corner (which drifted out of alignment + wasted GPU). The mini-
+   orb has THREE layers:
+
+     1. Soft radial-gradient background — the "glow" of the orb
+     2. Central pulsing core dot — the heart, breathes 2.6s
+     3. Two rings of orbital dots rotating in OPPOSITE directions
+        at different speeds and radii (8s clockwise, 12s counter)
+
+   All animations are transform/opacity-based so they live on the
+   GPU compositor — no layout/paint thrash. Respects
+   prefers-reduced-motion (see the bottom of this file). */
+.aurora-app .aurora-mini-orb {
+  position: absolute;
+  inset: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(170,220,255,0.40) 0%,
+      rgba(80,150,220,0.20) 35%,
+      rgba(40,90,160,0.08) 65%,
+      transparent 80%);
+}
+.aurora-app .aurora-mini-orb-core {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 45% 35%,
+    #f0f9ff 0%,
+    #c4e0ff 30%,
+    #6ba8f0 70%,
+    rgba(70,140,220,0.45) 100%);
+  box-shadow:
+    0 0 18px rgba(170,220,255,0.95),
+    0 0 36px rgba(140,200,255,0.55),
+    0 0 60px rgba(100,170,240,0.30);
+  animation: aurora-mini-orb-pulse 2.6s ease-in-out infinite;
+  /* Mic-level reactivity — when the user is loud the core grows.
+     Default to 1 (resting) when --mic-level is unset. */
+  transform: scale(calc(1 + var(--mic-level, 0) * 0.35));
+  transition: transform 80ms linear;
+}
+@keyframes aurora-mini-orb-pulse {
+  0%, 100% { opacity: 0.85; filter: brightness(0.95); }
+  50%      { opacity: 1; filter: brightness(1.15); }
+}
+
+/* Orbital ring containers — the rotation animates THESE; each
+   child <i> sits at a fixed offset and rides along. */
+.aurora-app .aurora-mini-orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: aurora-mini-orb-spin 12s linear infinite;
+  transform-origin: 50% 50%;
+}
+.aurora-app .aurora-mini-orb-ring-a {
+  animation-duration: 10s;
+}
+.aurora-app .aurora-mini-orb-ring-b {
+  animation-duration: 14s;
+  animation-direction: reverse;
+}
+@keyframes aurora-mini-orb-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Orbital dots — positioned by rotation around the center. The
+   parent ring spins; each dot's transform rotates it INTO place
+   then translates outward by the orbit radius. */
+.aurora-app .aurora-mini-orb-ring i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(200,235,255,0.95);
+  box-shadow: 0 0 6px rgba(170,220,255,0.85);
+  margin: -1.5px 0 0 -1.5px;
+}
+/* Outer orbit (5 dots @ ~42px from center, spaced 72°) */
+.aurora-app .aurora-mini-orb-ring-a i:nth-child(1) { transform: rotate(0deg)   translateY(-42px); }
+.aurora-app .aurora-mini-orb-ring-a i:nth-child(2) { transform: rotate(72deg)  translateY(-42px); }
+.aurora-app .aurora-mini-orb-ring-a i:nth-child(3) { transform: rotate(144deg) translateY(-42px); }
+.aurora-app .aurora-mini-orb-ring-a i:nth-child(4) { transform: rotate(216deg) translateY(-42px); opacity: 0.7; }
+.aurora-app .aurora-mini-orb-ring-a i:nth-child(5) { transform: rotate(288deg) translateY(-42px); opacity: 0.85; }
+/* Inner orbit (3 dots @ ~26px from center, spaced 120°) */
+.aurora-app .aurora-mini-orb-ring-b i {
+  width: 2.5px;
+  height: 2.5px;
+  margin: -1.25px 0 0 -1.25px;
+  background: rgba(220,240,255,0.85);
+  box-shadow: 0 0 5px rgba(170,220,255,0.70);
+}
+.aurora-app .aurora-mini-orb-ring-b i:nth-child(1) { transform: rotate(0deg)   translateY(-26px); }
+.aurora-app .aurora-mini-orb-ring-b i:nth-child(2) { transform: rotate(120deg) translateY(-26px); opacity: 0.7; }
+.aurora-app .aurora-mini-orb-ring-b i:nth-child(3) { transform: rotate(240deg) translateY(-26px); opacity: 0.85; }
+
+/* Listening state — orbital rings speed up, core glow intensifies.
+   Visible signal that the mic is hot, beyond just the ring-pulse. */
+.aurora-app .aurora-jarvis-ring.is-listening .aurora-mini-orb-ring-a {
+  animation-duration: 5s;
+}
+.aurora-app .aurora-jarvis-ring.is-listening .aurora-mini-orb-ring-b {
+  animation-duration: 7s;
+}
+.aurora-app .aurora-jarvis-ring.is-listening .aurora-mini-orb-core {
+  box-shadow:
+    0 0 22px rgba(200,235,255,1),
+    0 0 50px rgba(170,220,255,0.75),
+    0 0 80px rgba(140,200,255,0.45);
+}
+
+/* Speaking state — core pulses much faster + brighter, like Tony's
+   voice is literally lighting it up. */
+.aurora-app .aurora-jarvis-ring.is-speaking .aurora-mini-orb-core {
+  animation-duration: 0.9s;
+  box-shadow:
+    0 0 26px rgba(220,240,255,1),
+    0 0 60px rgba(170,220,255,0.85),
+    0 0 100px rgba(140,200,255,0.55);
+}
+.aurora-app .aurora-jarvis-ring.is-speaking .aurora-mini-orb {
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(210,235,255,0.55) 0%,
+      rgba(100,170,230,0.30) 35%,
+      rgba(50,110,180,0.10) 65%,
+      transparent 80%);
+}
+
+/* ── "Thinking" indicator on the workspace paper. When Tony is
+   mid-reply (loading) or hasn't finished the first token yet, the
+   body shows three pulsing dots + a label so the user knows
+   something IS happening. Mirrors the chat-thread typing bubble
+   so the experience feels consistent between text and voice. */
+.aurora-app .aurora-present-thinking {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 4px;
+  color: rgba(0,0,0,0.45);
+  font-style: italic;
+}
+.aurora-app .aurora-present-thinking-dots {
+  display: inline-flex;
+  gap: 6px;
+}
+.aurora-app .aurora-present-thinking-dots i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4a90e2;
+  box-shadow: 0 0 8px rgba(74,144,226,0.55);
+  animation: aurora-pipBlink 1.3s ease-in-out infinite;
+}
+.aurora-app .aurora-present-thinking-dots i:nth-child(2) { animation-delay: 0.18s; }
+.aurora-app .aurora-present-thinking-dots i:nth-child(3) { animation-delay: 0.36s; }
+.aurora-app .aurora-present-thinking-text {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.40);
+}
+
+/* ── STAT tile — one big number + label + sub. Sits inline in the
+   artifact stack between the photo/map and the text body. Looks
+   like a JARVIS readout: thin cyan-accented border, a tiny label
+   above, a massive lightweight number, a small sub-line below.
+   Background stays light so it works against the paper, with a
+   cyan accent corner that ties into the rest of the HUD palette. */
+.aurora-app .aurora-present-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px 18px;
+  margin: 4px 0 4px;
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, rgba(140,200,255,0.06) 0%, transparent 100%),
+    rgba(0,0,0,0.025);
+  border: 0.5px solid rgba(140,200,255,0.40);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255,255,255,0.50),
+    0 2px 8px rgba(140,200,255,0.10);
+  overflow: hidden;
+  animation: aurora-image-in 500ms cubic-bezier(.2,.85,.3,1) both;
+}
+/* Cyan accent corner — a thin L-bracket in the top-left like a
+   data-card identifier. */
+.aurora-app .aurora-present-stat::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  border-top: 1.5px solid rgba(74,144,226,0.75);
+  border-left: 1.5px solid rgba(74,144,226,0.75);
+  pointer-events: none;
+}
+.aurora-app .aurora-present-stat-label {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.30em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.50);
+}
+.aurora-app .aurora-present-stat-big {
+  font-size: 44px;
+  font-weight: 200;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: #0E1622;
+  margin-top: 2px;
+}
+.aurora-app .aurora-present-stat-sub {
+  font-size: 12.5px;
+  color: rgba(0,0,0,0.55);
+  margin-top: 2px;
+}
+
+/* ── DATA card — small title + key:value rows with thin separators.
+   Reads like a JARVIS quick-reference panel. Each row is grid-laid
+   so keys line up across rows. */
+.aurora-app .aurora-present-data {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 4px;
+  margin: 4px 0;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.025);
+  border: 0.5px solid rgba(140,200,255,0.35);
+  box-shadow: inset 0 0 0 0.5px rgba(255,255,255,0.50);
+  animation: aurora-image-in 500ms cubic-bezier(.2,.85,.3,1) both;
+}
+.aurora-app .aurora-present-data-title {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.30em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.45);
+  margin-bottom: 6px;
+  padding-bottom: 8px;
+  border-bottom: 0.5px solid rgba(74,144,226,0.30);
+}
+.aurora-app .aurora-present-data-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.aurora-app .aurora-present-data-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 8px 0;
+  align-items: baseline;
+  border-bottom: 0.5px dashed rgba(0,0,0,0.08);
+}
+.aurora-app .aurora-present-data-row:last-child {
+  border-bottom: none;
+}
+.aurora-app .aurora-present-data-row dt {
+  font-size: 13px;
+  color: rgba(0,0,0,0.55);
+  letter-spacing: 0.01em;
+}
+.aurora-app .aurora-present-data-row dd {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: #0E1622;
+  text-align: right;
+  margin: 0;
+}
+
+/* ── QUOTE callout — italic serif text with a cyan accent bar on
+   the left edge. Used when a famous quote IS the answer. */
+.aurora-app .aurora-present-quote {
+  position: relative;
+  padding: 12px 16px 12px 22px;
+  margin: 8px 0;
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-style: italic;
+  color: #1a1a1a;
+  background: rgba(140,200,255,0.04);
+  border-radius: 0 4px 4px 0;
+  animation: aurora-image-in 500ms cubic-bezier(.2,.85,.3,1) both;
+}
+.aurora-app .aurora-present-quote::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 2.5px;
+  background: linear-gradient(to bottom,
+    rgba(74,144,226,0.85) 0%,
+    rgba(140,200,255,0.45) 100%);
+  box-shadow: 0 0 8px rgba(74,144,226,0.40);
+  border-radius: 2px;
+}
+.aurora-app .aurora-present-quote-text {
+  display: block;
+  font-size: 20px;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+}
+.aurora-app .aurora-present-quote-attr {
+  display: block;
+  margin-top: 8px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-style: normal;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(0,0,0,0.55);
 }
 
 /* ── Map artifact card. Shares .aurora-present-image-wrap layout
@@ -2013,4 +2326,42 @@ body.aurora-focus-mode .aurora-app .aurora-vignette {
 @keyframes aurora-pipBlink {
   0%, 100% { opacity: 0.25; transform: scale(0.9); }
   50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* ── Reduced-motion: respect prefers-reduced-motion for users on
+   low-end devices OR with vestibular conditions. Pulses, sweeps,
+   coil rotations all freeze (or slow to imperceptible). Core
+   functionality stays — clock still ticks, mic-level bars still
+   move, but the constant visual churn stops. The user explicitly
+   asked us to make sure Aurora works for "people with bad GPU /
+   bad CPU" — this is half of that answer (the other half is
+   structural: CSS animations are GPU-cheap to begin with, and
+   we hide the full canvas while presenting). */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-app .aurora-mini-orb-ring,
+  .aurora-app .aurora-mini-orb-ring-a,
+  .aurora-app .aurora-mini-orb-ring-b,
+  .aurora-app .aurora-jarvis-sweep,
+  .aurora-app .aurora-mic-btn::before,
+  .aurora-app .aurora-logo-mark .aurora-ring,
+  .aurora-app .aurora-pip-mark .aurora-ring {
+    animation: none !important;
+  }
+  .aurora-app .aurora-jarvis-ring,
+  .aurora-app .aurora-mini-orb-core,
+  .aurora-app .aurora-present-dot,
+  .aurora-app .aurora-mic-btn.is-listening {
+    animation-duration: 6s !important;
+  }
+  .aurora-app .aurora-present-panel,
+  .aurora-app .aurora-present-image-wrap,
+  .aurora-app .aurora-present-stat,
+  .aurora-app .aurora-present-data,
+  .aurora-app .aurora-present-quote,
+  .aurora-app .aurora-scanline {
+    animation: none !important;
+  }
+  .aurora-app * {
+    transition-duration: 50ms !important;
+  }
 }
