@@ -1537,8 +1537,21 @@ export function AuroraAIScreen() {
               </div>
 
               <div className="aurora-infocard-body">
-                {/* Stat row — big number first, like Google's
-                    knowledge panel often opens with a key fact. */}
+                {/* Description — first 1-2 sentences from Tony's
+                    cleaned reply, pulled into the card so users
+                    see the WHAT before the receipts. Synthesized
+                    upgrade #1 from the imagined CEO review:
+                    Sam's critique was "no description before the
+                    stat." Now description leads the body, then
+                    stat, then facts. */}
+                {presentingText && (
+                  <p className="aurora-infocard-description">
+                    {extractLeadingSentences(presentingText, 2)}
+                  </p>
+                )}
+                {/* Stat row — big headline number, like Google's
+                    knowledge panel "key fact" line. Sits AFTER the
+                    description now, not before. */}
                 {presenting.stat && (
                   <div className="aurora-infocard-stat">
                     <span className="aurora-infocard-stat-label">
@@ -1607,6 +1620,28 @@ export function AuroraAIScreen() {
                     )}
                   </blockquote>
                 )}
+
+                {/* Footer — source attribution + "ask more" hint.
+                    Synthesized upgrades from the imagined CEO review:
+                    Dario flagged "where's the source?" and "every
+                    response is a dead-end." Footer addresses both:
+                    cites Wikipedia when an image actually loaded
+                    (honest about provenance), and invites a
+                    follow-up question to keep the conversation
+                    breathing forward instead of feeling like a
+                    one-shot answer. */}
+                <div className="aurora-infocard-footer">
+                  {presentingImage && (
+                    <span className="aurora-infocard-source">
+                      Image via Wikipedia
+                    </span>
+                  )}
+                  {presenting.show?.query && (
+                    <span className="aurora-infocard-ask-more">
+                      Ask Tony anything else about {presenting.show.query}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -2081,6 +2116,34 @@ function formatHudClock(d: Date): string {
     const ampm = d.getHours() >= 12 ? "PM" : "AM";
     return `${hh}:${mm}:${ss} ${ampm}`;
   }
+}
+
+/**
+ * Pull the first N sentences out of a longer reply for the
+ * InfoCard's description field. Stops at the Nth sentence
+ * terminator (. ! ?) or at the end of the text. Caps output at
+ * 240 chars as a hard ceiling so we never blow out the card
+ * layout with a rambling reply.
+ *
+ * Synthesized upgrade #1 from the imagined CEO review — Sam
+ * Altman flagged "no description before the stat." The Knowledge
+ * Panel pattern is photo → title → 1-sentence description, THEN
+ * the receipts. We extract that one sentence from Tony's reply
+ * so users see the WHAT before the HOW MUCH.
+ */
+function extractLeadingSentences(text: string, n: number): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  // Match sentence-terminator + trailing whitespace. Greedy enough
+  // to handle "..." correctly (counts as one stop, not three).
+  const re = /[^.!?]+[.!?]+(?:\s|$)/g;
+  const matches = trimmed.match(re);
+  if (!matches || matches.length === 0) {
+    // No terminator found — return the first 240 chars + ellipsis
+    return trimmed.length > 240 ? trimmed.slice(0, 237).trimEnd() + "…" : trimmed;
+  }
+  const slice = matches.slice(0, n).join("").trim();
+  return slice.length > 240 ? slice.slice(0, 237).trimEnd() + "…" : slice;
 }
 
 /**

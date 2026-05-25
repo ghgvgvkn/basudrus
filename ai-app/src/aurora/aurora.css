@@ -796,6 +796,44 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
   flex-direction: column;
   gap: 18px;
 }
+
+/* Description — 1-2 sentence pulled from Tony's clean reply,
+   sits between title and stat. Synthesized CEO-review upgrade
+   from Sam: "no description before the stat." Hierarchy fix. */
+.aurora-app .aurora-infocard-description {
+  margin: 0;
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  font-size: 17px;
+  line-height: 1.5;
+  color: rgba(235, 245, 255, 0.95);
+  letter-spacing: -0.005em;
+}
+
+/* Footer — source attribution + ask-more hint at the bottom of
+   the card. Dario's review upgrade: cite the source (honesty),
+   invite a follow-up (don't dead-end the conversation). */
+.aurora-app .aurora-infocard-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 0.5px dashed rgba(140, 200, 255, 0.14);
+}
+.aurora-app .aurora-infocard-source {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(180, 220, 255, 0.45);
+}
+.aurora-app .aurora-infocard-ask-more {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: rgba(180, 220, 255, 0.65);
+  font-style: italic;
+}
 .aurora-app .aurora-infocard-body::-webkit-scrollbar { width: 4px; }
 .aurora-app .aurora-infocard-body::-webkit-scrollbar-thumb {
   background: rgba(140, 200, 255, 0.20);
@@ -925,6 +963,52 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
   text-transform: uppercase;
   color: rgba(180, 220, 255, 0.65);
 }
+/* STAGGERED REVEAL — each block fades up 100ms after the previous.
+   Synthesized CEO-review upgrade #2: Sam called out "card slides
+   in all at once — stagger it." Reads as Tony pulling data up
+   layer by layer instead of one flat fade. */
+.aurora-app .aurora-infocard-hero-img,
+.aurora-app .aurora-infocard-hero-placeholder {
+  animation: aurora-infocard-rise 500ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-title {
+  animation: aurora-infocard-rise 500ms 180ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-description {
+  animation: aurora-infocard-rise 500ms 280ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-stat {
+  animation: aurora-infocard-rise 500ms 380ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-facts {
+  animation: aurora-infocard-rise 500ms 480ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-map {
+  animation: aurora-infocard-rise 500ms 580ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-quote {
+  animation: aurora-infocard-rise 500ms 680ms cubic-bezier(.2, .85, .3, 1) both;
+}
+.aurora-app .aurora-infocard-footer {
+  animation: aurora-infocard-rise 500ms 780ms cubic-bezier(.2, .85, .3, 1) both;
+}
+@keyframes aurora-infocard-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* DIM WHILE TONY SPEAKS — synthesized CEO-review upgrade #5 from
+   Dario: "when Tony's actually speaking, the card competes with
+   the voice. Dim it while audio plays." Card opacity fades to
+   ~80% when --audio-level is loud, restores to full on silence.
+   The audio-level CSS variable is set every frame by the rAF
+   loop in AuroraAIScreen — same signal that drives the orb's
+   scale + glow. */
+.aurora-app .aurora-infocard {
+  opacity: calc(1 - var(--audio-level, 0) * 0.20);
+  transition: opacity 200ms linear;
+}
+
 @media (max-width: 720px) {
   .aurora-app .aurora-infocard {
     width: min(420px, calc(100vw - 32px));
