@@ -1279,20 +1279,20 @@ export function AuroraAIScreen() {
   // The chat (with all its chrome: chat-bar, history rail, widgets,
   // footer) is the DEFAULT mode again. The @huwprosser arc-reactor
   // ring now only appears INSIDE voice mode, layered with the
-  // existing dot orb. Keeping the helper variables below as
-  // constants so the lock-clock JSX still has values to render
-  // (the arc-reactor still shows time + date in voice mode).
-  const [lockClock, setLockClock] = useState(() => formatHudClock(new Date()));
+  // existing dot orb. lockClock was a separate state that rendered
+  // a second HH:MM:SS below the ring — but founder screenshot
+  // showed a duplicate-clock bug (the .aurora-stage-clock element
+  // already shows time above the ring). lockClock removed; only
+  // lockDate stays to render the day-of-week + date string the
+  // arc-reactor displays below itself.
   const [lockDate, setLockDate] = useState(() => formatLockDate(new Date()));
   useEffect(() => {
-    // Tick the lock-clock only when voice mode is open so we don't
-    // burn a setInterval the rest of the time.
+    // Tick the date string while voice mode is open. Cheap (1Hz)
+    // and lets the date roll over if a user keeps voice mode open
+    // past midnight without burning a setInterval the rest of the
+    // time.
     if (!voiceModeActive) return;
-    const update = () => {
-      const now = new Date();
-      setLockClock(formatHudClock(now));
-      setLockDate(formatLockDate(now));
-    };
+    const update = () => setLockDate(formatLockDate(new Date()));
     update();
     const id = window.setInterval(update, 1000);
     return () => window.clearInterval(id);
