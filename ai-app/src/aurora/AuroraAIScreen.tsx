@@ -44,6 +44,7 @@ import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
+import { parseShowBlock, fetchWikipediaThumbnail } from "./auroraVisuals";
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -330,17 +331,44 @@ export function AuroraAIScreen() {
     };
   }, [isPresenting, presentingSide]);
 
-  // The text Tony is currently speaking — pulled from the most
-  // recent AI message in the thread. The paper renders this so the
-  // user sees what Tony's saying as written-on-paper.
-  const presentingText = useMemo(() => {
-    if (!isPresenting) return "";
+  // Pull the latest AI message + parse Tony's <<<SHOW:query>>>
+  // block out of it. The block (if present) tells us what
+  // Wikipedia image to fetch and show ABOVE the text on the
+  // A4 paper. Text rendered on the paper is the CLEANED version
+  // with the block stripped so users don't see raw markers.
+  const presenting = useMemo(() => {
+    if (!isPresenting) return { show: null as null, cleanText: "" };
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.role === "ai" && m.text.trim()) return m.text;
+      if (m.role === "ai" && m.text.trim()) {
+        return parseShowBlock(m.text);
+      }
     }
-    return "";
+    return { show: null as null, cleanText: "" };
   }, [isPresenting, messages]);
+  const presentingText = presenting.cleanText;
+
+  // Lazy-fetch the Wikipedia thumbnail for Tony's current SHOW
+  // block. Re-runs whenever the AI message's SHOW query changes.
+  // Cached at the module level so flipping between messages with
+  // the same query doesn't re-hit Wikipedia.
+  const [presentingImage, setPresentingImage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!presenting.show) {
+      setPresentingImage(null);
+      return;
+    }
+    let cancelled = false;
+    const ctl = new AbortController();
+    void fetchWikipediaThumbnail(presenting.show.query, ctl.signal).then((url) => {
+      if (cancelled) return;
+      setPresentingImage(url);
+    });
+    return () => {
+      cancelled = true;
+      ctl.abort();
+    };
+  }, [presenting.show?.query]);
 
   /**
    * Monotonic counter bumped every time the user opens (or closes)
@@ -939,6 +967,22 @@ export function AuroraAIScreen() {
                 </svg>
               </button>
             </div>
+            {/* Image rendered above the text when Tony emitted a
+                <<<SHOW:query>>> block AND Wikipedia returned a
+                thumbnail. Silent failure: no broken-image icon if
+                the lookup fails, just text only. This is the
+                "live SmartBoard" — Tony talks about something
+                visual, the picture appears above his words. */}
+            {presentingImage && (
+              <div className="aurora-present-image-wrap">
+                <img
+                  src={presentingImage}
+                  alt={presenting.show?.query ?? ""}
+                  className="aurora-present-image"
+                  loading="eager"
+                />
+              </div>
+            )}
             <div className="aurora-present-body">
               {presentingText || (
                 <span style={{ color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>

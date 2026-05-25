@@ -173,6 +173,37 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   color: rgba(0,0,0,0.55);
 }
 
+/* SmartBoard image card — sits ABOVE the body text when Tony has
+   emitted a <<<SHOW:query>>> block and Wikipedia returned a thumbnail.
+   The "live SmartBoard" effect: he talks about a place, the picture
+   of the place appears.
+
+   Constrained to a reasonable size so it doesn't push all the text
+   off the paper. object-fit: cover crops gracefully. Slight border
+   + shadow gives it a Polaroid-on-paper feel. */
+.aurora-app .aurora-present-image-wrap {
+  width: 100%;
+  margin: 4px 0 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #efeae0;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow:
+    0 4px 14px rgba(0,0,0,0.10),
+    inset 0 0 0 0.5px rgba(0,0,0,0.05);
+  animation: aurora-image-in 500ms cubic-bezier(.2,.85,.3,1) both;
+}
+.aurora-app .aurora-present-image {
+  display: block;
+  width: 100%;
+  max-height: 38vh;
+  object-fit: cover;
+}
+@keyframes aurora-image-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 /* Dismiss button — small "X" on the right side of the header. Closes
    voice mode entirely via shutdownVoiceMode. Sits inline with the
    header so it doesn't intrude on the paper body. */

@@ -54,6 +54,7 @@ import { AURORA_LEGAL } from "./aurora-legal";
 import { AURORA_BUSINESS } from "./aurora-business";
 import { AURORA_PRODUCTIVITY } from "./aurora-productivity";
 import { AURORA_HONESTY } from "./aurora-honesty";
+import { AURORA_VISUALS } from "./aurora-visuals";
 import { AURORA_SAFETY } from "./aurora-safety";
 import { AURORA_STYLE } from "./aurora-style";
 import { AURORA_TUTORING_CORE } from "./aurora-tutoring-core";
@@ -142,6 +143,7 @@ export function buildAuroraPrompt(ctx: {
     AURORA_PRODUCTIVITY,
     AURORA_HONESTY,
     AURORA_STYLE,
+    AURORA_VISUALS,
     // Capability deep-dives (copied from basudrus.com — see header
     // files for the verbatim-copy rationale and pruning advice).
     "# Tutoring capability (use when the user asks about academic work)",
