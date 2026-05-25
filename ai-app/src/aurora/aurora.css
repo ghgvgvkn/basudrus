@@ -1074,6 +1074,16 @@ body.aurora-active .aurora-back-btn {
 }
 
 /* ── Bottom chat bar ────────────────────────────────────────────── */
+/* Apple Liquid Glass chat bar — same recipe as the widgets but
+   in pill form. Wider, brighter, much more visibly "glass" than
+   the previous dark-translucent style.
+   Key changes vs the previous look:
+     - Bg opacity 0.14 → 0.30 (real glass, not just tint)
+     - Border 0.5px @ 0.45 → 0.5px @ 0.70 (frosted edge visible)
+     - Backdrop blur 34px → 42px (more substantial frost)
+     - Inner top highlight 0.55 → 0.75 (Apple glossy ridge)
+     - Added inner bottom dark line for depth
+     - Stronger shadow for the floating-glass feel */
 .aurora-app .aurora-chat-bar {
   position: absolute;
   bottom: 28px;
@@ -1084,28 +1094,31 @@ body.aurora-active .aurora-back-btn {
   align-items: center;
   gap: 10px;
   padding: 10px 10px 10px 18px;
-  background: rgba(255,255,255,0.14);
-  backdrop-filter: blur(34px) saturate(200%);
-  -webkit-backdrop-filter: blur(34px) saturate(200%);
-  border: 0.5px solid rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.30);
+  backdrop-filter: blur(42px) saturate(190%);
+  -webkit-backdrop-filter: blur(42px) saturate(190%);
+  border: 0.5px solid rgba(255,255,255,0.70);
   border-radius: 999px;
   box-shadow:
-    inset 0 0.5px 0 rgba(255,255,255,0.55),
-    inset 0 -0.5px 0 rgba(255,255,255,0.08),
-    0 30px 80px rgba(0,0,0,0.55),
-    0 0 80px rgba(255,255,255,0.10);
+    inset 0 1px 0 rgba(255,255,255,0.75),
+    inset 0 -0.5px 0 rgba(0,0,0,0.10),
+    inset 0 0 0 0.5px rgba(255,255,255,0.25),
+    0 18px 50px rgba(0,0,0,0.45),
+    0 4px 12px rgba(0,0,0,0.20);
   opacity: 0;
   animation: aurora-rise 1.2s 0.6s cubic-bezier(.2,.7,.2,1) forwards;
   z-index: 4;
   transition: width 400ms cubic-bezier(.2,.7,.2,1), background 200ms, border-color 200ms;
 }
 body.aurora-typing .aurora-app .aurora-chat-bar {
-  background: rgba(255,255,255,0.20);
-  border-color: rgba(255,255,255,0.65);
+  background: rgba(255,255,255,0.38);
+  border-color: rgba(255,255,255,0.85);
   box-shadow:
-    inset 0 0.5px 0 rgba(255,255,255,0.70),
-    0 30px 80px rgba(0,0,0,0.55),
-    0 0 100px rgba(255,255,255,0.18);
+    inset 0 1px 0 rgba(255,255,255,0.90),
+    inset 0 -0.5px 0 rgba(0,0,0,0.10),
+    inset 0 0 0 0.5px rgba(255,255,255,0.35),
+    0 22px 60px rgba(0,0,0,0.50),
+    0 4px 12px rgba(0,0,0,0.20);
 }
 .aurora-app .aurora-pip-mark {
   width: 26px;
@@ -1119,14 +1132,17 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 14px rgba(255,255,255,0.9);
+  /* Cyan core so the pip stays visible against the new bright
+     Liquid Glass chat bar (was white-on-white before, invisible). */
+  background: #4a90e2;
+  box-shadow: 0 0 14px rgba(74,144,226,0.85);
   animation: aurora-breathePip 2.6s ease-in-out infinite;
 }
 .aurora-app .aurora-pip-mark .aurora-ring {
   position: absolute;
   inset: 0;
-  border: 0.5px solid rgba(255,255,255,0.30);
+  /* Dark stroke for visibility on the bright glass surface. */
+  border: 0.5px solid rgba(14,22,34,0.30);
   border-radius: 50%;
   animation: aurora-ringExp 2.6s ease-out infinite;
 }
@@ -1138,7 +1154,9 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   background: transparent;
   border: none;
   outline: none;
-  color: #ffffff;
+  /* Dark text on the new bright Liquid Glass surface — readable
+     contrast without the harshness of pure black. */
+  color: #0E1622;
   font-family: 'Urbanist', sans-serif;
   font-size: 15px;
   font-weight: 400;
@@ -1146,7 +1164,7 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   height: 36px;
 }
 .aurora-app .aurora-chat-input::placeholder {
-  color: rgba(255,255,255,0.55);
+  color: rgba(14,22,34,0.50);
 }
 .aurora-app .aurora-chat-actions {
   display: flex;
@@ -1745,34 +1763,55 @@ body.aurora-rail-hidden .aurora-chat-rail {
   transition: opacity 400ms;
   z-index: 2;
 }
+/* Apple Liquid Glass widget — frosted bright surface that feels like
+   iOS 18 / macOS 15 control center tiles. Way whiter than the
+   previous dark translucent style; the founder wanted these to look
+   like real Apple glass instead of just "tinted black panel."
+   Recipe:
+     - High white opacity background (0.22) so the glass actually
+       reads as glass, not black tint
+     - Strong backdrop blur + saturate boost (the saturate is what
+       makes the background colors POP through the glass — Apple's
+       trick for the "alive" feel)
+     - Bright inset highlight along the TOP edge for that glossy
+       light-from-above appearance
+     - Subtle inner dark line at the BOTTOM for depth
+     - Soft white border (no harsh stroke) */
 .aurora-app .aurora-widget {
   width: 170px;
   min-height: 132px;
-  border-radius: 18px;
-  background: rgba(255,255,255,0.05);
-  border: 0.5px solid rgba(255,255,255,0.24);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-radius: 22px;
+  background: rgba(255,255,255,0.22);
+  border: 0.5px solid rgba(255,255,255,0.55);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
   box-shadow:
-    inset 0 0.5px 0 rgba(255,255,255,0.20),
-    inset 0 -0.5px 0 rgba(255,255,255,0.04),
-    0 20px 60px rgba(0,0,0,0.55);
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    inset 0 -0.5px 0 rgba(0,0,0,0.08),
+    inset 0 0 0 0.5px rgba(255,255,255,0.18),
+    0 12px 36px rgba(0,0,0,0.40),
+    0 2px 8px rgba(0,0,0,0.20);
   padding: 14px;
   position: relative;
   overflow: hidden;
-  transition: transform 240ms cubic-bezier(.2,.7,.2,1), border-color 200ms;
-  color: #ffffff;
+  transition: transform 240ms cubic-bezier(.2,.7,.2,1), border-color 200ms, background 200ms;
+  color: #0E1622;
 }
 .aurora-app .aurora-widget:hover {
   transform: translateY(-2px);
-  border-color: rgba(255,255,255,0.40);
+  background: rgba(255,255,255,0.28);
+  border-color: rgba(255,255,255,0.75);
 }
+/* Widget interior text — flipped to dark-on-light now that the
+   background is bright Liquid Glass. The greenish/pink accent
+   dots (Today · Tony / Study streak) stay their original color
+   so they still read as status indicators against the new bg. */
 .aurora-app .aurora-w-label {
   font-family: 'Geist Mono', monospace;
   font-size: 9px;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.55);
+  color: rgba(14,22,34,0.65);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1783,17 +1822,18 @@ body.aurora-rail-hidden .aurora-chat-rail {
   letter-spacing: -0.04em;
   margin-top: 6px;
   line-height: 1.05;
+  color: #0E1622;
 }
 .aurora-app .aurora-w-sub {
   font-size: 11.5px;
-  color: rgba(255,255,255,0.65);
+  color: rgba(14,22,34,0.65);
   margin-top: 2px;
 }
 .aurora-app .aurora-w-bar {
   margin-top: 14px;
   height: 4px;
   width: 100%;
-  background: rgba(255,255,255,0.10);
+  background: rgba(14,22,34,0.12);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -1805,6 +1845,11 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-w-foot {
   margin-top: 10px;
+}
+/* "0 SESSIONS" sub-footer in the streak widget — kept legible on
+   the new bright glass bg. */
+.aurora-app .aurora-w-foot span {
+  color: rgba(14,22,34,0.55) !important;
 }
 
 /* ── Typing-bubble inline variant ───────────────────────────────── */
