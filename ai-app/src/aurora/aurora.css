@@ -49,21 +49,30 @@
   transition: transform 700ms cubic-bezier(.2,.85,.3,1);
 }
 /* VOICE MODE — orb condenses into the HUD ring AND breathes with
-   sound. Resting scale is 0.35 (founder feedback round 2: the orb
-   was still overlapping the text below it at 0.45 — needs to shrink
-   further so it sits CLEANLY inside the HUD ring with clear breathing
-   room below for Tony's words and the artifact cards). On top of
-   that we add a live audio-level bonus so the orb visibly INFLATES
-   when the user OR Tony is speaking. Total scale: 0.35 → ~0.41 at
-   peak volume. The peak boost is also smaller (0.06 vs 0.09) so the
-   orb never grows large enough to crash into the text again.
-   transform-origin: 50% 38% pulls the visual center slightly UP
-   so the shrunken orb sits in the upper portion of the screen,
-   giving the text below it even more clearance. */
+   sound. Resting scale is 0.35. On top of that we add a live
+   audio-level bonus so the orb visibly INFLATES when the user OR
+   Tony is speaking. Total scale: 0.35 → ~0.41 at peak volume.
+   transform-origin: 50% 50% (default center) keeps the orb DEAD-
+   CENTERED on viewport — same center the HUD ring is pinned to —
+   so the dots sit cleanly inside the ring with even space on all
+   sides.
+
+   IMPORTANT — DUAL-CLASS SPECIFICITY. The focus-mode rule further
+   down in this file (body.aurora-focus-mode .aurora-matrix) also
+   sets a transform: scale(1.06), and focus-mode activates the moment
+   the user sends their first message — including their first voice
+   utterance. The two rules have identical specificity (one body
+   class + one element + one descendant class) so the LATER rule
+   wins, and focus-mode wins. We bump specificity by chaining BOTH
+   class selectors on the body so this rule has 2 body classes vs
+   focus-mode's 1, guaranteeing the presenting scale wins regardless
+   of file order. */
 body.aurora-presenting-left .aurora-app .aurora-matrix,
-body.aurora-presenting-right .aurora-app .aurora-matrix {
+body.aurora-presenting-right .aurora-app .aurora-matrix,
+body.aurora-presenting-left.aurora-focus-mode .aurora-app .aurora-matrix,
+body.aurora-presenting-right.aurora-focus-mode .aurora-app .aurora-matrix {
   transform: scale(calc(0.35 + var(--audio-level, 0) * 0.06));
-  transform-origin: 50% 38%;
+  transform-origin: 50% 50%;
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
   filter: brightness(calc(1 + var(--audio-level, 0) * 0.20));
 }
@@ -118,13 +127,18 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
    Everything except the orb is semi-transparent — the dots breathe
    THROUGH all the HUD/text/cards so you never lose the orb. */
 
-/* Stage root — a fixed full-viewport container that hosts the
-   ring HUD, the text, and the artifact row. Pointer-events none on
-   the root so the orb canvas behind it stays interactive; specific
-   children re-enable pointer events where needed.
-   The stage uses a 3-row vertical layout (ring | text | cards)
-   with generous gaps so each element has its own breathing room
-   and doesn't visually collide with the others. */
+/* Stage root — the ring is pinned to viewport center via its own
+   position:fixed (so it ALWAYS lines up with the canvas, which is
+   also viewport-centered). Text + cards live in a flex column
+   anchored to the BOTTOM of the viewport — that way they flow
+   upward as content grows, never overlap each other, and the ring
+   never has to share a flex layout that could shift its center
+   off-axis.
+   Founder feedback round 3: "make the bigger circle the blue one
+   bigger and then re-enter the points of the circle because the
+   points or the dots are not resented." Fixed by pinning both to
+   the same coordinate (viewport center) and bumping the ring size
+   to 56vmin so it's a hero element. */
 .aurora-app .aurora-stage {
   position: fixed;
   inset: 0;
@@ -132,9 +146,9 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 48px;
-  padding: 80px 32px 40px;
+  justify-content: flex-end;
+  gap: 20px;
+  padding: 0 32px 36px;
   pointer-events: none;
   animation: aurora-stage-in 600ms cubic-bezier(.2,.85,.3,1) both;
 }
@@ -153,22 +167,30 @@ body.aurora-presenting-right .aurora-app .aurora-vignette {
      - mic-level bars on the left
    All pointer-events: none — clicks pass through to the orb. */
 .aurora-app .aurora-stage-ring {
-  position: relative;
-  /* Sized to match the canvas's natural orb at scale(0.35) — the
-     orb is roughly 80vmin wide at full scale, so 80vmin × 0.35 ≈
-     28vmin. We make the ring slightly larger (36vmin) so the border
-     frames the orb with a small gap of breathing room between the
-     dots and the ring border. */
-  width: clamp(300px, 36vmin, 440px);
-  height: clamp(300px, 36vmin, 440px);
-  flex-shrink: 0;
+  /* Pinned to viewport center via fixed positioning + translate.
+     This MATCHES the orb canvas's own centering (position:fixed
+     inset:0) so the ring and the orb share a true center, no
+     fractional offsets. Founder asked for the cyan ring to be
+     BIGGER — bumped from 36vmin to 56vmin so the ring is a
+     dominant hero element, with the smaller (scale 0.35) orb
+     sitting clearly inside with generous breathing space. */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(380px, 56vmin, 680px);
+  height: clamp(380px, 56vmin, 680px);
   pointer-events: none;
   border-radius: 50%;
   animation: aurora-stage-ring-in 700ms cubic-bezier(.2,.85,.3,1) both;
 }
 @keyframes aurora-stage-ring-in {
-  from { opacity: 0; transform: scale(0.85); }
-  to   { opacity: 1; transform: scale(1); }
+  /* Translate(-50%, -50%) keeps the ring pinned to viewport
+     center while we also animate scale on top. Without the
+     translate inside the keyframe the ring would jump to the
+     top-left during the entry animation. */
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
 /* Inner cyan border line — frames the orb. Significantly brighter
@@ -458,11 +480,11 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
   height: 12px;
 }
 
-/* TONY'S WORDS — floating glowing text below the ring. No paper.
-   Just typography in dark space, with a soft cyan glow so it
-   feels like JARVIS speaking, not Word document. A faint dark
-   radial backdrop sits behind the text so it reads cleanly even
-   when the orb dots fade out near the edge — no halo washout. */
+/* TONY'S WORDS — flex child of the stage (now anchored to bottom).
+   Words sit at the lower portion of the screen, well clear of the
+   ring overhead. Cards (when present) appear above this text in
+   flex flow. The dark radial backdrop keeps the text readable
+   against the orb glow that bleeds through above. */
 .aurora-app .aurora-stage-text-wrap {
   position: relative;
   width: min(760px, calc(100vw - 80px));
@@ -472,7 +494,7 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
   pointer-events: auto;
   mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
-  padding: 18px 24px;
+  padding: 14px 24px;
   animation: aurora-stage-in 600ms 280ms cubic-bezier(.2,.85,.3,1) both;
 }
 /* Soft dark radial behind the text so it doesn't compete with
@@ -543,9 +565,13 @@ body[style*="--audio-level"] .aurora-stage-ring-inner {
   text-shadow: 0 0 8px rgba(140,200,255,0.40);
 }
 
-/* Floating artifact card row — sits below Tony's text. Cards are
-   semi-transparent dark glass (no white paper backgrounds anywhere).
-   Flex row with wrap so 1-5 cards lay out gracefully. */
+/* Floating artifact card row — flex child of the stage, sits
+   ABOVE the text in flex flow (because the stage uses
+   justify-content: flex-end so children flow up from the bottom,
+   and JSX order is: ring (fixed, outside flex) → text → cards;
+   in flex-end mode that means cards land at the very bottom, text
+   stacks above cards, ring floats independently at viewport
+   center). Semi-transparent dark glass — no white backgrounds. */
 .aurora-app .aurora-stage-cards {
   display: flex;
   flex-wrap: wrap;
