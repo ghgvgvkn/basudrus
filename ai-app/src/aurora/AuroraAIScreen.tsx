@@ -576,7 +576,9 @@ export function AuroraAIScreen() {
       const now = performance.now();
       if (above && !wasAboveRef.current && now - lastPulseAtRef.current > PULSE_COOLDOWN_MS) {
         const cx = window.innerWidth / 2;
-        const cy = window.innerHeight * 0.36; // matches transform-origin 50% 36%
+        // Orb's screen position is 36% from top (CSS pulls the canvas
+        // up by 14vh from viewport-center via translateY).
+        const cy = window.innerHeight * 0.36;
         // Pulse intensity scales with the peak — softer ripples on
         // quieter syllables, bigger ripples on emphasis.
         auroraRef.current?.pulse(cx, cy, Math.min(0.8, smoothed * 1.2));

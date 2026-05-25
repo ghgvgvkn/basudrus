@@ -122,22 +122,36 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   if (!result.ok || !result.response) {
-    // Map the upstream HTTP status to a SAFE category — we still
-    // never echo ElevenLabs's raw body (which can include plan /
-    // usage info) but we DO tell the user which category of
-    // failure they hit. Founder needs this to debug:
-    //   401/403 → API key invalid or revoked
-    //   402     → ElevenLabs credits exhausted
-    //   429     → rate-limited; try again
-    //   5xx     → ElevenLabs is down (their problem, retry later)
-    //   other   → "Voice synthesis failed (HTTP N)" so support
-    //              can at least see the bucket
+    // Log the FULL upstream error to the Vercel function logs so
+    // we can debug what ElevenLabs actually returned (their error
+    // body often says exactly what's wrong — "invalid voice_id",
+    // "quota_exceeded", "concurrent_request_limit", etc.). The
+    // founder kept hitting "Voice synthesis failed" with no clue
+    // why; the answer is in result.error which we just dump here.
+    // Safe to log server-side — Vercel logs are private to the
+    // project owner, no end-user PII is exposed.
+    console.error("[speak] ElevenLabs error", {
+      status: result.status,
+      error: result.error,
+      voiceId,
+      // Don't log full text — could be sensitive. Length is enough
+      // to confirm we actually sent something.
+      textLen: cleaned.length,
+    });
+
+    // Map the upstream HTTP status to a SAFE category for the
+    // CLIENT response (we still don't echo ElevenLabs's raw body
+    // since it can contain plan / usage info that's private to us).
     let friendly: string;
     const code = result.status;
     if (code === 401 || code === 403) {
       friendly = "Voice service authentication failed — API key issue";
     } else if (code === 402) {
       friendly = "Voice service credits exhausted";
+    } else if (code === 422) {
+      // Common cause: invalid voice_id. The voice we configured
+      // doesn't exist in the user's ElevenLabs workspace.
+      friendly = "Voice service rejected the request — check voice ID";
     } else if (code === 429) {
       friendly = "Voice service rate-limited — try again in a moment";
     } else if (code >= 500 && code < 600) {

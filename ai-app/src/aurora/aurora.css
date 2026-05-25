@@ -71,19 +71,26 @@ body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix,
 body.aurora-presenting-left.aurora-focus-mode .aurora-app .aurora-matrix,
 body.aurora-presenting-right.aurora-focus-mode .aurora-app .aurora-matrix {
-  /* Resting scale 0.65 + audio bonus up to 0.75 — founder asked
-     for the dots to "become bigger" so the orb fills more of the
-     ring (was visually swimming in too much empty space).
-     PLUS: translateY follows audio level so the orb LIFTS upward
-     on loud syllables — reads as a character bobbing/nodding
-     while it speaks instead of just pulsing. Combined with the
-     scale change this gives a much more alive, character-like
-     feel. transform-origin: 50% 36% matches the ring's lifted
-     top:36% position so the dots stay centered inside the ring. */
+  /* Position math, founder feedback round 6 — screenshot showed
+     the orb sitting BELOW the ring instead of inside it.
+     Previous attempt used transform-origin: 50% 36% which DOES NOT
+     keep the orb centered as scale changes (scaling around a top
+     origin pushes content downward as it grows).
+     New approach: transform-origin stays at 50%/50% (the canvas's
+     true center) and we use translateY(-14vh) to shift the whole
+     element UP by exactly the distance needed to land the orb at
+     the ring's top:36% position. Since the canvas's natural orb
+     is at viewport-center (50vh) and the ring is at 36vh, we need
+     -14vh of lift. Math:
+       50vh (natural) + -14vh (translate) = 36vh ✓
+     This holds regardless of scale — translate and scale are
+     independent transforms applied around the same origin.
+     PLUS: audio-level adds an additional Y-bob so the orb lifts
+     slightly more on loud syllables (character-bobbing motion). */
   transform:
-    translateY(calc(var(--audio-level, 0) * -10px))
+    translateY(calc(-14vh + var(--audio-level, 0) * -10px))
     scale(calc(0.65 + var(--audio-level, 0) * 0.10));
-  transform-origin: 50% 36%;
+  transform-origin: 50% 50%;
   transition: transform 800ms cubic-bezier(.2,.85,.3,1);
   filter: brightness(calc(1 + var(--audio-level, 0) * 0.25));
 }
