@@ -1350,9 +1350,11 @@ export function AuroraAIScreen() {
             <span className="aurora-lock-ring-label">TONY<br />STARRK</span>
             <div className="aurora-lock-ring-core" />
           </div>
-          {/* Clock + date below the ring */}
+          {/* Date + time block below the ring. The .aurora-stage-clock
+              element ALREADY shows HH:MM:SS above the ring — so this
+              block shows DATE only to avoid the duplicate-clock bug
+              from the founder's screenshot. */}
           <div className="aurora-lock-clock-block">
-            <div className="aurora-lock-time">{lockClock}</div>
             <div className="aurora-lock-date">{lockDate}</div>
           </div>
         </div>

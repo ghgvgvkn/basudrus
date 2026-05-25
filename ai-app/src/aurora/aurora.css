@@ -152,21 +152,22 @@ body.aurora-presenting-left .aurora-app .aurora-matrix,
 body.aurora-presenting-right .aurora-app .aurora-matrix,
 body.aurora-presenting-left.aurora-focus-mode .aurora-app .aurora-matrix,
 body.aurora-presenting-right.aurora-focus-mode .aurora-app .aurora-matrix {
-  /* Resting: orb is shrunk via scale, lifted to ring's center, and
-     gets an additional audio-reactive Y-lift (-10px max) so it
-     bobs on loud syllables — character motion the founder asked
-     for. The whole canvas also sways gently L/R via an infinite
-     animation that drives the `translate` property; combined with
-     the existing transform's translateY, this gives a subtle
-     "looking around the room" feel WITHOUT touching the engine.
-     Using INDIVIDUAL transform properties (translate/scale) means
-     the sway animation on `translate` doesn't conflict with the
-     audio-reactive `transform`. */
+  /* HIDE the dot orb in voice mode. Founder feedback after the
+     arc-reactor ring shipped: "we already have a Tony Stark as
+     a circle, can you delete the circle of dots." The TONY STARRK
+     arc-reactor ring is now the centerpiece — the dot sphere
+     on top of it was visual noise. The canvas keeps animating
+     in the background (cheap) so transitioning BACK to chat mode
+     shows the dots already moving; opacity:0 just hides them.
+     The scale + translate values stay below so the engine has
+     no surprises when we re-show the dots in chat mode. */
+  opacity: 0;
+  pointer-events: none;
   transform:
     translateY(calc(-4vh + var(--audio-level, 0) * -10px))
     scale(calc(0.72 + var(--audio-level, 0) * 0.10));
   transform-origin: 50% 50%;
-  transition: transform 800ms cubic-bezier(.2,.85,.3,1);
+  transition: opacity 600ms ease, transform 800ms cubic-bezier(.2,.85,.3,1);
   filter: brightness(calc(1 + var(--audio-level, 0) * 0.25));
   /* Gentle infinite sway — runs INDEPENDENTLY from the transform
      above via the dedicated `translate` property (not `transform`).
