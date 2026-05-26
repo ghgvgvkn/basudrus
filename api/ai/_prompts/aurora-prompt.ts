@@ -97,6 +97,13 @@ export function buildAuroraPrompt(ctx: {
    *  gates this on emotional keywords detected in the last user
    *  message. */
   includeWellbeing?: boolean;
+  /** Pre-rendered Tavily "RECENT WEB CONTEXT" block (or empty).
+   *  When non-empty, the model can read live web results inline in
+   *  the prompt — the same retrieval pattern tutor.ts uses. The
+   *  aurora.ts endpoint formats this via renderTavilyBlock; we just
+   *  paste it through. The block already contains "MUST cite source
+   *  domain" instructions so Tony attributes claims honestly. */
+  webContext?: string;
 }): string {
   const name = (ctx.studentName ?? "").trim();
   const uni = (ctx.uni ?? "").trim();
@@ -104,6 +111,7 @@ export function buildAuroraPrompt(ctx: {
   const year = ctx.year != null ? String(ctx.year).trim() : "";
   const personality = (ctx.personality ?? "").trim();
   const memory = (ctx.memory ?? "").trim();
+  const webContext = (ctx.webContext ?? "").trim();
   const lang = ctx.lang ?? "auto";
   // Default the giant capability blocks to INCLUDED if a caller
   // doesn't pass the flag — preserves the legacy behavior for any
@@ -180,6 +188,13 @@ export function buildAuroraPrompt(ctx: {
     includeWellbeing && "# Mental-health depth (use when the user needs serious emotional support)",
     includeWellbeing && AURORA_WELLBEING,
     ctxBlock.trim() ? ctxBlock.trim() : "",
+    // Web context lands LAST among the data blocks (right before
+    // langLock + safety) so Tony sees the live retrieval AFTER his
+    // persona/voice/capabilities are anchored — the search results
+    // are tools the persona uses, not the persona itself. The block
+    // already contains its own MUST-cite-source-domain rules; we
+    // just paste it through.
+    webContext,
     langLock.trim(),
     AURORA_SAFETY,
   ].filter((s): s is string => typeof s === "string" && s.length > 0);

@@ -44,11 +44,17 @@ import {
   isProUser,
 } from "../_lib/ai-guard";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
+import { searchTavily, shouldSearchAurora, renderTavilyBlock } from "../_lib/tavily";
 import { buildAuroraPrompt } from "./_prompts/aurora-prompt";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+// Tavily web search (free tier: 1k calls/month). Aurora fires it
+// on a broader heuristic than the tutor — see shouldSearchAurora in
+// tavily.ts. Missing key = web context silently empty, Tony answers
+// from training (degrades gracefully).
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
 
 // Aurora is conversational + voice-driven so we lean a bit more
 // generous than tutor.ts but still cost-bounded.
@@ -175,26 +181,54 @@ export default async function handler(req: Request): Promise<Response> {
     const lang: "en" | "ar" | "auto" =
       langRaw === "en" || langRaw === "ar" ? langRaw : "auto";
 
-    // ── Shared student_memory ──
-    // Aurora reads the SAME memory rows the tutor reads. This is the
-    // mechanism that makes Tony feel like one continuous friend across
-    // both surfaces — durable facts the user told him on basudrus.com
-    // surface here automatically. Best-effort: if the read fails we
-    // still answer with no memory block.
+    // ── Shared student_memory + Tavily web search (parallel) ──
+    // Aurora reads the SAME memory rows the tutor reads — Tony feels
+    // like one continuous friend across both surfaces. The Tavily
+    // lookup runs in parallel because it's also cold I/O; serializing
+    // them would add ~300-1000ms of unnecessary latency on the
+    // research-flavored turns (which are the ones that already feel
+    // slow because the model has to read the extra context).
+    //
+    // Both are best-effort: a failure on either path yields an empty
+    // block, and the model answers from training / no-memory. No
+    // visible error to the user.
     const lastUserMsg = [...apiMessages].reverse().find((m) => m.role === "user");
     const lastUserText = typeof lastUserMsg?.content === "string"
       ? lastUserMsg.content
       : "";
-    const memoryRows = await fetchStudentMemoryRelevant({
-      supabaseUrl: SUPABASE_URL,
-      supabaseAnonKey: SUPABASE_ANON_KEY,
-      authHeader,
-      limit: 12,
-      signal: req.signal,
-      query: lastUserText,
-      minConfidence: 0,
-    }).catch(() => [] as Awaited<ReturnType<typeof fetchStudentMemoryRelevant>>);
+
+    // shouldSearchAurora returns null when this turn doesn't warrant
+    // a search (most casual messages: "hey," "thanks," "what's up").
+    // When non-null, it's the refined query string to hand to Tavily.
+    // Skip entirely if TAVILY_API_KEY isn't configured.
+    const searchQuery = TAVILY_API_KEY ? shouldSearchAurora(lastUserText) : null;
+
+    const [memoryRows, tavilyResults] = await Promise.all([
+      fetchStudentMemoryRelevant({
+        supabaseUrl: SUPABASE_URL,
+        supabaseAnonKey: SUPABASE_ANON_KEY,
+        authHeader,
+        limit: 12,
+        signal: req.signal,
+        query: lastUserText,
+        minConfidence: 0,
+      }).catch(() => [] as Awaited<ReturnType<typeof fetchStudentMemoryRelevant>>),
+      searchQuery
+        ? searchTavily({
+            apiKey: TAVILY_API_KEY,
+            query: searchQuery,
+            searchDepth: "basic",
+            maxResults: 4,
+            // No country bias for Aurora — life mode covers the whole
+            // world. Tutor uses "jordan" because Bas Udrus is JO-
+            // focused; Aurora users ask about anywhere.
+            signal: req.signal,
+          }).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+
     const memoryBlock = renderMemoryBlock(memoryRows);
+    const tavilyBlock = searchQuery ? renderTavilyBlock(searchQuery, tavilyResults) : "";
 
     // ── Intent detection (cost lever) ──
     // The full tutoring (~113KB) + deep wellbeing (~43KB) prompt
@@ -238,6 +272,11 @@ export default async function handler(req: Request): Promise<Response> {
       year,
       personality,
       memory: memoryBlock || undefined,
+      // Live web retrieval (Tavily). Empty when the turn didn't
+      // warrant a search or when the search returned nothing. The
+      // block carries its own citation rules so Tony attributes any
+      // fact drawn from it to the source domain.
+      webContext: tavilyBlock || undefined,
       lang,
       // Cost-control flags — gate the giant capability blocks
       includeTutoring: wantsTutoring,

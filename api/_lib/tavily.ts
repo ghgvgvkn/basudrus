@@ -143,6 +143,139 @@ export function shouldSearch(userMessage: string): string | null {
 }
 
 /**
+ * Aurora (life-mode Tony) variant of shouldSearch.
+ *
+ * The original `shouldSearch` is tuned for academic queries —
+ * professors, syllabi, exam dates, university scholarship deadlines.
+ * Aurora is a daily-life assistant: weather, news, restaurants,
+ * current prices, sports, releases, "what time is it in Tokyo,"
+ * "is the Apollo restaurant in Amman open now," "what just happened
+ * with the iPhone 17." None of those trigger the academic heuristic
+ * so Tony silently hallucinates instead of searching.
+ *
+ * Strategy: union of the academic heuristic (so the tutor's
+ * existing triggers still work when an Aurora user asks something
+ * academic) PLUS broader life-mode triggers. False-positive bias —
+ * a slightly excessive search burns a fraction of a cent, a missed
+ * search hallucinates a fact and loses user trust.
+ *
+ * Returns the search query string when search is warranted, null
+ * otherwise — same shape as the academic shouldSearch, so the
+ * caller can drop it in interchangeably.
+ */
+export function shouldSearchAurora(userMessage: string): string | null {
+  if (!userMessage || userMessage.length < 4) return null;
+
+  // First, honor the academic heuristic so the tutoring edge cases
+  // (professor names, syllabus context, etc.) still fire when an
+  // Aurora user asks an academic question.
+  const academic = shouldSearch(userMessage);
+  if (academic) return academic;
+
+  const lower = userMessage.toLowerCase();
+
+  // Explicit "search" intent — user literally asks for a lookup.
+  // Highest signal there is.
+  const explicitSearchKeywords = [
+    "google it", "google this", "search for", "search the web",
+    "look it up", "look up", "look this up", "find out",
+    "what does the internet say", "what's the latest",
+    "ابحث", "دور", "جوجل",
+  ];
+  if (explicitSearchKeywords.some((k) => lower.includes(k))) return userMessage;
+
+  // Current-events / news triggers. People use Aurora as a daily
+  // companion; "what happened today" / "any news on X" / "latest on
+  // Israel-Iran" are common asks where stale training kills the
+  // answer.
+  const newsKeywords = [
+    "news", "headline", "headlines", "breaking",
+    "what happened", "what's happening", "whats happening",
+    "happening today", "happening now", "going on",
+    "update on", "any update", "latest update",
+    "أخبار", "خبر", "صار", "بصير", "بيصير",
+  ];
+  if (newsKeywords.some((k) => lower.includes(k))) return userMessage;
+
+  // Weather. Common voice-mode question, training data is useless
+  // for it.
+  if (/\b(weather|temperature|forecast|rain|raining|snow|snowing|sunny|hot|cold|humidity|wind)\b/i.test(userMessage)) {
+    return userMessage;
+  }
+  if (/\b(طقس|جو|درجة الحرارة|مطر|شمس)\b/.test(userMessage)) {
+    return userMessage;
+  }
+
+  // Prices, currencies, markets — anything financial that moves.
+  const moneyKeywords = [
+    "price of", "cost of", "how much is", "how much does",
+    "exchange rate", "currency", "convert",
+    "stock", "stocks", "shares", "market cap",
+    "crypto", "bitcoin", "ethereum", "btc", "eth",
+    "سعر", "كم سعر", "تكلفة", "عملة",
+  ];
+  if (moneyKeywords.some((k) => lower.includes(k))) return userMessage;
+
+  // Local businesses / venues / places — "is X open now," "hours of
+  // X," "near me," "best restaurant in," "address of X." Training
+  // data is months stale for hours/menus/openings.
+  const placeKeywords = [
+    "open now", "open today", "still open", "closing time", "opening hours",
+    "near me", "around me", "close by",
+    "best restaurant", "best café", "best cafe", "best bar",
+    "hotel in", "restaurant in", "café in", "cafe in",
+    "address of", "phone number for", "phone number of",
+    "directions to", "how to get to",
+    "بقرب", "حواليّ", "أفضل مطعم", "أفضل مقهى",
+  ];
+  if (placeKeywords.some((k) => lower.includes(k))) return userMessage;
+
+  // Sports — scores, schedules, standings, transfers. All
+  // perishable.
+  const sportsKeywords = [
+    "score", "scores", "game tonight", "match tonight", "tonight's game",
+    "playing tonight", "playing today", "who's winning", "whos winning",
+    "standings", "rankings", "transfer", "signed with",
+    "match", "fixture", "playoff", "playoffs", "world cup",
+  ];
+  if (sportsKeywords.some((k) => lower.includes(k))) return userMessage;
+
+  // Time zones — "what time is it in Tokyo," "what's the time in NYC."
+  if (/\bwhat\s+time\s+is\s+it\s+in\b/i.test(userMessage)) return userMessage;
+  if (/\btime\s+(?:right\s+)?now\s+in\b/i.test(userMessage)) return userMessage;
+
+  // Product releases / launches — perishable info, very common in
+  // tech-curious user queries.
+  const releaseKeywords = [
+    "release date", "launch date", "when does", "when did",
+    "released", "launched", "announced", "coming out",
+    "iphone", "samsung galaxy", "pixel", "macbook", "playstation", "xbox",
+    "new model", "new version",
+  ];
+  if (releaseKeywords.some((k) => lower.includes(k))) return userMessage;
+
+  // Current-year / future-year mentions are already covered by the
+  // base shouldSearch year heuristic (we re-ran it at the top via
+  // shouldSearch(userMessage)).
+
+  // Concrete companies / brands / entities — capitalized noun in
+  // the message implies a real-world entity. Combined with question
+  // mark or interrogative, it's likely a "tell me about X" research
+  // moment that benefits from web context. Conservative: requires
+  // a real question, not just any sentence with a name.
+  const isQuestion = userMessage.includes("?")
+    || /\b(what|who|where|when|why|how|is\s+\w+|are\s+\w+|does\s+\w+|do\s+\w+|did\s+\w+|will\s+\w+|can\s+\w+)\b/i.test(userMessage);
+  if (isQuestion) {
+    // Capitalized noun pattern — at least 4 chars, not at the very
+    // start of the message (where it could just be capitalization).
+    const capName = /(?<!^|\.\s|\?\s|!\s)\b[A-Z][a-zA-Z]{3,}\b/;
+    if (capName.test(userMessage)) return userMessage;
+  }
+
+  return null;
+}
+
+/**
  * Search Tavily and return cleaned results. Throws on transport
  * failure; returns empty array on a non-ok HTTP response (the caller
  * decides how to degrade — usually by skipping the context-injection
