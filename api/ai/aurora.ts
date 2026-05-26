@@ -56,6 +56,25 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 // from training (degrades gracefully).
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
 
+// Zapier MCP server URL — Anthropic's MCP client connects to this
+// remote MCP server and exposes every Zapier action the URL's owner
+// has configured (Gmail, Calendar, Slack, Notion, …) as a callable
+// tool for Tony. Get a URL at https://mcp.zapier.com/mcp/servers/new
+// and set ZAPIER_MCP_URL on Vercel.
+//
+// Current behavior (v1 — server-wide):
+//   Every Aurora user shares the SAME Zapier MCP URL — meaning any
+//   tool Tony calls (send email, create calendar event) runs as the
+//   account that owns the URL. Acceptable for single-tenant testing
+//   (founder uses it for himself); WRONG once multiple users are on
+//   the platform. The per-user OAuth path is the follow-up project.
+//
+// To gate per user later: store the URL in a profiles column or a
+// new user_integrations table, fetch it inside the handler, and
+// pass it in mcp_servers[] only for that request. The endpoint
+// already runs per-user via JWT so the lookup is straightforward.
+const ZAPIER_MCP_URL = process.env.ZAPIER_MCP_URL || "";
+
 // Aurora is conversational + voice-driven so we lean a bit more
 // generous than tutor.ts but still cost-bounded.
 const LIMITS = { daily: 50, hourly: 20, minute: 4 };
@@ -265,6 +284,12 @@ export default async function handler(req: Request): Promise<Response> {
     // ── System prompt ──
     // buildAuroraPrompt is the ONLY entry point into the personality
     // text. To edit Tony-on-Aurora, edit aurora-prompt.ts.
+    // MCP awareness block is gated on whether the API call ACTUALLY
+    // includes mcp_servers — we set the flag below right before the
+    // Anthropic call so it stays in lockstep with what the server
+    // sees. Computing it here keeps the prompt sections deterministic.
+    const willUseMcp = !!ZAPIER_MCP_URL;
+
     const systemPrompt = buildAuroraPrompt({
       studentName,
       uni,
@@ -277,6 +302,10 @@ export default async function handler(req: Request): Promise<Response> {
       // block carries its own citation rules so Tony attributes any
       // fact drawn from it to the source domain.
       webContext: tavilyBlock || undefined,
+      // Action tools awareness — Tony only sees this block when MCP
+      // is actually wired (i.e. ZAPIER_MCP_URL is set). Without it,
+      // he reverts to talk-only behavior.
+      hasMcpTools: willUseMcp,
       lang,
       // Cost-control flags — gate the giant capability blocks
       includeTutoring: wantsTutoring,
@@ -290,27 +319,67 @@ export default async function handler(req: Request): Promise<Response> {
     // 25s timeout covers normal streaming responses comfortably;
     // anything longer than that is upstream stuck and should fail
     // fast rather than hold an edge invocation hostage.
+    // MCP servers — currently just Zapier (when ZAPIER_MCP_URL is
+    // set). Anthropic's MCP client takes the URL, connects, lists
+    // the tools the server exposes, hands them to Claude as
+    // callable tools, and runs the request/response loop internally.
+    // The "anthropic-beta: mcp-client-2025-04-04" header opts in to
+    // this feature — Anthropic returns a clear 400 if you try to
+    // use mcp_servers without it.
+    //
+    // When ZAPIER_MCP_URL is unset, mcpServers stays empty and the
+    // request is identical to the pre-MCP path. Zero new failure
+    // modes for users without it configured.
+    const mcpServers: Array<{
+      type: "url";
+      url: string;
+      name: string;
+    }> = [];
+    if (ZAPIER_MCP_URL) {
+      mcpServers.push({ type: "url", url: ZAPIER_MCP_URL, name: "zapier" });
+    }
+    const useMcp = mcpServers.length > 0;
+
     const callAnthropic = () => {
       const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(new Error("Anthropic timeout (25s)")), 25_000);
+      // 25s default; bump to 45s when MCP is in play because the
+      // round-trip is server→Anthropic→MCP-server→tool→...→Anthropic
+      // →stream, and the per-tool latency stacks. Vercel edge has a
+      // 30s default — we'll cap at 28s in that case so the function
+      // doesn't get killed mid-stream by the platform.
+      const timeoutMs = useMcp ? 28_000 : 25_000;
+      const t = setTimeout(
+        () => ctl.abort(new Error(`Anthropic timeout (${timeoutMs / 1000}s)`)),
+        timeoutMs,
+      );
       // Mirror the client's signal so a user-side disconnect also
       // cancels the upstream request (saves tokens + invocation time).
       if (req.signal.aborted) ctl.abort(req.signal.reason);
       else req.signal.addEventListener("abort", () => ctl.abort(req.signal.reason), { once: true });
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      };
+      if (useMcp) {
+        // Required beta header for the mcp_servers field. Without
+        // this, Anthropic responds 400 "unknown field mcp_servers".
+        headers["anthropic-beta"] = "mcp-client-2025-04-04";
+      }
+      const body: Record<string, unknown> = {
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: apiMessages,
+        stream: true,
+      };
+      if (useMcp) {
+        body.mcp_servers = mcpServers;
+      }
       return fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1500,
-          system: systemPrompt,
-          messages: apiMessages,
-          stream: true,
-        }),
+        headers,
+        body: JSON.stringify(body),
         signal: ctl.signal,
       }).finally(() => clearTimeout(t));
     };
@@ -351,6 +420,10 @@ export default async function handler(req: Request): Promise<Response> {
     const stream = new ReadableStream({
       async start(controller) {
         let buf = "";
+        // Track whether we've already injected an "[invoking <tool>]"
+        // hint for the current tool_use block, so we don't print
+        // the line on every chunk of the same tool's serialized args.
+        let lastToolHinted = "";
         try {
           for (;;) {
             const { done, value } = await reader.read();
@@ -362,9 +435,7 @@ export default async function handler(req: Request): Promise<Response> {
               if (!line.startsWith("data: ")) continue;
               try {
                 const obj = JSON.parse(line.slice(6));
-                // content_block_delta is the chunk we forward. Everything
-                // else (message_start, ping, message_delta usage stats,
-                // message_stop) is upstream noise to the client.
+                // Plain text deltas — the main content stream.
                 if (obj?.type === "content_block_delta") {
                   const text = obj?.delta?.text;
                   if (typeof text === "string" && text.length > 0) {
@@ -372,7 +443,63 @@ export default async function handler(req: Request): Promise<Response> {
                       encoder.encode(`data: ${JSON.stringify({ content: text })}\n\n`),
                     );
                   }
+                  continue;
                 }
+
+                // MCP tool-use events — when Tony decides to call a
+                // Zapier integration. The streaming sequence looks
+                // like:
+                //   content_block_start  { content_block: {type: "mcp_tool_use", name, server_name, ...} }
+                //   content_block_delta  { delta: { partial_json: "..." } }   (tool args building up)
+                //   content_block_stop
+                //   content_block_start  { content_block: {type: "mcp_tool_result", is_error, content: [...]} }
+                //   content_block_stop
+                //
+                // We surface a single human-readable hint when each
+                // tool call starts ("[Pulling up your calendar…]")
+                // so the user sees Tony "doing" things instead of a
+                // silent pause. Result blocks are forwarded silently
+                // (Tony's NEXT text reply already incorporates them).
+                if (obj?.type === "content_block_start") {
+                  const block = obj?.content_block;
+                  if (block?.type === "mcp_tool_use" && block?.name) {
+                    const toolName = String(block.name);
+                    const serverName = String(block.server_name ?? "tools");
+                    const hintKey = `${serverName}:${toolName}`;
+                    if (hintKey !== lastToolHinted) {
+                      lastToolHinted = hintKey;
+                      const friendly = friendlyToolHint(serverName, toolName);
+                      controller.enqueue(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ content: `\n_${friendly}_\n` })}\n\n`,
+                        ),
+                      );
+                    }
+                  }
+                  continue;
+                }
+                // Anthropic also emits a top-level mcp_tool_use event
+                // shape in some SDK versions; handle that too so we
+                // don't miss the hint.
+                if (obj?.type === "mcp_tool_use" && obj?.name) {
+                  const toolName = String(obj.name);
+                  const serverName = String(obj.server_name ?? "tools");
+                  const hintKey = `${serverName}:${toolName}`;
+                  if (hintKey !== lastToolHinted) {
+                    lastToolHinted = hintKey;
+                    const friendly = friendlyToolHint(serverName, toolName);
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({ content: `\n_${friendly}_\n` })}\n\n`,
+                      ),
+                    );
+                  }
+                  continue;
+                }
+                // Everything else (message_start, ping, content_block_stop
+                // for text blocks, message_delta usage stats,
+                // message_stop, tool result blocks) is upstream
+                // noise to the client.
               } catch { /* tolerate malformed chunks at tail */ }
             }
           }
@@ -405,4 +532,48 @@ export default async function handler(req: Request): Promise<Response> {
       headers: { ...sHeaders, "Content-Type": "application/json" },
     });
   }
+}
+
+/**
+ * Friendly inline hint for an MCP tool invocation.
+ *
+ * Zapier tool names are machine-keyed slugs like
+ * "gmail_send_email" / "google_calendar_create_event" /
+ * "slack_send_channel_message". Showing the slug in the chat would
+ * leak implementation details. We map common Zapier action stems to
+ * a "Tony's doing X" phrase that matches his voice (action verbs,
+ * present continuous — "pulling up your calendar," "drafting an
+ * email…"). Falls back to a generic "running <tool>…" for anything
+ * we don't have a specific phrase for.
+ *
+ * Keep these SHORT — they appear inline mid-reply, italicized, and
+ * shouldn't pull attention from Tony's actual answer.
+ */
+function friendlyToolHint(serverName: string, toolName: string): string {
+  const t = toolName.toLowerCase();
+  // Gmail
+  if (t.includes("gmail") && t.includes("send")) return "drafting an email…";
+  if (t.includes("gmail") && (t.includes("find") || t.includes("search"))) return "checking your inbox…";
+  if (t.includes("gmail") && t.includes("reply")) return "drafting a reply…";
+  // Calendar
+  if (t.includes("calendar") && t.includes("create")) return "creating a calendar event…";
+  if (t.includes("calendar") && (t.includes("find") || t.includes("list") || t.includes("get"))) return "pulling up your calendar…";
+  if (t.includes("calendar") && t.includes("update")) return "updating your calendar…";
+  // Slack
+  if (t.includes("slack") && t.includes("send")) return "sending the Slack message…";
+  if (t.includes("slack") && (t.includes("find") || t.includes("search"))) return "searching Slack…";
+  // Notion
+  if (t.includes("notion") && (t.includes("create") || t.includes("add"))) return "writing to Notion…";
+  if (t.includes("notion") && (t.includes("find") || t.includes("query") || t.includes("search"))) return "checking Notion…";
+  // Sheets / Docs
+  if (t.includes("sheet") && (t.includes("add") || t.includes("create") || t.includes("update"))) return "updating your spreadsheet…";
+  if (t.includes("sheet") && (t.includes("get") || t.includes("find") || t.includes("lookup"))) return "checking your spreadsheet…";
+  if (t.includes("doc") && (t.includes("create") || t.includes("add"))) return "writing the doc…";
+  // Reminders / tasks
+  if (t.includes("todoist") || t.includes("task") || t.includes("reminder")) return "adding to your list…";
+  // SMS / WhatsApp
+  if (t.includes("sms") || t.includes("twilio") || t.includes("whatsapp")) return "sending the text…";
+  // Generic fallback — use the server name so the user at least
+  // knows it's Zapier doing it and not Tony hallucinating.
+  return `running ${serverName} ${t.replace(/_/g, " ")}…`;
 }

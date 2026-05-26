@@ -105,6 +105,13 @@ export function buildAuroraPrompt(ctx: {
    *  paste it through. The block already contains "MUST cite source
    *  domain" instructions so Tony attributes claims honestly. */
   webContext?: string;
+  /** When true, the API call includes mcp_servers (currently Zapier).
+   *  Tells Tony in the system prompt that he genuinely has callable
+   *  action tools — send email, create calendar event, etc. — and
+   *  to USE them when the user asks for an action, not just to
+   *  describe what they'd do. Without this flag, Tony defaults to
+   *  the no-tools behavior (talk-only). */
+  hasMcpTools?: boolean;
 }): string {
   const name = (ctx.studentName ?? "").trim();
   const uni = (ctx.uni ?? "").trim();
@@ -113,6 +120,7 @@ export function buildAuroraPrompt(ctx: {
   const personality = (ctx.personality ?? "").trim();
   const memory = (ctx.memory ?? "").trim();
   const webContext = (ctx.webContext ?? "").trim();
+  const hasMcpTools = ctx.hasMcpTools === true;
   const lang = ctx.lang ?? "auto";
   // Default the giant capability blocks to INCLUDED if a caller
   // doesn't pass the flag — preserves the legacy behavior for any
@@ -208,9 +216,62 @@ export function buildAuroraPrompt(ctx: {
     // already contains its own MUST-cite-source-domain rules; we
     // just paste it through.
     webContext,
+    // Zapier MCP tools awareness — only shown when the API call
+    // actually wired up mcp_servers. Tells Tony he genuinely has
+    // callable actions (Gmail, Calendar, Slack, etc.) and to USE
+    // them when the user asks, not just describe what would happen.
+    hasMcpTools && buildMcpAwarenessBlock(),
     langLock.trim(),
     AURORA_SAFETY,
   ].filter((s): s is string => typeof s === "string" && s.length > 0);
 
   return sections.join("\n\n");
+}
+
+/**
+ * Tells Tony he has real action tools when MCP is wired.
+ *
+ * Injected only when aurora.ts passed hasMcpTools=true (which it
+ * does when ZAPIER_MCP_URL is configured). Without this block, Tony
+ * sees the tools in his tool list but doesn't have prompt-level
+ * guidance on WHEN to use them vs. just describe what would happen
+ * — leading him to describe the email he'd send instead of
+ * actually drafting it via the tool.
+ */
+function buildMcpAwarenessBlock(): string {
+  return `# Action tools — you can actually DO things
+
+You have callable tools wired in (via Zapier MCP — names look like
+"gmail_send_email," "google_calendar_create_event," "slack_send_
+direct_message"). These aren't descriptions of what's possible;
+they're actions you can invoke right now in this conversation.
+
+When the user asks for an action:
+  - "send John an email saying I'll be late" → call gmail_send_email
+  - "what's on my calendar tomorrow" → call the calendar list tool
+  - "DM Ahmed on Slack 'meeting moved to 4pm'" → call slack_send_direct_message
+  - "remind me to email Sara on Friday" → calendar event or reminder tool
+DO IT. Don't just describe what you'd do. The user expects action.
+
+Before destructive actions (send email, post message, create event,
+delete anything), CONFIRM the details in one line: "Sending to
+john@x.com: 'I'll be 20 min late, see you at 3' — fire it?" Wait
+for "yes/go/send" before calling the tool. Read-only actions
+(check calendar, search inbox) you can do without asking.
+
+When you call a tool, the server runs it and gives you back the
+result. Then respond in YOUR voice — confirm what happened in one
+short line, don't recite the full tool output:
+  ✓ "Sent. Anything else?"
+  ✓ "You're free 2-4pm tomorrow. Want me to block 3pm for the call?"
+  ✗ "Tool returned: { status: 'success', messageId: '...', ... }"
+
+If a tool fails or isn't connected, say so plainly: "I tried to
+send it but Gmail isn't connected — can you connect it in Zapier?"
+Don't pretend it worked.
+
+You do NOT have tools for: anything Zapier doesn't expose. If the
+user asks for something that needs a tool you don't see in your
+available list, say "I don't have that one wired in yet" — don't
+hallucinate a call.`;
 }
