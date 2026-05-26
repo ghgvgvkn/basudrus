@@ -126,7 +126,17 @@ export default async function handler(req: Request): Promise<Response> {
   let messages: { role: string; content: string }[] = [];
   const sessionId = sanitizeLine(body?.sessionId, 80);
   if (sessionId) {
-    messages = await fetchSessionMessages(persona, sessionId, authHeader || "");
+    // Aurora has no server-side session table — Aurora always uses
+    // the messages-driven path. If a caller passes sessionId with
+    // persona="aurora" (shouldn't happen — the client always sends
+    // messages), gracefully fall through to empty messages so we
+    // return extracted=0 instead of trying to query a non-existent
+    // aurora_sessions table.
+    if (persona === "aurora") {
+      messages = [];
+    } else {
+      messages = await fetchSessionMessages(persona, sessionId, authHeader || "");
+    }
   } else {
     messages = sanitizeMessages(body?.messages, 2000, 20);
   }
