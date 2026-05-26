@@ -102,7 +102,23 @@ export default async function handler(req: Request): Promise<Response> {
   }>(req, MAX_BODY_BYTES, sHeaders);
   if (bodyErr) return bodyErr;
 
-  const persona = body?.persona === "noor" ? "noor" : "omar";
+  // Three personas:
+  //   "omar"   — tutor sessions (academic focus)
+  //   "noor"   — wellbeing sessions (emotional focus)
+  //   "aurora" — Aurora life-mode Tony (broader life-context focus —
+  //              relationships, preferences, plans, recurring habits,
+  //              anything the user mentions about themselves outside
+  //              of strict academic / emotional framings)
+  //
+  // All three write to the SAME student_memory table keyed by
+  // user_id — the persona only controls the EXTRACTION prompt
+  // (what kind of facts to look for). So a fact saved by Aurora is
+  // immediately readable by the tutor and vice versa — durable
+  // memory is unified across surfaces.
+  const persona: "omar" | "noor" | "aurora" =
+    body?.persona === "noor" ? "noor"
+    : body?.persona === "aurora" ? "aurora"
+    : "omar";
 
   // Two input shapes — sessionId or messages. SessionId path fetches
   // the session's messages from DB (mirrors /analyze-session). Messages
@@ -205,12 +221,20 @@ export default async function handler(req: Request): Promise<Response> {
 
 // ───────────────────────── helpers ─────────────────────────
 
-function buildSystemPrompt(persona: "omar" | "noor"): string {
-  const focus = persona === "noor"
-    ? "emotional patterns the student has revealed, recurring stressors, what calms them, support systems they mentioned"
-    : "academic context (course, exam date, subject focus), strengths, weaknesses, study preferences, goals, recurring confusions";
+function buildSystemPrompt(persona: "omar" | "noor" | "aurora"): string {
+  const focus =
+    persona === "noor"
+      ? "emotional patterns the student has revealed, recurring stressors, what calms them, support systems they mentioned"
+      : persona === "aurora"
+        ? "anything STABLE about this person — where they live, who's in their life (friends/partner/family by first name only if they brought them up), cuisines they like, places they want to visit, hobbies, recurring plans, dates that matter to them (birthdays, anniversaries, exams, trips), their work or studies, what they're building or worried about. The Aurora user uses this AI as a daily companion (life-mode), so the durable facts span their whole life — not just school."
+        : "academic context (course, exam date, subject focus), strengths, weaknesses, study preferences, goals, recurring confusions";
 
-  return `You extract DURABLE FACTS from a chat transcript between a Jordanian university student and an AI ${persona === "noor" ? "wellbeing companion (Sherlock)" : "tutor (Tony Starrk)"} inside Bas Udrus.
+  const companionLabel =
+    persona === "noor" ? "wellbeing companion (Sherlock)"
+    : persona === "aurora" ? "life companion (Tony Starrk in Aurora — a JARVIS-style daily assistant)"
+    : "tutor (Tony Starrk)";
+
+  return `You extract DURABLE FACTS from a chat transcript between a ${persona === "aurora" ? "person" : "Jordanian university student"} and an AI ${companionLabel} inside Bas Udrus.
 
 Your output is the input to a long-term memory store. The AI will read these facts on every future conversation, so they MUST be durable, true, and useful months from now.
 

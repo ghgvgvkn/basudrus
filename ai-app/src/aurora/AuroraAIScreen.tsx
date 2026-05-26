@@ -1277,6 +1277,133 @@ export function AuroraAIScreen() {
     void voice.stopRecording().catch(() => { /* noop */ });
   }, [voice]);
 
+  /**
+   * Autonomous memory write — fires Tony's after-conversation
+   * extraction. Pulls the LAST N messages from the in-memory thread,
+   * POSTs them to /api/ai/extract-memory with persona="aurora", and
+   * the endpoint Claude-summarizes 0-3 durable facts into the
+   * student_memory table for the signed-in user.
+   *
+   * Next conversation, student-memory.ts loads those facts into the
+   * Aurora system prompt → Tony "remembers." This is what gives
+   * Tony the "alive" feeling — without it, every chat starts from
+   * zero context.
+   *
+   * Fire-and-forget. The endpoint is rate-limited, deduplicates
+   * against existing facts, and returns 200 with extracted=0 if
+   * nothing durable surfaced. Failure modes:
+   *   - User signed out → no JWT, endpoint 401s, silently dropped
+   *   - Anthropic outage → endpoint returns extracted=0, no harm done
+   *   - Rate-limited → endpoint returns 429, silently dropped
+   *
+   * Uses `keepalive: true` so the request survives the page unload
+   * path (newChat/loadSession close one conversation context to open
+   * another — without keepalive, the browser would cancel the fetch
+   * as soon as the React state update fires).
+   *
+   * Guards against waste: needs at least 2 messages (one full
+   * exchange) to be worth extracting from. Empty thread = no-op.
+   * Caps at the last 24 messages so even very long conversations
+   * stay under the endpoint's 256KB body cap.
+   *
+   * Tracks the count of messages we've ALREADY extracted from in
+   * `extractedFromCountRef` so we don't re-extract the same prefix
+   * twice — e.g. user has 4 messages, we extract; user adds 2 more,
+   * we extract from the full 6 (Claude will dedupe against existing
+   * student_memory rows). Resets on conversation switch.
+   */
+  const extractedFromCountRef = useRef(0);
+  const extractMemoryNow = useCallback(async (msgs: AuroraMessage[]) => {
+    if (msgs.length < 2) return;
+    // If nothing NEW since the last extract, skip — we don't want
+    // to re-fire the same conversation as the page hidden/refocused
+    // event cycle ticks.
+    if (msgs.length === extractedFromCountRef.current) return;
+    extractedFromCountRef.current = msgs.length;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      const payload = msgs.slice(-24).map((m) => ({
+        role: m.role === "ai" ? "assistant" : "user",
+        content: m.text,
+      }));
+      await fetch(apiUrl("/api/ai/extract-memory"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ messages: payload, persona: "aurora" }),
+        keepalive: true,
+      });
+    } catch {
+      /* Best-effort memory write. Failure is silent — the user
+         never sees this fire either way. */
+    }
+  }, []);
+
+  // Use a ref to the latest extract function so the effects below
+  // don't need to re-bind when extractMemoryNow's identity changes.
+  // The messages snapshot inside each call is captured at the
+  // moment of firing — so we always extract from the FRESH thread.
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  const extractMemoryNowRef = useRef(extractMemoryNow);
+  useEffect(() => { extractMemoryNowRef.current = extractMemoryNow; }, [extractMemoryNow]);
+
+  // Fire memory extraction when the page goes hidden (user switched
+  // tabs, locked their device, navigated away in another tab).
+  // visibilitychange is the most reliable "user is leaving" signal
+  // across desktop + mobile. We also fire on pagehide as a backup
+  // for browsers that skip visibilitychange on full navigation.
+  useEffect(() => {
+    const onHide = () => {
+      // Snapshot once via the ref so async getSession + fetch
+      // doesn't race a fast state update.
+      void extractMemoryNowRef.current(messagesRef.current);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") onHide();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, []);
+
+  // Fire on component unmount — covers the SPA route-change case
+  // (user clicks Judgment, back to home, etc.) where neither
+  // visibilitychange nor pagehide fires.
+  useEffect(() => {
+    return () => {
+      void extractMemoryNowRef.current(messagesRef.current);
+    };
+  }, []);
+
+  // Periodic in-conversation extraction. Fires after every 8 new
+  // messages (4 full exchanges) so a long active chat doesn't have
+  // to wait until the user navigates away for Tony to start
+  // remembering things. The endpoint dedupes against existing
+  // student_memory rows so re-firing on overlapping prefixes is
+  // wasteful but harmless — Claude returns the same facts, insert
+  // skips them. (Cost: one ~200-token Haiku extraction per ~8
+  // messages — pennies even in heavy use.)
+  useEffect(() => {
+    const PERIODIC_EVERY = 8;
+    if (messages.length === 0) return;
+    if (messages.length - extractedFromCountRef.current < PERIODIC_EVERY) return;
+    // Debounce: wait 3s after the latest message before firing —
+    // user is probably still typing/talking. If they fire another
+    // message in that window, this effect re-runs and the timer resets.
+    const t = window.setTimeout(() => {
+      void extractMemoryNowRef.current(messagesRef.current);
+    }, 3000);
+    return () => window.clearTimeout(t);
+  }, [messages]);
+
   // ── Conversation history: resume a session ────────────────────────
   const loadSession = useCallback(async (item: SessionListItem) => {
     // Belt-and-braces: kill any active voice mode BEFORE swapping
@@ -1284,6 +1411,14 @@ export function AuroraAIScreen() {
     // up, Tony keeps talking over the new conversation he's not
     // even part of, and the user gets the "going going going" bug.
     shutdownVoiceMode();
+    // Fire memory extraction on the OUTGOING conversation BEFORE
+    // we wipe messages. Without this, the user could chat for an
+    // hour and never have a single fact saved if they then click a
+    // history row to switch conversations. Reset the "already
+    // extracted from N messages" counter so the loaded history
+    // session can extract fresh.
+    void extractMemoryNowRef.current(messagesRef.current);
+    extractedFromCountRef.current = 0;
     setActiveSessionId(item.id);
     setMessages([]);
     setFocusMode(true);
@@ -1302,8 +1437,11 @@ export function AuroraAIScreen() {
 
   const newChat = useCallback(() => {
     // Same shutdown reason as loadSession — new chat means
-    // current voice session is OVER, full stop.
+    // current voice session is OVER, full stop. Fire memory
+    // extraction on the conversation we're leaving behind.
     shutdownVoiceMode();
+    void extractMemoryNowRef.current(messagesRef.current);
+    extractedFromCountRef.current = 0;
     setMessages([]);
     setActiveSessionId(null);
     setFocusMode(false);
