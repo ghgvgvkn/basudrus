@@ -60,6 +60,7 @@ import { AURORA_SAFETY } from "./aurora-safety";
 import { AURORA_STYLE } from "./aurora-style";
 import { AURORA_TUTORING_CORE } from "./aurora-tutoring-core";
 import { AURORA_TUTORING_ENRICHMENT } from "./aurora-tutoring-enrichment";
+import { AURORA_TOOL_REALITY_OVERRIDE } from "./aurora-tool-reality";
 
 /**
  * Build the full Aurora system prompt for a single chat call.
@@ -185,6 +186,18 @@ export function buildAuroraPrompt(ctx: {
     includeTutoring && "# Tutoring capability (use when the user asks about academic work)",
     includeTutoring && AURORA_TUTORING_CORE,
     includeTutoring && AURORA_TUTORING_ENRICHMENT,
+    // AURORA-MODE OVERRIDE — corrects a capability lie in
+    // AURORA_TUTORING_CORE. That prompt is shared with tutor.ts and
+    // says "you have a web_search tool" with a MANDATORY professor
+    // research protocol. tutor.ts actually configures the Anthropic
+    // native web_search tool — Aurora does NOT. Aurora uses the
+    // pre-fetched Tavily pattern (shouldSearchAurora → renderTavily
+    // → RECENT WEB CONTEXT block below). Without this override,
+    // Tony would promise "let me search" and never deliver because
+    // there's no tool to call. Only injected when tutoring is in
+    // scope (the only block that lies about web_search). When the
+    // override is silent, Tony's behavior is unchanged.
+    includeTutoring && AURORA_TOOL_REALITY_OVERRIDE,
     includeWellbeing && "# Mental-health depth (use when the user needs serious emotional support)",
     includeWellbeing && AURORA_WELLBEING,
     ctxBlock.trim() ? ctxBlock.trim() : "",
