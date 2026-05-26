@@ -44,7 +44,7 @@ import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
-import { parseArtifacts, fetchWikipediaThumbnail, fetchMapboxFlyImages, type MapboxFlyImages } from "./auroraVisuals";
+import { parseArtifacts, fetchBriefingImage, fetchMapboxFlyImages, type MapboxFlyImages } from "./auroraVisuals";
 import { renderMarkdown } from "./auroraMarkdown";
 // JarvisView is lazy-loaded — the R3F/Drei/Three.js bundle is ~850KB
 // and we only need it when the user actually opens a 3D model. Most
@@ -428,10 +428,19 @@ export function AuroraAIScreen() {
     return false;
   }, [isPresenting, loading, messages, presenting]);
 
-  // Lazy-fetch the Wikipedia thumbnail for Tony's current SHOW
+  // Lazy-fetch the briefing hero image for Tony's current SHOW
   // block. Re-runs whenever the AI message's SHOW query changes.
+  //
+  // Two-tier fallback inside fetchBriefingImage:
+  //   1. Brave Image Search (via our /api/research/image proxy) —
+  //      real image-search quality, comparable to Google. Needs the
+  //      user's access token because the proxy is auth-gated.
+  //   2. Wikipedia summary thumb — free fallback when Brave isn't
+  //      configured or returns nothing. Used to be the primary
+  //      source before we added Brave.
+  //
   // Cached at the module level so flipping between messages with
-  // the same query doesn't re-hit Wikipedia.
+  // the same query doesn't re-hit either source.
   const [presentingImage, setPresentingImage] = useState<string | null>(null);
   useEffect(() => {
     if (!presenting.show) {
@@ -440,10 +449,24 @@ export function AuroraAIScreen() {
     }
     let cancelled = false;
     const ctl = new AbortController();
-    void fetchWikipediaThumbnail(presenting.show.query, ctl.signal).then((url) => {
+    void (async () => {
+      // Fetch the current session token so the auth-gated Brave
+      // proxy will accept us. Anonymous users (no token) skip Brave
+      // entirely and go straight to Wikipedia inside fetchBriefingImage.
+      let token: string | null = null;
+      try {
+        const { data } = await supabase.auth.getSession();
+        token = data.session?.access_token ?? null;
+      } catch { /* no session → Wikipedia path */ }
+      if (cancelled) return;
+      const url = await fetchBriefingImage(
+        presenting.show!.query,
+        token,
+        ctl.signal,
+      );
       if (cancelled) return;
       setPresentingImage(url);
-    });
+    })();
     return () => {
       cancelled = true;
       ctl.abort();
@@ -1893,7 +1916,7 @@ export function AuroraAIScreen() {
                 <div className="aurora-infocard-footer">
                   {presentingImage && (
                     <span className="aurora-infocard-source">
-                      Image via Wikipedia
+                      Image via web search
                     </span>
                   )}
                   {presenting.show?.query && (

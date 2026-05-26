@@ -19,6 +19,8 @@
  * correct degradation when the env var hasn't been set up yet.
  */
 
+import { apiUrl } from "@/lib/apiBase";
+
 export interface ShowBlock {
   /** The search query Tony specified (between SHOW: and >>>). */
   query: string;
@@ -341,6 +343,83 @@ export async function fetchWikipediaThumbnail(
   const searched = await searchAndFetchThumb(query.trim(), signal);
   thumbnailCache.set(key, { url: searched, ts: Date.now() });
   return searched;
+}
+
+/**
+ * fetchBriefingImage — the new front door for hero photos in
+ * Tony's briefing card.
+ *
+ * Two-tier fallback chain:
+ *
+ *   1. **Brave Image Search** (via /api/research/image proxy)
+ *      Real image-search results, comparable to Google. Hits a
+ *      server-side proxy that holds the BRAVE_API_KEY — the key
+ *      never reaches the client bundle. Quality is dramatically
+ *      better than Wikipedia for: products, recent people,
+ *      restaurants, brands, niche topics. When Brave returns
+ *      anything we use it; we don't double-check with Wikipedia.
+ *
+ *   2. **Wikipedia summary thumb** (fetchWikipediaThumbnail above)
+ *      Free, no key, but often grainy/missing. Used when:
+ *        - Brave's API key isn't configured (degrades gracefully)
+ *        - Brave returned no results (rare — they index everything)
+ *        - Brave's request failed (network, rate limit, quota)
+ *
+ * Result is cached the same way Wikipedia results were — 24h TTL
+ * keyed on the query string. Saves us from re-fetching when the
+ * user revisits a topic.
+ *
+ * The `accessToken` is required because the Brave proxy is
+ * auth-gated (prevents anonymous scraping of our quota). When
+ * the caller doesn't have a token (anonymous user), we skip
+ * Brave entirely and go straight to Wikipedia.
+ */
+export async function fetchBriefingImage(
+  query: string,
+  accessToken: string | null,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const key = query.trim().toLowerCase();
+  if (!key) return null;
+  const cached = thumbnailCache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.url;
+  }
+
+  // TIER 1 — Brave Images via our proxy (auth-gated). apiUrl
+  // resolves the right backend host whether we're on ai.basudrus.com,
+  // basudrus.com directly, or a Vercel preview — same helper the
+  // rest of Aurora uses for /api/ai/* calls.
+  if (accessToken) {
+    try {
+      const url = apiUrl(
+        `/api/research/image?q=${encodeURIComponent(query.trim())}`,
+      );
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal,
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { url?: string | null };
+        if (data?.url && typeof data.url === "string") {
+          thumbnailCache.set(key, { url: data.url, ts: Date.now() });
+          return data.url;
+        }
+      }
+    } catch {
+      // Network / abort / parse — fall through to Wikipedia.
+    }
+  }
+
+  // TIER 2 — Wikipedia fallback. Identical logic to the legacy
+  // fetchWikipediaThumbnail path (kept exported separately for any
+  // caller that wants Wikipedia explicitly).
+  const wikiUrl = await fetchWikipediaThumbnail(query, signal);
+  // fetchWikipediaThumbnail already caches its own result, but the
+  // cache is keyed the same way (lowercase trimmed query), so we
+  // overwrite to keep "the briefing image for X" canonical.
+  thumbnailCache.set(key, { url: wikiUrl, ts: Date.now() });
+  return wikiUrl;
 }
 
 /**
