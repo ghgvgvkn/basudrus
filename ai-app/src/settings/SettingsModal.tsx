@@ -25,6 +25,7 @@ import {
   CreditCard,
   BarChart3,
   Brain,
+  Plug,
   Palette,
   Bell,
   ShieldCheck,
@@ -43,6 +44,7 @@ import { AccountSection } from "./sections/AccountSection";
 import { SubscriptionSection } from "./sections/SubscriptionSection";
 import { UsageSection } from "./sections/UsageSection";
 import { MemorySection } from "./sections/MemorySection";
+import { IntegrationsSection } from "./sections/IntegrationsSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { NotificationsSection } from "./sections/NotificationsSection";
 import { DataSection } from "./sections/DataSection";
@@ -53,6 +55,7 @@ const SECTION_META: Record<SettingsSection, { label: string; icon: LucideIcon; s
   subscription:  { label: "Subscription",  icon: CreditCard,   subtitle: "Plan, billing, and Sparks" },
   usage:         { label: "Usage",         icon: BarChart3,    subtitle: "Your activity and limits" },
   memory:        { label: "Memory",        icon: Brain,        subtitle: "Facts the AI remembers about you" },
+  integrations:  { label: "Integrations",  icon: Plug,         subtitle: "Connect Zapier so Tony can DO things" },
   appearance:    { label: "Appearance",    icon: Palette,      subtitle: "Theme, language, and display" },
   notifications: { label: "Notifications", icon: Bell,         subtitle: "Email and push preferences" },
   data:          { label: "Data controls", icon: ShieldCheck,  subtitle: "Export, delete, and privacy" },
@@ -153,6 +156,7 @@ export function SettingsModal() {
             {section === "subscription"  && <SubscriptionSection />}
             {section === "usage"         && <UsageSection />}
             {section === "memory"        && <MemorySection />}
+            {section === "integrations"  && <IntegrationsSection />}
             {section === "appearance"    && <AppearanceSection />}
             {section === "notifications" && <NotificationsSection />}
             {section === "data"          && <DataSection />}

@@ -13,6 +13,7 @@ export type SettingsSection =
   | "subscription"
   | "usage"
   | "memory"
+  | "integrations"
   | "appearance"
   | "notifications"
   | "data"
@@ -23,6 +24,12 @@ const SECTIONS: SettingsSection[] = [
   "subscription",
   "usage",
   "memory",
+  // Integrations lives RIGHT AFTER memory because the conceptual
+  // grouping is "Tony's tools" — memory is what he KNOWS about you,
+  // integrations are what he can DO for you. Sidebars in ChatGPT
+  // and Claude both pair these together; keeping the order makes
+  // the mental model frictionless.
+  "integrations",
   "appearance",
   "notifications",
   "data",

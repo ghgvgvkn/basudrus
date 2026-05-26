@@ -56,24 +56,25 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 // from training (degrades gracefully).
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
 
-// Zapier MCP server URL — Anthropic's MCP client connects to this
-// remote MCP server and exposes every Zapier action the URL's owner
-// has configured (Gmail, Calendar, Slack, Notion, …) as a callable
-// tool for Tony. Get a URL at https://mcp.zapier.com/mcp/servers/new
-// and set ZAPIER_MCP_URL on Vercel.
+// PER-USER Zapier MCP wiring.
 //
-// Current behavior (v1 — server-wide):
-//   Every Aurora user shares the SAME Zapier MCP URL — meaning any
-//   tool Tony calls (send email, create calendar event) runs as the
-//   account that owns the URL. Acceptable for single-tenant testing
-//   (founder uses it for himself); WRONG once multiple users are on
-//   the platform. The per-user OAuth path is the follow-up project.
+// Each Aurora user has their OWN Zapier MCP server URL stored in
+// the user_integrations table (provider='zapier'). On every chat
+// turn we look up the calling user's row and pass THEIR URL into
+// Anthropic's mcp_servers field — so when client A asks Tony to
+// "send Sarah an email," the email goes from CLIENT A's Gmail,
+// not anyone else's.
 //
-// To gate per user later: store the URL in a profiles column or a
-// new user_integrations table, fetch it inside the handler, and
-// pass it in mcp_servers[] only for that request. The endpoint
-// already runs per-user via JWT so the lookup is straightforward.
-const ZAPIER_MCP_URL = process.env.ZAPIER_MCP_URL || "";
+// The env var ZAPIER_MCP_URL still exists as a DEVELOPMENT FALLBACK
+// only (founder uses it locally to verify wiring without going
+// through the full per-user flow). In production, leave it unset
+// and every user gets isolated tools via their own row.
+//
+// SECURITY: the URL is a bearer credential. We fetch it through
+// fetchUserZapierUrl which uses the user's JWT — so RLS scopes the
+// SELECT to their own row. No service-role bypass. No cross-user
+// leakage possible from this code path.
+const ZAPIER_MCP_URL_DEV_FALLBACK = process.env.ZAPIER_MCP_URL || "";
 
 // Aurora is conversational + voice-driven so we lean a bit more
 // generous than tutor.ts but still cost-bounded.
@@ -284,11 +285,14 @@ export default async function handler(req: Request): Promise<Response> {
     // ── System prompt ──
     // buildAuroraPrompt is the ONLY entry point into the personality
     // text. To edit Tony-on-Aurora, edit aurora-prompt.ts.
-    // MCP awareness block is gated on whether the API call ACTUALLY
-    // includes mcp_servers — we set the flag below right before the
-    // Anthropic call so it stays in lockstep with what the server
-    // sees. Computing it here keeps the prompt sections deterministic.
-    const willUseMcp = !!ZAPIER_MCP_URL;
+    // Fetch THIS USER's Zapier MCP URL up front — both the prompt
+    // builder (needs to know whether action tools exist) and the
+    // Anthropic call (needs the URL to include) depend on it. Doing
+    // the fetch here keeps the two in lockstep: same boolean answers
+    // "does Tony have tools right now?" for both consumers.
+    const userZapierUrl = await fetchUserZapierUrl(authHeader, req.signal);
+    const effectiveZapierUrl = userZapierUrl || ZAPIER_MCP_URL_DEV_FALLBACK;
+    const willUseMcp = !!effectiveZapierUrl;
 
     const systemPrompt = buildAuroraPrompt({
       studentName,
@@ -319,24 +323,29 @@ export default async function handler(req: Request): Promise<Response> {
     // 25s timeout covers normal streaming responses comfortably;
     // anything longer than that is upstream stuck and should fail
     // fast rather than hold an edge invocation hostage.
-    // MCP servers — currently just Zapier (when ZAPIER_MCP_URL is
-    // set). Anthropic's MCP client takes the URL, connects, lists
-    // the tools the server exposes, hands them to Claude as
+    // ── PER-USER MCP wiring ──
+    // effectiveZapierUrl was resolved up front (before the prompt
+    // builder) so both consumers see the same truth. See the fetch
+    // block ~50 lines above for the lookup logic + dev fallback.
+
+    // MCP servers — Anthropic's MCP client takes the URL, connects,
+    // lists the tools the server exposes, hands them to Claude as
     // callable tools, and runs the request/response loop internally.
     // The "anthropic-beta: mcp-client-2025-04-04" header opts in to
     // this feature — Anthropic returns a clear 400 if you try to
     // use mcp_servers without it.
     //
-    // When ZAPIER_MCP_URL is unset, mcpServers stays empty and the
-    // request is identical to the pre-MCP path. Zero new failure
-    // modes for users without it configured.
+    // When the user hasn't connected Zapier (and the dev fallback
+    // is also unset), mcpServers stays empty and the request is
+    // identical to the pre-MCP path. Zero new failure modes for
+    // users without it configured.
     const mcpServers: Array<{
       type: "url";
       url: string;
       name: string;
     }> = [];
-    if (ZAPIER_MCP_URL) {
-      mcpServers.push({ type: "url", url: ZAPIER_MCP_URL, name: "zapier" });
+    if (effectiveZapierUrl) {
+      mcpServers.push({ type: "url", url: effectiveZapierUrl, name: "zapier" });
     }
     const useMcp = mcpServers.length > 0;
 
@@ -531,6 +540,55 @@ export default async function handler(req: Request): Promise<Response> {
       status: 500,
       headers: { ...sHeaders, "Content-Type": "application/json" },
     });
+  }
+}
+
+/**
+ * Fetch THIS USER's Zapier MCP URL from user_integrations.
+ *
+ * Uses the caller's JWT as the auth header — Supabase RLS scopes
+ * the SELECT to their own row, so this can ONLY ever return the
+ * calling user's URL. No cross-user leakage possible from this
+ * function. If the user has no row (hasn't connected Zapier yet),
+ * returns null and aurora.ts skips the mcp_servers field entirely.
+ *
+ * Best-effort. Network errors / missing config / Supabase down all
+ * resolve to null — Tony just operates without action tools rather
+ * than failing the whole chat turn. The user can connect Zapier
+ * in Settings > Integrations and try again.
+ *
+ * IMPORTANT: never logs the URL. The URL is a bearer credential
+ * for the user's Zapier integrations; logging it would be a leak.
+ */
+async function fetchUserZapierUrl(
+  authHeader: string | null,
+  signal: AbortSignal,
+): Promise<string> {
+  if (!authHeader || !SUPABASE_URL || !SUPABASE_ANON_KEY) return "";
+  const url =
+    `${SUPABASE_URL}/rest/v1/user_integrations` +
+    `?provider=eq.zapier&select=endpoint_url&limit=1`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: authHeader,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      signal,
+    });
+    if (!res.ok) return "";
+    const rows = (await res.json()) as Array<{ endpoint_url?: string }>;
+    if (!Array.isArray(rows) || rows.length === 0) return "";
+    const u = rows[0]?.endpoint_url;
+    if (typeof u !== "string" || u.length < 10) return "";
+    // Light sanity check — must be https and contain "zapier" so a
+    // mistyped value doesn't get sent to a random host. The settings
+    // UI already validates on save, but defense in depth.
+    if (!u.startsWith("https://") || !u.includes("zapier.com")) return "";
+    return u;
+  } catch {
+    // Network / abort / parse error — return empty (talk-only mode).
+    return "";
   }
 }
 
