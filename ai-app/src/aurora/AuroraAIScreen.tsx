@@ -763,9 +763,18 @@ export function AuroraAIScreen() {
     // it visibly in the chat — the previous behavior was to set
     // voice.error state and not show it anywhere, so users hit
     // "tap mic, nothing happens" with no clue why.
+    // silenceMs = 2500 — founder explicitly asked: "I don't want him
+    // to speak until I finish." Previous 1400ms cut users off mid-
+    // thought during natural pauses ("Tell me about... uh... iPhone"
+    // — the 1400ms window expired on the "uh" pause and Tony jumped
+    // in before the user could finish). 2.5 seconds is generous enough
+    // for a thoughtful pause, fast enough that the conversation
+    // doesn't feel laggy when the user IS done. If they want shorter
+    // replies they just talk faster — the mic won't punish them for
+    // stopping to think.
     const result = await voice.startRecording({
       handsFree: {
-        silenceMs: 1400,
+        silenceMs: 2500,
         onSilence: () => { void endVoiceUtteranceRef.current(); },
         onLevel: (rms) => { micLevelRef.current = rms; },
       },
@@ -889,28 +898,37 @@ export function AuroraAIScreen() {
     // Successful transcript — reset the empty-streak counter so the
     // next stretch of silence starts fresh.
     emptyStreakRef.current = 0;
-    // Send the transcript to Tony. runSendForText calls voice.speak
-    // internally because voice:true is set; it stores the SpeakResult
-    // on speakEndedRef so we can await `ended` here for the loop.
-    await runSendForTextRef.current(cleaned, { voice: true });
-    if (!stillMine()) {
-      // User dismissed while Anthropic was streaming. The auto-TTS
-      // started inside runSendForText — kill it so they don't hear
-      // a reply they explicitly cancelled.
-      voice.stopSpeaking();
-      return;
-    }
-    // Wait for Tony's voice to finish before re-opening the mic. If
-    // speak failed or returned no ended promise, we still continue —
-    // the loop should never get stuck. While Tony speaks, run a
-    // barge-in listener: if the user starts talking over him, stop
-    // his audio immediately and let the loop fall through to begin
-    // a new listening turn.
-    const ended = speakEndedRef.current;
-    speakEndedRef.current = null;
-    let bargeIn: { stop: () => void } | null = null;
-    if (ended) {
-      bargeIn = await voice.startBargeInListener({
+
+    // PRE-WARM BARGE-IN — founder's spec: "if I interrupt between
+    // time to say something you should stop talking and listen to
+    // me." Old flow opened the barge-in mic AFTER speak() resolved,
+    // which meant the first ~300-800ms of Tony's reply had no
+    // listener (the time it took for getUserMedia to acquire the
+    // mic). User couldn't reliably interrupt his first sentence.
+    //
+    // New flow: kick off the mic IN PARALLEL with the LLM+TTS
+    // pipeline. By the time runSendForText resolves (Tony's audio
+    // has started playing), the listener has been opening for the
+    // entire Anthropic stream + TTS fetch — usually ~1-3s — and is
+    // already hot. The user's first interrupting word triggers
+    // immediately instead of getting lost in the warm-up window.
+    //
+    // Tunings (overridden from useVoice defaults):
+    //   threshold: 0.020 (was 0.025) — slightly more sensitive,
+    //     catches the first phoneme not the second.
+    //   durationMs: 140  (was 250)  — quarter of a syllable, not
+    //     half. Feels INSTANT instead of "did it hear me?"
+    //
+    // The 220ms head-of-line delay lets the user's trailing breath
+    // from the just-completed utterance die down before the listener
+    // starts paying attention — without it, we'd trigger barge-in on
+    // the user's own exhale (false positive).
+    const bargeInPromise = (async () => {
+      await new Promise<void>((r) => setTimeout(r, 220));
+      // stillMine guard: if user dismissed during the 220ms, don't
+      // even open the mic stream.
+      if (!stillMine()) return null;
+      return voice.startBargeInListener({
         onDetected: () => {
           // Tony is interrupted — stop his audio. The ended promise
           // resolves (via the speak() pause path), the await below
@@ -918,7 +936,42 @@ export function AuroraAIScreen() {
           // captures the user's next utterance.
           voice.stopSpeaking();
         },
+        threshold: 0.020,
+        durationMs: 140,
       });
+    })();
+
+    // Send the transcript to Tony. runSendForText calls voice.speak
+    // internally because voice:true is set; it stores the SpeakResult
+    // on speakEndedRef so we can await `ended` here for the loop.
+    await runSendForTextRef.current(cleaned, { voice: true });
+    if (!stillMine()) {
+      // User dismissed while Anthropic was streaming. The auto-TTS
+      // started inside runSendForText — kill it so they don't hear
+      // a reply they explicitly cancelled. Also drop the bargeIn
+      // mic if it managed to open during the cancelled run.
+      voice.stopSpeaking();
+      try {
+        const bi = await bargeInPromise;
+        bi?.stop();
+      } catch { /* noop */ }
+      return;
+    }
+
+    // Wait for Tony's voice to finish before re-opening the mic. If
+    // speak failed or returned no ended promise, we still continue —
+    // the loop should never get stuck. The bargeIn listener (started
+    // in parallel above) is now mature and will fire instantly if
+    // the user starts talking over Tony.
+    const ended = speakEndedRef.current;
+    speakEndedRef.current = null;
+    // Resolve the pre-warmed listener. Even if it's still opening
+    // (very fast LLM reply), the await here will be brief — and by
+    // the time Tony has actually emitted his first audible word, the
+    // mic graph is wired.
+    const bargeIn = await bargeInPromise;
+
+    if (ended) {
       // try/finally guarantees the bargeIn mic stream is released
       // even if the user shuts down voice mode mid-await. Previously
       // the bargeIn?.stop() below was unreachable in that path, so
@@ -928,8 +981,11 @@ export function AuroraAIScreen() {
         try { await ended; } catch { /* noop */ }
       } finally {
         bargeIn?.stop();
-        bargeIn = null;
       }
+    } else {
+      // No ended promise (speak failed or returned text-only). Still
+      // need to release the pre-warmed mic.
+      bargeIn?.stop();
     }
     if (stillMine()) void beginListening();
   }, [voice, beginListening]);
