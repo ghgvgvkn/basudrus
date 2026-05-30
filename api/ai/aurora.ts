@@ -535,8 +535,13 @@ export default async function handler(req: Request): Promise<Response> {
       },
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Internal error";
-    return new Response(JSON.stringify({ error: msg }), {
+    // Don't leak internal exception detail to the client — log it
+    // server-side and return a generic message (matches tutor.ts /
+    // wellbeing.ts, which both return a static "Server error"). A raw
+    // e.message can expose Supabase URLs, upstream fetch failures, and
+    // other internals to anyone hitting the endpoint.
+    console.error("[aurora] request failed:", e);
+    return new Response(JSON.stringify({ error: "Server error" }), {
       status: 500,
       headers: { ...sHeaders, "Content-Type": "application/json" },
     });
@@ -581,10 +586,21 @@ async function fetchUserZapierUrl(
     if (!Array.isArray(rows) || rows.length === 0) return "";
     const u = rows[0]?.endpoint_url;
     if (typeof u !== "string" || u.length < 10) return "";
-    // Light sanity check — must be https and contain "zapier" so a
-    // mistyped value doesn't get sent to a random host. The settings
-    // UI already validates on save, but defense in depth.
-    if (!u.startsWith("https://") || !u.includes("zapier.com")) return "";
+    // Defense in depth: the value is user-supplied (stored per-user), so
+    // validate scheme + host by PARSING the URL. A substring check like
+    // `u.includes("zapier.com")` would wrongly accept a spoof such as
+    // `https://evil.com/?x=zapier.com` and hand a bearer-credentialed
+    // endpoint to the MCP client. Require https and a hostname that is
+    // exactly `zapier.com` or a `*.zapier.com` subdomain (mcp.zapier.com,
+    // hooks.zapier.com, …). The settings UI also validates on save.
+    try {
+      const parsed = new URL(u);
+      const host = parsed.hostname.toLowerCase();
+      const hostOk = host === "zapier.com" || host.endsWith(".zapier.com");
+      if (parsed.protocol !== "https:" || !hostOk) return "";
+    } catch {
+      return ""; // unparseable URL
+    }
     return u;
   } catch {
     // Network / abort / parse error — return empty (talk-only mode).

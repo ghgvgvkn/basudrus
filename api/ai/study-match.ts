@@ -271,6 +271,41 @@ async function fetchMemoryServiceRole(userId: string, limit = 8): Promise<Studen
   }
 }
 
+/**
+ * Whether a user has opted into having their PRIVATE tutor memory
+ * (student_memory — which can include wellbeing-derived emotional facts)
+ * used to enrich AI study-partner matching.
+ *
+ * Privacy fix: without this gate, ANY signed-in user could trigger a
+ * service-role read of a stranger's memory into the matchmaker prompt.
+ * Profile-based matching (uni / major / year / subjects / personality
+ * quiz / bio) is unaffected and always runs — only the memory enrichment
+ * is gated.
+ *
+ * Defensive by design: any failure — network, or the column not existing
+ * yet because the migration (sql/20260530_match_privacy_optins.sql) hasn't
+ * been applied — returns FALSE, the privacy-safe default. So deploying
+ * this code before the migration simply means "no memory enrichment,"
+ * never a broken match.
+ */
+async function fetchStudyMatchOptIn(userId: string): Promise<boolean> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return false;
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/profiles?select=study_match_opt_in&id=eq.${encodeURIComponent(userId)}&limit=1`;
+    const res = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+    });
+    if (!res.ok) return false;
+    const rows = await res.json() as Array<{ study_match_opt_in?: boolean | null }>;
+    return rows?.[0]?.study_match_opt_in === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Render a student's profile + memory as a Markdown block for the
  *  AI prompt. Kept compact — the matchmaker reasons over comparison,
  *  not biography. */
@@ -438,6 +473,8 @@ export default async function handler(req: Request): Promise<Response> {
     candidateMem,
     callerPersonality,
     candidatePersonality,
+    callerOptIn,
+    candidateOptIn,
   ] = await Promise.all([
     fetchProfileServiceRole(callerId),
     fetchProfileServiceRole(candidateId),
@@ -445,6 +482,8 @@ export default async function handler(req: Request): Promise<Response> {
     fetchMemoryServiceRole(candidateId, 8),
     fetchPersonalityServiceRole(callerId),
     fetchPersonalityServiceRole(candidateId),
+    fetchStudyMatchOptIn(callerId),
+    fetchStudyMatchOptIn(candidateId),
   ]);
 
   // Merge profile + personality so renderStudentBlock has the full
@@ -487,12 +526,15 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // ── Build prompt + call Claude Haiku 4.5 ───────────────────────────
+  // Privacy gate: only fold a student's private tutor memory into the
+  // prompt if THAT student opted in. Profile-based matching always runs;
+  // a non-opted-in user simply contributes profile signals only.
   const userPrompt = [
     MATCHMAKER_PROMPT,
     "",
-    renderStudentBlock("Student A (the one asking)", callerProfile, callerMem),
+    renderStudentBlock("Student A (the one asking)", callerProfile, callerOptIn ? callerMem : []),
     "",
-    renderStudentBlock("Student B (the candidate)", candidateProfile, candidateMem),
+    renderStudentBlock("Student B (the candidate)", candidateProfile, candidateOptIn ? candidateMem : []),
     "",
     "Output the JSON verdict now.",
   ].join("\n");

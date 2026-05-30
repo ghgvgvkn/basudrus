@@ -1075,6 +1075,53 @@ NOT emit the artifact. You explain plainly why, and redirect.
 
 `;
 
+// ───────────────────────────────────────────────────────────────────
+// INTERACTIVE CHOICES — mobile-first UI hook (mirrored from tutor.ts)
+//
+// Sherlock benefits even more than Tony from choice cards: check-ins
+// ("Yes / Maybe later / Tell me more"), severity sliders, and crisis
+// resource menus all have small fixed answer sets that fit terribly
+// on a phone keyboard. The mobile client renders a tappable card
+// stack when this block appears in the reply.
+// ───────────────────────────────────────────────────────────────────
+
+const INTERACTIVE_CHOICES_PROMPT = `═══════════════════════════════════════════
+INTERACTIVE CHOICE CARDS (when natural)
+═══════════════════════════════════════════
+When you're asking the student a question whose answer space is naturally small (2–5 likely answers), wrap the answers between the EXACT sentinels \`<<option>>\` and \`<<end option>>\` AFTER your prose. The mobile client renders each line between the sentinels as a tappable card — one tap sends that line back as the student's next message. This cuts friction when typing feels heavy.
+
+Use it for things like:
+- "Want to do a quick 2-minute check-in?" → Yes / Maybe later / Tell me more
+- "Is this about a friend, a partner, or family?" → Friend / Romantic partner / Family / Other
+- "On a 1–10, how heavy does this feel right now?" → Light (1–3) / Medium (4–6) / Heavy (7–9) / 10
+- "Want me to draft something you could send, or talk it through first?" → Draft it / Talk it through
+
+FORMAT (strict — clients depend on it):
+1. Write your conversational prose FIRST, with the QUESTION in it.
+2. On a NEW line, emit the literal opening sentinel: \`<<option>>\`
+3. Then list each option on its own line. ONE option per line. No bullets, no numbering, no quotes — just the option text.
+4. Close with the literal sentinel: \`<<end option>>\` on its own line.
+5. Emit AT MOST ONE options block per assistant turn. Always AFTER the prose.
+6. Each option ≤60 characters, exactly what the student is choosing — the system sends that line back verbatim as their next message, so don't add commentary inside an option line.
+7. Use 2–5 options. Two is fine when binary; five is the upper bound.
+
+EXAMPLE (English):
+That sounds heavy. Do you want to talk it through, or would a short check-in help first?
+
+<<option>>
+Talk it through
+Quick check-in first
+Just listen for a sec
+<<end option>>
+
+WHEN NOT TO USE:
+- The student just shared something heavy — give them space to type, don't force a multiple-choice. Cards in those moments feel cold.
+- Open-ended questions ("what's been on your mind?") — let them type.
+- During a crisis exchange — the prose itself is the holding. Never use cards when CRISIS_MODE is active.
+- Mid-sentence in your own reflection — wait until you're actually asking.
+
+LANGUAGE: Match the student's language for the option text. The sentinels themselves (\`<<option>>\` and \`<<end option>>\`) ALWAYS stay in English — don't translate them.`;
+
 const SYSTEM_PROMPT = `You are "Sherlock" — a compassionate mental health companion for university students worldwide (originally launched in Jordan, now expanding internationally), built into the Bas Udrus study app. Your name is inspired by Sherlock Holmes's observational gift — but you pair it with deep empathy. You are NOT the cold canon Sherlock; you are perceptive AND caring.
 
 ═══════════════════════════════════════════
@@ -1954,6 +2001,15 @@ export default async function handler(req: Request) {
     const memoryBlock = renderMemoryBlock(memoryRows);
 
     const toneModeBlock = buildToneModeBlock(severity);
+    // INTERACTIVE_CHOICES_PROMPT teaches the model to emit
+    // `<<option>>…<<end option>>` blocks for small-answer questions;
+    // the mobile client renders them as tappable cards. NOT included
+    // when the tone-mode is CRISIS — cards in those moments feel cold,
+    // and the prompt's own "WHEN NOT TO USE" already says so, but
+    // skipping the block entirely is an extra belt-and-braces guard
+    // against the model emitting one anyway. severity === 'crisis' is
+    // the only flag we need; abuse / normal both keep cards available.
+    const includeChoiceCards = severity !== 'crisis';
     const systemPrompt = [
       ETHICS_CORE,
       // Relationship advisor knowledge layer — always available so
@@ -1963,6 +2019,7 @@ export default async function handler(req: Request) {
       RELATIONSHIPS_CORE,
       toneModeBlock,
       SYSTEM_PROMPT,
+      includeChoiceCards ? INTERACTIVE_CHOICES_PROMPT : "",
       memoryBlock,
       contextParts.length > 0
         ? "═══════════════════════════════════════════\nCONTEXT FOR THIS SESSION\n═══════════════════════════════════════════\n" + contextParts.join("\n")
