@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "Bas Udrus",
+    "slug": "basudrus",
+    "version": "0.1.0",
+    "scheme": "basudrus",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.basudrus.app",
+      "buildNumber": "1",
+      "userInterfaceStyle": "automatic",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["audio"],
+        "NSMicrophoneUsageDescription": "Used for voice features in the AI tutor.",
+        "NSCalendarsUsageDescription": "Add your Bas Udrus study sessions and group rooms to your calendar so you never miss a session.",
+        "NSCalendarsFullAccessUsageDescription": "Add your Bas Udrus study sessions and group rooms to your calendar so you never miss a session.",
+        "NSRemindersUsageDescription": "Create a study reminder for your next session.",
+        "NSRemindersFullAccessUsageDescription": "Create a study reminder for your next session.",
+        "NSCameraUsageDescription": "Take a photo of a past-paper page or your profile picture.",
+        "NSPhotoLibraryUsageDescription": "Pick a photo from your library for your profile or to upload past papers."
+      },
+      "associatedDomains": ["applinks:basudrus.com", "applinks:www.basudrus.com"]
+    },
+    "android": {
+      "package": "com.basudrus.app",
+      "versionCode": 1,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "basudrus.com" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Add your Bas Udrus study sessions and group rooms to your calendar so you never miss a session.",
+          "remindersPermission": "Create a study reminder for your next session."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick a photo from your library for your profile or to upload past papers.",
+          "cameraPermission": "Take a photo of a past-paper page or your profile picture."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "supabaseUrl": "https://ltvirqgzxurwcnohzavr.supabase.co",
+      "supabaseAnonKey": "sb_publishable_PSk1UITRhg_v-6oSgZ0TQQ_ir2buvye",
+      "apiBase": "https://www.basudrus.com"
+    }
+  }
+}
