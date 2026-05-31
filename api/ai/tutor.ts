@@ -13,7 +13,14 @@ import {
   isProUser,
 } from "../_lib/ai-guard";
 import { callGroqStream, translateGroqChunkToAnthropic, DEFAULT_GROQ_MODEL } from "../_lib/groq";
-import { searchTavily, shouldSearch, renderTavilyBlock } from "../_lib/tavily";
+import {
+  searchTavily,
+  shouldSearch,
+  renderTavilyBlock,
+  extractUrls,
+  extractTavily,
+  renderExtractBlock,
+} from "../_lib/tavily";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -2202,11 +2209,19 @@ If the student asks a question that goes beyond what's in the document, answer u
     // through to either Anthropic's native web_search (Anthropic
     // path) or training knowledge only (Groq path).
     let tavilyBlock = "";
+    let extractBlock = "";
     const lastUserMsg = [...apiMessages].reverse().find((m) => m.role === "user");
     const lastUserText = typeof lastUserMsg?.content === "string"
       ? lastUserMsg.content
       : "";
     const searchQuery = TAVILY_API_KEY ? shouldSearch(lastUserText) : null;
+    // "Paste a link, Tony reads it." If the student's message contains
+    // explicit URL(s), fetch their cleaned contents via Tavily /extract
+    // and inject as a LINKED PAGE CONTENT block. Distinct from search:
+    // shouldSearch() doesn't trigger on a bare URL, so without this the
+    // link sat unread and Tony hallucinated about it. Capped at 2 links
+    // to bound latency + context size.
+    const linkedUrls = TAVILY_API_KEY ? extractUrls(lastUserText, 2) : [];
 
     // ── Persistent student memory (best-effort) ──
     // Pull the top 12 most-important facts the student has stored
@@ -2215,7 +2230,7 @@ If the student asks a question that goes beyond what's in the document, answer u
     // RLS — no leakage between users possible. We do this in
     // parallel with Tavily because both are cold I/O and we don't
     // want to serialize them.
-    const [tavilyResults, memoryRows] = await Promise.all([
+    const [tavilyResults, memoryRows, extractResults] = await Promise.all([
       searchQuery
         ? searchTavily({
             apiKey: TAVILY_API_KEY,
@@ -2238,9 +2253,15 @@ If the student asks a question that goes beyond what's in the document, answer u
         // to filter to high-confidence auto-extracted facts.
         minConfidence: 0,
       }),
+      linkedUrls.length > 0
+        ? extractTavily({ apiKey: TAVILY_API_KEY, urls: linkedUrls, signal: req.signal })
+        : Promise.resolve([]),
     ]);
     if (searchQuery) {
       tavilyBlock = renderTavilyBlock(searchQuery, tavilyResults);
+    }
+    if (linkedUrls.length > 0) {
+      extractBlock = renderExtractBlock(extractResults);
     }
     const memoryBlock = renderMemoryBlock(memoryRows);
 
@@ -2262,6 +2283,7 @@ If the student asks a question that goes beyond what's in the document, answer u
         ? "═══════════════════════════════════════════\nCONTEXT FOR THIS SESSION\n═══════════════════════════════════════════\n" + sessionContext.join("\n")
         : "",
       tavilyBlock,
+      extractBlock,
       ENRICHMENT_PROMPT,
     ].filter(Boolean).join("\n\n");
 

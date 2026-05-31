@@ -84,8 +84,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
+  Alert,
   Animated,
   FlatList,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -129,6 +132,13 @@ import {
   isOverFreeQuota,
 } from '@/lib/aiQuota';
 import { parseAssistantMessage } from '@/lib/parseChoices';
+import { extractMemory } from '@/lib/extractMemory';
+import {
+  capturePhoto,
+  pickPhoto,
+  pickPdf,
+  type StagedAttachment,
+} from '@/lib/attachments';
 
 // Old-arch Android requires opting into LayoutAnimation. Harmless no-op
 // elsewhere. We use LayoutAnimation in the keyboard listener so the
@@ -149,6 +159,10 @@ type Msg = {
   role: 'user' | 'assistant';
   text: string;
   streaming?: boolean;
+  /** Attachment shown on a user turn (photo thumbnail or PDF chip).
+   *  Only the lightweight display fields are kept on the message — the
+   *  base64 is sent once and not retained in chat state. */
+  attachment?: { kind: 'image' | 'pdf'; uri?: string; name?: string };
 };
 
 /**
@@ -270,6 +284,21 @@ export default function AIScreen() {
   // session id even across rapid-fire turns. No render needs to react
   // to this value, so a ref is the lighter primitive.
   const currentSessionIdRef = useRef<string>('');
+  // ── Durable-memory extraction bookkeeping ──
+  // Mobile previously never wrote to student_memory (the extract call
+  // was never ported from web). We now fire `/api/ai/extract-memory`
+  // when a chat winds down. These refs let the trigger read the LIVE
+  // transcript + persona without stale closures (send() is async and
+  // the tab stays mounted across focus changes):
+  //   • messagesRef        — current messages, mirrored every render
+  //   • personaRef         — current persona ('tony'/'sherlock')
+  //   • lastExtractCountRef — message count at the last extraction, so
+  //                           we only re-extract when ≥2 NEW messages
+  //                           have accumulated (mirrors Aurora's guard,
+  //                           AuroraAIScreen "extract only if ≥2 new").
+  const messagesRef = useRef<Msg[]>([]);
+  const personaRef = useRef<Persona>('tony');
+  const lastExtractCountRef = useRef<number>(0);
   // Bump this when a new session row is created (or resumed) so the
   // HistoryDrawer's useAIHistory hook re-runs its refresh — otherwise
   // the drawer wouldn't see the fresh chat until the user pulled to
@@ -287,6 +316,12 @@ export default function AIScreen() {
   // as a sibling of the drawer (avoids nested-Modal quirks on Android).
   const [historyOpen, setHistoryOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  // Staged attachment (photo or PDF) waiting to be sent with the next
+  // message. Web supports up to 5; mobile keeps it to one at a time for
+  // a simpler phone UX — the user can send, then attach again. `busy`
+  // guards the picker so a double-tap can't launch two pickers.
+  const [attachment, setAttachment] = useState<StagedAttachment | null>(null);
+  const [attaching, setAttaching] = useState(false);
   // Track keyboard visibility so the composer can collapse its
   // bottom padding when the keyboard is up. The composer normally
   // reserves `tabBarHeight + sm` at the bottom so it clears the
@@ -330,6 +365,43 @@ export default function AIScreen() {
 
   const listRef = useRef<FlatList>(null);
   const { awardXP } = useGameTracking();
+
+  // Keep the extraction refs pointed at the live values so the
+  // fire-and-forget memory trigger never reads a stale snapshot.
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { personaRef.current = persona; }, [persona]);
+
+  // Fire durable-memory extraction for the CURRENT transcript if the
+  // conversation has grown by at least 2 messages since the last
+  // extraction. Best-effort + silent — see extractMemory.ts. Called
+  // when a chat winds down: new chat, persona switch, resume-other-chat,
+  // and when the user leaves the AI tab. Sherlock ('noor') and Tony
+  // ('omar') write the same unified memory; persona only tunes which
+  // facts Claude looks for.
+  const maybeExtractMemory = useCallback(() => {
+    if (!session?.user?.id) return; // no signed-in user → nothing to save
+    const msgs = messagesRef.current;
+    // Only extract finished assistant turns (skip a mid-stream bubble).
+    const settled = msgs.filter(m => !m.streaming && m.text.trim().length > 0);
+    if (settled.length < 2) return;
+    if (settled.length - lastExtractCountRef.current < 2) return; // <2 new
+    lastExtractCountRef.current = settled.length;
+    const personaKey = personaRef.current === 'tony' ? 'omar' : 'noor';
+    void extractMemory(
+      settled.map(m => ({ role: m.role, content: m.text })),
+      personaKey,
+    );
+  }, [session?.user?.id]);
+
+  // Extract when the user leaves the AI tab (the most common "chat is
+  // done for now" signal on a phone — they tab away). useFocusEffect's
+  // cleanup runs on blur. We intentionally do NOT extract on unmount
+  // only, because the tab stays mounted across tab switches.
+  useFocusEffect(
+    useCallback(() => {
+      return () => { maybeExtractMemory(); };
+    }, [maybeExtractMemory]),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -406,16 +478,68 @@ export default function AIScreen() {
     }, []),
   );
 
-  const requirePro = useCallback((featureName: string) => {
+  // Run one of the attachment pickers, stage the result, and surface a
+  // friendly Alert on failure (permission denied, file too big, etc.).
+  // Pro-gated to match the web's attach affordance — free users get the
+  // upgrade prompt instead. Sherlock has no use for homework photos, so
+  // attach is Tony-only (the button is hidden for Sherlock below).
+  const runPicker = useCallback(
+    async (which: 'camera' | 'library' | 'pdf') => {
+      if (attaching) return;
+      setAttaching(true);
+      try {
+        const staged =
+          which === 'camera'
+            ? await capturePhoto()
+            : which === 'library'
+              ? await pickPhoto()
+              : await pickPdf();
+        if (staged) {
+          setAttachment(staged);
+          tap();
+        }
+      } catch (e) {
+        hError();
+        Alert.alert(
+          'Couldn’t attach',
+          e instanceof Error ? e.message : 'Something went wrong attaching that file.',
+        );
+      } finally {
+        setAttaching(false);
+      }
+    },
+    [attaching],
+  );
+
+  // Open the attach menu: Camera / Photo Library / PDF. Free users are
+  // bounced to upgrade (attachments are a Pro feature, same as web).
+  const openAttachMenu = useCallback(() => {
     tap();
-    if (isPro) {
-      hError();
-      // eslint-disable-next-line no-console
-      console.log('[ai] Pro feature tapped:', featureName);
+    if (!isPro) {
+      router.push('/upgrade');
       return;
     }
-    router.push('/upgrade');
-  }, [isPro, router]);
+    const options = ['Take Photo', 'Choose Photo', 'Attach PDF', 'Cancel'];
+    const run = (i: number) => {
+      if (i === 0) void runPicker('camera');
+      else if (i === 1) void runPicker('library');
+      else if (i === 2) void runPicker('pdf');
+    };
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: 3 },
+        run,
+      );
+    } else {
+      // Android has no native action sheet — use a simple Alert menu.
+      Alert.alert('Attach', 'Add a photo or PDF for Tony to read', [
+        { text: 'Take Photo', onPress: () => run(0) },
+        { text: 'Choose Photo', onPress: () => run(1) },
+        { text: 'Attach PDF', onPress: () => run(2) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [isPro, router, runPicker]);
 
   // Resume a chat the user tapped in the HistoryDrawer.
   // Pulls the full messages JSONB from Supabase (tutor_sessions or
@@ -435,6 +559,8 @@ export default function AIScreen() {
       hError();
       return;
     }
+    // Extract from whatever chat is currently open before we replace it.
+    maybeExtractMemory();
     const restored: Msg[] = full.messages.map((m, i) => ({
       id: `${full.id}-${i}`,
       role: m.role,
@@ -443,16 +569,24 @@ export default function AIScreen() {
     setMessages(restored);
     setPersona(item.persona === 'noor' ? 'sherlock' : 'tony');
     setInput('');
+    // Seed the watermark at the restored length so resuming an old chat
+    // doesn't immediately re-extract its entire history — only NEW turns
+    // added after resuming should trigger the next extraction.
+    lastExtractCountRef.current = restored.length;
     currentSessionIdRef.current = full.id;
     scrollToEnd(false);
-  }, []);
+  }, [maybeExtractMemory]);
 
   const scrollToEnd = (animated = true) =>
     setTimeout(() => listRef.current?.scrollToEnd({ animated }), 60);
 
   const send = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
-    if (!text || sending) return;
+    // Snapshot the staged attachment for this send. A send is allowed if
+    // there's text OR an attachment (web allows attachment-only sends —
+    // the API supplies a fallback prompt when text is empty).
+    const sendingAttachment = attachment;
+    if ((!text && !sendingAttachment) || sending) return;
 
     // ── Free-tier daily cap ──
     // Non-Pro users get MAX_FREE_MESSAGES_PER_DAY sends per local day.
@@ -472,7 +606,16 @@ export default function AIScreen() {
     }
 
     const uid = Date.now().toString();
-    const userMsg: Msg = { id: uid, role: 'user', text };
+    const userMsg: Msg = {
+      id: uid,
+      role: 'user',
+      text,
+      // Keep only the display fields on the message (thumbnail uri / pdf
+      // name); the base64 is sent in the request body, not retained.
+      attachment: sendingAttachment
+        ? { kind: sendingAttachment.kind, uri: sendingAttachment.uri, name: sendingAttachment.name }
+        : undefined,
+    };
     const allMsgs = [...messages, userMsg];
     // Snapshot of the user's message in the storage shape — captured
     // here so we can persist it later regardless of how the assistant
@@ -482,6 +625,7 @@ export default function AIScreen() {
     const userIdForPersistence = session?.user?.id ?? '';
 
     setInput('');
+    setAttachment(null); // consumed — clear the composer chip
     setSending(true);
     // Drop the keyboard the moment they tap send — matches Claude /
     // ChatGPT mobile. The streaming response is what they want to
@@ -538,6 +682,18 @@ export default function AIScreen() {
           // pick"), so we send undefined to mirror web behaviour.
           mode: persona === 'tony' && tutorMode !== 'auto' ? tutorMode : undefined,
           persona: persona === 'tony' ? 'omar' : 'noor',
+          // Attachment for THIS turn only — the server attaches it to the
+          // last user message as an image/document content block. Shape
+          // matches api/ai/tutor.ts: images:[{base64,mediaType}] /
+          // pdfs:[{base64,name}].
+          images:
+            sendingAttachment?.kind === 'image'
+              ? [{ base64: sendingAttachment.base64, mediaType: sendingAttachment.mediaType }]
+              : undefined,
+          pdfs:
+            sendingAttachment?.kind === 'pdf'
+              ? [{ base64: sendingAttachment.base64, name: sendingAttachment.name ?? 'document.pdf' }]
+              : undefined,
         }),
       });
 
@@ -638,8 +794,19 @@ export default function AIScreen() {
       const sid = currentSessionIdRef.current;
       if (sid) {
         const replyTs = new Date().toISOString();
+        // When the turn was attachment-only (no typed text), persist a
+        // readable placeholder so the resumed chat doesn't show a blank
+        // user bubble. The attachment itself isn't stored (base64 is
+        // sent once, not retained), but the label keeps history legible.
+        const persistedUserText =
+          text ||
+          (sendingAttachment?.kind === 'pdf'
+            ? `📄 ${sendingAttachment.name ?? 'PDF'}`
+            : sendingAttachment
+              ? '📷 Photo'
+              : '');
         void appendChatMessages(sid, personaForPersistence, [
-          { role: 'user', content: text, ts: userTs },
+          { role: 'user', content: persistedUserText, ts: userTs },
           { role: 'assistant', content: finalText, ts: replyTs },
         ]).then(ok => {
           // Only ping the drawer when the write actually landed so we
@@ -874,20 +1041,54 @@ export default function AIScreen() {
           },
         ]}
       >
+        {/* Staged attachment preview — shows above the input until sent.
+            Tap the × to remove it before sending. */}
+        {attachment ? (
+          <View style={[styles.attachPreview, { borderColor: c.border, backgroundColor: c.bg }]}>
+            {attachment.kind === 'image' && attachment.uri ? (
+              <Image source={{ uri: attachment.uri }} style={styles.attachThumb} />
+            ) : (
+              <View style={[styles.attachPdfIcon, { backgroundColor: TONY_PURPLE + '22' }]}>
+                <Ionicons name="document-text" size={20} color={TONY_PURPLE} />
+              </View>
+            )}
+            <Text style={[styles.attachName, { color: c.text }]} numberOfLines={1}>
+              {attachment.kind === 'pdf' ? (attachment.name ?? 'document.pdf') : 'Photo attached'}
+            </Text>
+            <Pressable
+              onPress={() => { tap(); setAttachment(null); }}
+              hitSlop={8}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 2 })}
+              accessibilityRole="button"
+              accessibilityLabel="Remove attachment"
+            >
+              <Ionicons name="close-circle" size={20} color={c.textMuted} />
+            </Pressable>
+          </View>
+        ) : null}
+
         <View style={styles.composerRow}>
-          <Pressable
-            onPress={() => requirePro('attach')}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.attachBtn,
-              {
-                backgroundColor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="add" size={22} color={c.textMuted} />
-          </Pressable>
+          {/* Attach (Tony only — Sherlock has no use for homework files).
+              Opens Camera / Photo / PDF. Free users are routed to upgrade
+              inside openAttachMenu. */}
+          {persona === 'tony' ? (
+            <Pressable
+              onPress={openAttachMenu}
+              disabled={attaching || sending}
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.attachBtn,
+                {
+                  backgroundColor: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  opacity: pressed || attaching ? 0.7 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Attach a photo or PDF"
+            >
+              <Ionicons name="add" size={22} color={c.textMuted} />
+            </Pressable>
+          ) : null}
 
           <TextInput
             value={input}
@@ -904,31 +1105,26 @@ export default function AIScreen() {
 
           <Pressable
             onPress={() => send()}
-            disabled={!input.trim() || sending || overQuota}
-            style={({ pressed }) => [
-              styles.sendBtn,
-              {
-                // overQuota visually flips the button to a "locked"
-                // state so the user understands why it won't fire — the
-                // quota banner above already tells them what to do.
-                backgroundColor:
-                  overQuota
-                    ? c.bgCard
-                    : input.trim() && !sending
-                    ? TONY_PURPLE
-                    : c.bgCard,
-                opacity: pressed
-                  ? 0.75
-                  : input.trim() && !sending && !overQuota
-                  ? 1
-                  : 0.45,
-              },
-            ]}
+            disabled={(!input.trim() && !attachment) || sending || overQuota}
+            style={({ pressed }) => {
+              // Send is "armed" when there's text OR a staged attachment.
+              const armed = (!!input.trim() || !!attachment) && !sending;
+              return [
+                styles.sendBtn,
+                {
+                  // overQuota visually flips the button to a "locked"
+                  // state so the user understands why it won't fire — the
+                  // quota banner above already tells them what to do.
+                  backgroundColor: overQuota ? c.bgCard : armed ? TONY_PURPLE : c.bgCard,
+                  opacity: pressed ? 0.75 : armed && !overQuota ? 1 : 0.45,
+                },
+              ];
+            }}
           >
             <Ionicons
               name={overQuota ? 'lock-closed' : 'arrow-up'}
               size={20}
-              color={input.trim() && !sending && !overQuota ? '#fff' : c.textMuted}
+              color={(!!input.trim() || !!attachment) && !sending && !overQuota ? '#fff' : c.textMuted}
             />
           </Pressable>
         </View>
@@ -964,15 +1160,19 @@ export default function AIScreen() {
 
   const newChat = useCallback(() => {
     tap();
+    // Let Tony learn from the chat we're about to clear BEFORE we wipe
+    // it — otherwise the durable facts in this conversation are lost.
+    maybeExtractMemory();
     setMessages([]);
     setInput('');
+    lastExtractCountRef.current = 0; // fresh chat → reset the extract watermark
     // Clear the session pointer so the NEXT message opens a fresh row
     // instead of appending to the previous chat the user just walked
     // away from. Without this, "tap + (new chat) → send" would silently
     // continue the prior session and the drawer would show only one
     // row that grew indefinitely.
     currentSessionIdRef.current = '';
-  }, []);
+  }, [maybeExtractMemory]);
 
   // Persona swap should isolate sessions per persona — a Tony chat in
   // progress shouldn't pollute the next Sherlock chat (different table,
@@ -985,11 +1185,14 @@ export default function AIScreen() {
   // to PersonaToggle — this wrapper only handles the data hygiene.
   const handlePersonaChange = useCallback((next: Persona) => {
     if (next === persona) return;
+    // Extract from the outgoing persona's chat before we clear it.
+    maybeExtractMemory();
     setPersona(next);
     setMessages([]);
     setInput('');
+    lastExtractCountRef.current = 0;
     currentSessionIdRef.current = '';
-  }, [persona]);
+  }, [persona, maybeExtractMemory]);
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }}>
@@ -1303,14 +1506,28 @@ function Bubble({
               : { backgroundColor: c.bgCard, borderWidth: 1, borderColor: c.border, maxWidth: '86%' },
           ]}
         >
+          {/* Attachment preview on a user turn — photo thumbnail or a
+              PDF chip — shown above the typed text (if any). */}
+          {mine && msg.attachment ? (
+            msg.attachment.kind === 'image' && msg.attachment.uri ? (
+              <Image source={{ uri: msg.attachment.uri }} style={styles.bubbleImage} />
+            ) : (
+              <View style={styles.bubblePdfRow}>
+                <Ionicons name="document-text" size={16} color="#fff" />
+                <Text style={styles.bubblePdfName} numberOfLines={1}>
+                  {msg.attachment.name ?? 'document.pdf'}
+                </Text>
+              </View>
+            )
+          ) : null}
           {msg.streaming && bodyText === '' ? (
             <TypingDots />
-          ) : (
+          ) : bodyText.length > 0 ? (
             <Text style={{ color: mine ? '#fff' : c.text, fontSize: font.sizes.md, lineHeight: 22 }}>
               {bodyText}
               {msg.streaming ? <BlinkCursor color={c.accent} /> : null}
             </Text>
-          )}
+          ) : null}
         </View>
       </View>
 
@@ -1560,4 +1777,40 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 14,
   },
+  // Staged-attachment preview chip above the composer.
+  attachPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginBottom: space.sm,
+  },
+  attachThumb: { width: 36, height: 36, borderRadius: 6, backgroundColor: '#0002' },
+  attachPdfIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachName: { flex: 1, fontSize: font.sizes.sm, fontWeight: '500' },
+  // Attachment shown inside a sent user bubble.
+  bubbleImage: {
+    width: 200,
+    height: 200,
+    borderRadius: radius.md,
+    marginBottom: 6,
+    backgroundColor: '#0002',
+    resizeMode: 'cover',
+  },
+  bubblePdfRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  bubblePdfName: { color: '#fff', fontSize: font.sizes.sm, fontWeight: '500', flexShrink: 1 },
 });

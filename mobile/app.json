@@ -20,8 +20,8 @@
         "NSCalendarsFullAccessUsageDescription": "Add your Bas Udrus study sessions and group rooms to your calendar so you never miss a session.",
         "NSRemindersUsageDescription": "Create a study reminder for your next session.",
         "NSRemindersFullAccessUsageDescription": "Create a study reminder for your next session.",
-        "NSCameraUsageDescription": "Take a photo of a past-paper page or your profile picture.",
-        "NSPhotoLibraryUsageDescription": "Pick a photo from your library for your profile or to upload past papers."
+        "NSCameraUsageDescription": "Snap a photo of your homework for Tony, scan a past-paper page, or take a profile picture.",
+        "NSPhotoLibraryUsageDescription": "Pick a photo to ask Tony about, set your profile picture, or upload past papers."
       },
       "associatedDomains": ["applinks:basudrus.com", "applinks:www.basudrus.com"]
     },
@@ -54,8 +54,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Pick a photo from your library for your profile or to upload past papers.",
-          "cameraPermission": "Take a photo of a past-paper page or your profile picture."
+          "photosPermission": "Pick a photo to ask Tony about, set your profile picture, or upload past papers.",
+          "cameraPermission": "Snap a photo of your homework for Tony, scan a past-paper page, or take a profile picture."
         }
       ]
     ],
