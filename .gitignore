@@ -20,6 +20,16 @@ dist/
 .idea/
 .vscode/
 
+# Mobile app (Expo) build artifacts — the source in mobile/** is
+# committed, but generated dirs are not. mobile/node_modules is
+# already covered by the top-level `node_modules/` rule.
+mobile/.expo/
+mobile/ios/
+mobile/android/
+mobile/web-build/
+mobile/dist/
+mobile/expo-env.d.ts
+
 # Generated vite config artifacts
 vite.config.d.ts
 vite.config.js

@@ -92,6 +92,12 @@ async function fetchIpApi(req: Request): Promise<GeoResult | null> {
     req.headers.get("x-real-ip") ??
     null;
   if (!ip) return null;
+  // The IP comes from a client-influenceable forwarded header, so reject
+  // anything that isn't a plain IPv4/IPv6 address before interpolating it
+  // into the upstream URL (defense in depth — the value is also
+  // encodeURIComponent'd, and the host is fixed to ipapi.co).
+  const isValidIp = /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/.test(ip) || /^[0-9a-fA-F:]+$/.test(ip);
+  if (!isValidIp) return null;
   try {
     const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
       headers: { Accept: "application/json" },

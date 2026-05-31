@@ -158,7 +158,7 @@ async function findUserIdByEmail(email: string): Promise<string | null> {
 async function fetchCandidate(userId: string): Promise<CandidateRow | null> {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return null;
   try {
-    const url = `${SUPABASE_URL}/rest/v1/profiles?select=id,name,uni,major,year,bio,avatar_color,photo_url,photo_mode&id=eq.${encodeURIComponent(userId)}&limit=1`;
+    const url = `${SUPABASE_URL}/rest/v1/profiles?select=id,name,uni,major,year,bio,avatar_color,photo_url,photo_mode,discoverable_by_email&id=eq.${encodeURIComponent(userId)}&limit=1`;
     const res = await fetch(url, {
       headers: {
         apikey: SUPABASE_SERVICE_KEY,
@@ -169,6 +169,14 @@ async function fetchCandidate(userId: string): Promise<CandidateRow | null> {
     const rawRows = await res.json() as Array<Record<string, unknown>>;
     const row = rawRows?.[0];
     if (!row) return null;
+    // Consent + anti-enumeration gate: a user is only resolvable by email
+    // if they explicitly opted in (profiles.discoverable_by_email). We
+    // return null — identical to "not found" — so the caller emits the same
+    // generic response and this can't be used as an account-existence /
+    // PII oracle over the user base. Defensive: if the column is absent
+    // (pre-migration), `row.discoverable_by_email` is undefined, which is
+    // !== true, so we fail closed to "not discoverable".
+    if (row.discoverable_by_email !== true) return null;
     // Normalize: parse year text, treat empty-string uni/major as null.
     const uni = typeof row.uni === "string" && row.uni.trim() ? row.uni : null;
     const major = typeof row.major === "string" && row.major.trim() ? row.major : null;

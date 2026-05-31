@@ -27,6 +27,7 @@
  */
 
 const TAVILY_API_URL = "https://api.tavily.com/search";
+const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
 
 export interface TavilyResult {
   title: string;
@@ -336,6 +337,122 @@ export function renderTavilyBlock(query: string, results: TavilyResult[]): strin
     lines.push("");
   });
   lines.push("=== END WEB CONTEXT ===");
+  lines.push("");
+  return lines.join("\n");
+}
+
+// ───────────────────────── URL extraction ─────────────────────────
+//
+// "Paste a link, Tony reads it." Distinct from search: the user gives us
+// an EXACT url and wants its CONTENTS read, not a web search. shouldSearch
+// deliberately does NOT trigger on a bare URL, so without this the link
+// just sat in the prompt as an unfetched string and Tony hallucinated
+// about it. Tavily's /extract endpoint pulls cleaned page text (same
+// boilerplate-stripped quality as search), which we inject like the
+// search block.
+
+// Matches http(s) URLs in free text. Intentionally conservative: requires
+// a scheme so we don't try to "extract" every bare word with a dot. The
+// trailing class stops before common sentence punctuation so "see https://x.com."
+// doesn't capture the period.
+const URL_RE = /\bhttps?:\/\/[^\s<>"')]+/gi;
+
+/**
+ * Pull up to `max` distinct http(s) URLs out of a user message. Returns []
+ * when none are present. Caps length per URL defensively (a pathological
+ * 5000-char "url" is not a real link). De-dupes exact repeats.
+ */
+export function extractUrls(userMessage: string, max = 3): string[] {
+  if (!userMessage) return [];
+  const found = userMessage.match(URL_RE);
+  if (!found) return [];
+  const cleaned: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of found) {
+    // Trim trailing punctuation a URL won't really end with.
+    const u = raw.replace(/[.,;:!?)\]]+$/, "");
+    if (u.length < 12 || u.length > 2000) continue;
+    if (seen.has(u)) continue;
+    seen.add(u);
+    cleaned.push(u);
+    if (cleaned.length >= max) break;
+  }
+  return cleaned;
+}
+
+export interface TavilyExtractResult {
+  url: string;
+  /** Cleaned page text (boilerplate stripped by Tavily). */
+  content: string;
+}
+
+/**
+ * Extract cleaned page content for one or more URLs via Tavily /extract.
+ * Returns [] on any failure (caller degrades by just not injecting the
+ * block — the model still sees the raw URL in the user's message). Never
+ * throws.
+ */
+export async function extractTavily(args: {
+  apiKey: string;
+  urls: string[];
+  signal?: AbortSignal;
+}): Promise<TavilyExtractResult[]> {
+  const { apiKey, urls, signal } = args;
+  if (!apiKey || !urls || urls.length === 0) return [];
+  try {
+    const res = await fetch(TAVILY_EXTRACT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        // Tavily accepts a single url string or an array; send an array.
+        urls,
+        // basic depth is enough for an article/page read and cheaper.
+        extract_depth: "basic",
+      }),
+      signal,
+    });
+    if (!res.ok) return [];
+    // Tavily /extract returns { results: [{ url, raw_content }], failed_results: [...] }
+    const json = (await res.json()) as {
+      results?: Array<{ url?: string; raw_content?: string; content?: string }>;
+    };
+    if (!Array.isArray(json.results)) return [];
+    return json.results
+      .map((r) => ({
+        url: typeof r.url === "string" ? r.url : "",
+        content: (r.raw_content || r.content || "").toString(),
+      }))
+      .filter((r) => r.url && r.content);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Render extracted page content as a system-prompt block. Caps each page
+ * so a long article doesn't blow the context budget (4000 chars ≈ a few
+ * pages of text — enough for Tony to answer questions about it).
+ */
+export function renderExtractBlock(results: TavilyExtractResult[]): string {
+  if (!results || results.length === 0) return "";
+  const lines: string[] = [
+    "",
+    "=== LINKED PAGE CONTENT (the student shared these links — read them) ===",
+    "The student included these URLs in their message. Their CONTENTS were fetched live and are below.",
+    "REQUIRED behavior:",
+    "  - Treat this as the primary material the student wants help with. Read it carefully before answering.",
+    "  - When you use a fact from a page, cite its domain in parentheses: e.g. `(source: <domain>)`.",
+    "  - If the fetched content seems truncated or off-topic, say so plainly rather than guessing what the rest said.",
+    "",
+  ];
+  results.slice(0, 3).forEach((r, i) => {
+    const body = (r.content || "").replace(/\s+/g, " ").trim().slice(0, 4000);
+    lines.push(`[Link ${i + 1}] ${r.url}`);
+    if (body) lines.push(body);
+    lines.push("");
+  });
+  lines.push("=== END LINKED PAGE CONTENT ===");
   lines.push("");
   return lines.join("\n");
 }

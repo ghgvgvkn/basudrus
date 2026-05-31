@@ -13,7 +13,14 @@ import {
   isProUser,
 } from "../_lib/ai-guard";
 import { callGroqStream, translateGroqChunkToAnthropic, DEFAULT_GROQ_MODEL } from "../_lib/groq";
-import { searchTavily, shouldSearch, renderTavilyBlock } from "../_lib/tavily";
+import {
+  searchTavily,
+  shouldSearch,
+  renderTavilyBlock,
+  extractUrls,
+  extractTavily,
+  renderExtractBlock,
+} from "../_lib/tavily";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -787,6 +794,69 @@ HARD RULES — NEVER VIOLATE
 - ENCOURAGE verifying formulas / facts against the textbook.
 - For ambiguous questions, ASK for clarification rather than guessing.
 - If a student says "I'm stupid" or "I can't do this": STOP teaching, validate, encourage, THEN resume.`;
+
+// ───────────────────────────────────────────────────────────────────
+// INTERACTIVE CHOICES — mobile-first UI hook
+//
+// The mobile client parses an `<<option>>…<<end option>>` block after
+// your prose and renders the options as tappable cards (Claude
+// AskUserQuestion style). One tap on a card sends that exact label back
+// as the user's next message, so the student doesn't have to type a
+// short answer on a phone keyboard. Cuts friction dramatically when
+// you're naturally asking a question with a small set of likely answers
+// ("want to do a 2-minute check-in?", "ready to move on?", "which
+// subject?").
+//
+// Format is plain-text sentinels, not JSON — easier for the model to
+// produce reliably mid-stream, and degrades to legible text on clients
+// that don't have the parser yet (the web shows the literal `<<option>>`
+// lines as prose; ugly but the user can still read and type).
+// ───────────────────────────────────────────────────────────────────
+
+const INTERACTIVE_CHOICES_PROMPT = `═══════════════════════════════════════════
+INTERACTIVE CHOICE CARDS (when natural)
+═══════════════════════════════════════════
+When you're asking the student a question whose answer space is naturally small (2–5 likely answers), wrap the answers between the EXACT sentinels \`<<option>>\` and \`<<end option>>\` AFTER your prose. The mobile client renders each line between the sentinels as a tappable card — one tap sends that line back as the student's next message. This cuts huge friction on a phone, where short typed replies hurt.
+
+Use it for things like:
+- "Want to do a 2-minute check-in?" → Yes / Maybe later / Tell me more
+- "Ready for a quick quiz?" → Yes / Show me the answer / Different topic
+- "Which subject feels hardest right now?" → Math / Programming / English / Other
+
+FORMAT (strict — clients depend on it):
+1. Write your conversational prose FIRST. The QUESTION goes in the prose, not in the options.
+2. On a NEW line, emit the literal opening sentinel: \`<<option>>\`
+3. Then list each option on its own line. ONE option per line. No bullets, no numbering, no quotes — just the option text.
+4. Close with the literal sentinel: \`<<end option>>\` on its own line.
+5. Emit AT MOST ONE options block per assistant turn. Always AFTER the prose.
+6. Each option ≤60 characters, exactly what the user is choosing — the system sends that line back verbatim as their next message, so don't add commentary like "(recommended)" inside an option line.
+7. Use 2–5 options. Two is fine when binary; five is the hard upper bound.
+
+EXAMPLE (English):
+I think a 2-minute check-in would help. Want to do one?
+
+<<option>>
+Yes, let's do the check-in
+Maybe later
+Tell me more first
+<<end option>>
+
+EXAMPLE (Arabic — same sentinels, options in Arabic):
+أعتقد إنه أحسن إشي تعمل check-in قصير. تحب نبلش؟
+
+<<option>>
+آه، يلا نبلش
+بعدين أحسن
+وضحلي شو يعني check-in
+<<end option>>
+
+WHEN NOT TO USE:
+- Open-ended questions ("how are you feeling about uni?") — let them type.
+- Single-answer prompts where you're really just confirming ("OK?") — skip the card, it's noise.
+- Long multi-step exercises where each option would be a paragraph — those belong in prose.
+- During the middle of teaching a concept — don't interrupt your own explanation with a card.
+
+LANGUAGE: Match the student's language for the option text. The sentinels themselves (\`<<option>>\` and \`<<end option>>\`) ALWAYS stay in English — don't translate them.`;
 
 const ENRICHMENT_PROMPT = `You are Tony Starrk — the AI tutor inside Bas Udrus. The student calls you Tony Starrk. You are the tutor who makes Jordanian university students believe in themselves.
 
@@ -2139,11 +2209,19 @@ If the student asks a question that goes beyond what's in the document, answer u
     // through to either Anthropic's native web_search (Anthropic
     // path) or training knowledge only (Groq path).
     let tavilyBlock = "";
+    let extractBlock = "";
     const lastUserMsg = [...apiMessages].reverse().find((m) => m.role === "user");
     const lastUserText = typeof lastUserMsg?.content === "string"
       ? lastUserMsg.content
       : "";
     const searchQuery = TAVILY_API_KEY ? shouldSearch(lastUserText) : null;
+    // "Paste a link, Tony reads it." If the student's message contains
+    // explicit URL(s), fetch their cleaned contents via Tavily /extract
+    // and inject as a LINKED PAGE CONTENT block. Distinct from search:
+    // shouldSearch() doesn't trigger on a bare URL, so without this the
+    // link sat unread and Tony hallucinated about it. Capped at 2 links
+    // to bound latency + context size.
+    const linkedUrls = TAVILY_API_KEY ? extractUrls(lastUserText, 2) : [];
 
     // ── Persistent student memory (best-effort) ──
     // Pull the top 12 most-important facts the student has stored
@@ -2152,7 +2230,7 @@ If the student asks a question that goes beyond what's in the document, answer u
     // RLS — no leakage between users possible. We do this in
     // parallel with Tavily because both are cold I/O and we don't
     // want to serialize them.
-    const [tavilyResults, memoryRows] = await Promise.all([
+    const [tavilyResults, memoryRows, extractResults] = await Promise.all([
       searchQuery
         ? searchTavily({
             apiKey: TAVILY_API_KEY,
@@ -2175,15 +2253,26 @@ If the student asks a question that goes beyond what's in the document, answer u
         // to filter to high-confidence auto-extracted facts.
         minConfidence: 0,
       }),
+      linkedUrls.length > 0
+        ? extractTavily({ apiKey: TAVILY_API_KEY, urls: linkedUrls, signal: req.signal })
+        : Promise.resolve([]),
     ]);
     if (searchQuery) {
       tavilyBlock = renderTavilyBlock(searchQuery, tavilyResults);
     }
+    if (linkedUrls.length > 0) {
+      extractBlock = renderExtractBlock(extractResults);
+    }
     const memoryBlock = renderMemoryBlock(memoryRows);
 
     // Compose the final system prompt.
+    // INTERACTIVE_CHOICES_PROMPT is appended near the top so the model
+    // sees the choice-card rendering contract before it starts composing
+    // — the mobile client parses an `<<option>>…<<end option>>` block out
+    // of the reply and renders tappable option cards.
     const systemPrompt = [
       CORE_PROMPT,
+      INTERACTIVE_CHOICES_PROMPT,
       buildModeBlock(safeMode),
       buildSubjectBlock(safeSubject),
       buildMemoryBlock(safeTutorMemory),
@@ -2194,6 +2283,7 @@ If the student asks a question that goes beyond what's in the document, answer u
         ? "═══════════════════════════════════════════\nCONTEXT FOR THIS SESSION\n═══════════════════════════════════════════\n" + sessionContext.join("\n")
         : "",
       tavilyBlock,
+      extractBlock,
       ENRICHMENT_PROMPT,
     ].filter(Boolean).join("\n\n");
 
