@@ -22,6 +22,7 @@ import {
   renderExtractBlock,
 } from "../_lib/tavily";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
+import { decideModelTier, strongTierModel } from "../_lib/modelTiering";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
@@ -2378,6 +2379,22 @@ If the student asks a question that goes beyond what's in the document, answer u
 
     const hasAnyFile = collectedImages.length > 0 || collectedPdfs.length > 0;
 
+    // ── Model tiering: route HARD questions to the strong model ──
+    // A pure heuristic over the last user message decides whether THIS turn
+    // is genuinely hard (multi-step proofs, code tasks, advanced topics, math-
+    // heavy problems). When it is AND a strong model is configured via
+    // SMART_TIER_MODEL, we force the Anthropic path and use the strong model
+    // for a sharper answer. Everyday chat is untouched — stays on the cheap
+    // Groq/Haiku path. If SMART_TIER_MODEL is unset, smartModel is "" and
+    // nothing changes (safe by default). See api/_lib/modelTiering.ts.
+    const tierDecision = decideModelTier(lastUserText, { hasAttachment: hasAnyFile });
+    const smartModel = strongTierModel();
+    const useSmartTier = tierDecision.escalate && smartModel.length > 0;
+    if (useSmartTier) {
+      // Telemetry only — never shown to the user.
+      console.log(`[tutor] model tier → strong (${tierDecision.reason}) model=${smartModel}`);
+    }
+
     // Anthropic accepts a `content` field that is either a string or
     // an array of typed blocks. We only switch the LAST message into
     // block form; older history stays as plain text (we don't store
@@ -2471,9 +2488,13 @@ If the student asks a question that goes beyond what's in the document, answer u
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        // model: "claude-sonnet-4-6", // Sonnet — higher quality, higher cost (~$0.015/msg)
-        model: "claude-haiku-4-5-20251001", // Haiku 4.5 — fast & affordable
-        max_tokens: 2048,
+        // Model tiering: hard turns use the strong model (SMART_TIER_MODEL,
+        // e.g. a Sonnet id) for sharper reasoning; everything else stays on
+        // Haiku 4.5 — fast & affordable. useSmartTier already required a
+        // non-empty smartModel, so this is safe.
+        model: useSmartTier ? smartModel : "claude-haiku-4-5-20251001",
+        // Hard problems often need more room to show full working.
+        max_tokens: useSmartTier ? 4096 : 2048,
         system: systemPrompt,
         messages: finalMessages,
         stream: true,
@@ -2507,7 +2528,10 @@ If the student asks a question that goes beyond what's in the document, answer u
     const useGroq = !!GROQ_API_KEY
       && !hasAnyFile
       && !documentContext
-      && !isActiveStudySession;
+      && !isActiveStudySession
+      // Hard turns skip Groq so they reach the Anthropic strong-model path.
+      // (Groq's Llama is fast but not the brain we want for a tricky proof.)
+      && !useSmartTier;
 
     if (useGroq) {
       // Groq path — strip any multimodal blocks (they'd be no-ops on
