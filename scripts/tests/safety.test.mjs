@@ -5,7 +5,7 @@ const CRISIS_PATTERNS = [
   /\bwant(?:ing)?\s+to\s+die\b/i,
   /\bwish\s+i\s+(was|were)\s+(dead|never\s+born)\b/i,
   /\b(no|nothing|zero)\s+(point|reason)\s+(in\s+|to\s+)?(liv|going\s+on|being\s+here)/i,
-  /\bcan(?:'?t|not)\s+(go\s+on|take\s+(it|this|anymore)|do\s+this\s+anymore)\b/i,
+  /\bcan(?:'?t|not)\s+(go\s+on|(?:take|do)\s+(?:it|this)\s+anymore)\b/i,
   /\b(better\s+off\s+(dead|without\s+me)|world\s+(would\s+be\s+)?better\s+without\s+me)\b/i,
   /\b(suicid(e|al)|self[\s-]?harm|harming\s+myself|hurting\s+myself|cutting\s+myself|cut\s+myself)\b/i,
   /\bwant(?:ing)?\s+to\s+disappear\b/i,
