@@ -23,6 +23,7 @@ import {
 } from "../_lib/tavily";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
 import { decideModelTier, strongTierModel } from "../_lib/modelTiering";
+import { detectSafetySeverity, tutorCrisisBlock } from "../_lib/safety";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
@@ -2224,6 +2225,21 @@ If the student asks a question that goes beyond what's in the document, answer u
     // to bound latency + context size.
     const linkedUrls = TAVILY_API_KEY ? extractUrls(lastUserText, 2) : [];
 
+    // ── ALWAYS-ON SAFETY CHECK (vision doc §9 — "trust is the product") ──
+    // Runs on EVERY tutor turn, regardless of mode. If a student signals a
+    // crisis or abuse mid-study-session, this overrides the lesson: we inject a
+    // safety block at the TOP of the system prompt so Tony stops teaching and
+    // pivots to care + Jordan resources. Previously this only existed in the
+    // wellbeing endpoint — a student in danger while doing homework got a
+    // calculus explanation. That gap is now closed. Computed here (before the
+    // system prompt is assembled) since it only needs the last user message.
+    const safetySeverity = detectSafetySeverity(lastUserText);
+    const crisisBlock = tutorCrisisBlock(safetySeverity);
+    const inCrisis = crisisBlock.length > 0;
+    if (inCrisis) {
+      console.log(`[tutor] SAFETY OVERRIDE → ${safetySeverity} (teaching suspended)`);
+    }
+
     // ── Persistent student memory (best-effort) ──
     // Pull the top 12 most-important facts the student has stored
     // (manually added, imported, or auto-extracted) and render them
@@ -2272,6 +2288,10 @@ If the student asks a question that goes beyond what's in the document, answer u
     // — the mobile client parses an `<<option>>…<<end option>>` block out
     // of the reply and renders tappable option cards.
     const systemPrompt = [
+      // SAFETY FIRST: when a crisis is detected this block goes at the very
+      // top so it dominates everything below it. Empty string (filtered out)
+      // on normal turns, so it's a no-op cost when not in crisis.
+      crisisBlock,
       CORE_PROMPT,
       INTERACTIVE_CHOICES_PROMPT,
       buildModeBlock(safeMode),
@@ -2389,9 +2409,13 @@ If the student asks a question that goes beyond what's in the document, answer u
     // nothing changes (safe by default). See api/_lib/modelTiering.ts.
     const tierDecision = decideModelTier(lastUserText, { hasAttachment: hasAnyFile });
     const smartModel = strongTierModel();
-    const useSmartTier = tierDecision.escalate && smartModel.length > 0;
-    if (useSmartTier) {
-      // Telemetry only — never shown to the user.
+
+    // Crisis turns ALWAYS use the strong Anthropic model when one is configured —
+    // getting the response right matters more than cost here. Otherwise, model
+    // tiering escalates only genuinely-hard academic turns. (safetySeverity /
+    // inCrisis are computed earlier, before the system prompt is assembled.)
+    const useSmartTier = (tierDecision.escalate || inCrisis) && smartModel.length > 0;
+    if (useSmartTier && !inCrisis) {
       console.log(`[tutor] model tier → strong (${tierDecision.reason}) model=${smartModel}`);
     }
 
@@ -2531,7 +2555,11 @@ If the student asks a question that goes beyond what's in the document, answer u
       && !isActiveStudySession
       // Hard turns skip Groq so they reach the Anthropic strong-model path.
       // (Groq's Llama is fast but not the brain we want for a tricky proof.)
-      && !useSmartTier;
+      && !useSmartTier
+      // Crisis turns ALWAYS go to Anthropic — even if no strong model is set —
+      // so the safety response is handled by our most reliable provider, not
+      // routed to the cheap fallback. Safety overrides the cost optimisation.
+      && !inCrisis;
 
     if (useGroq) {
       // Groq path — strip any multimodal blocks (they'd be no-ops on
