@@ -45,6 +45,8 @@ import {
 } from "../_lib/ai-guard";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
 import { searchTavily, shouldSearchAurora, renderTavilyBlock } from "../_lib/tavily";
+import { decideModelTier, strongTierModel } from "../_lib/modelTiering";
+import { detectSafetySeverity, tutorCrisisBlock } from "../_lib/safety";
 import { buildAuroraPrompt } from "./_prompts/aurora-prompt";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -282,6 +284,27 @@ export default async function handler(req: Request): Promise<Response> {
     const wantsTutoring = ACADEMIC_RE.test(lastUserText) || (hasArabic && lastUserText.length > 20);
     const wantsWellbeing = EMOTIONAL_RE.test(lastUserText) || (hasArabic && lastUserText.length > 20);
 
+    // ── ALWAYS-ON SAFETY CHECK (shared with tutor.ts) ──
+    // Aurora is the general "open for anything" Tony, so it especially must
+    // catch a crisis no matter what the user was talking about. On crisis/abuse
+    // we prepend a safety block to the system prompt (overrides everything) and
+    // force the strong model.
+    const safetySeverity = detectSafetySeverity(lastUserText);
+    const crisisBlock = tutorCrisisBlock(safetySeverity);
+    const inCrisis = crisisBlock.length > 0;
+    if (inCrisis) {
+      console.log(`[aurora] SAFETY OVERRIDE → ${safetySeverity}`);
+    }
+
+    // ── Model tiering ── hard questions (or a crisis) use the strong model
+    // when SMART_TIER_MODEL is configured; everyday chat stays on fast Haiku.
+    const tierDecision = decideModelTier(lastUserText);
+    const smartModel = strongTierModel();
+    const useSmartTier = (tierDecision.escalate || inCrisis) && smartModel.length > 0;
+    if (useSmartTier) {
+      console.log(`[aurora] model tier → strong (${inCrisis ? "crisis" : tierDecision.reason})`);
+    }
+
     // ── System prompt ──
     // buildAuroraPrompt is the ONLY entry point into the personality
     // text. To edit Tony-on-Aurora, edit aurora-prompt.ts.
@@ -294,7 +317,7 @@ export default async function handler(req: Request): Promise<Response> {
     const effectiveZapierUrl = userZapierUrl || ZAPIER_MCP_URL_DEV_FALLBACK;
     const willUseMcp = !!effectiveZapierUrl;
 
-    const systemPrompt = buildAuroraPrompt({
+    const builtPrompt = buildAuroraPrompt({
       studentName,
       uni,
       major,
@@ -315,6 +338,10 @@ export default async function handler(req: Request): Promise<Response> {
       includeTutoring: wantsTutoring,
       includeWellbeing: wantsWellbeing,
     });
+
+    // SAFETY FIRST: prepend the crisis block so it dominates the persona text
+    // below it. Empty on normal turns (no-op). This is the always-on layer.
+    const systemPrompt = inCrisis ? `${crisisBlock}\n\n${builtPrompt}` : builtPrompt;
 
     // ── Call Anthropic with retry-with-backoff + upstream timeout ──
     // Same transient-status policy as tutor.ts (529 overload, 5xx).
@@ -376,8 +403,11 @@ export default async function handler(req: Request): Promise<Response> {
         headers["anthropic-beta"] = "mcp-client-2025-04-04";
       }
       const body: Record<string, unknown> = {
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1500,
+        // Model tiering: hard questions / crisis → strong model when configured;
+        // everyday chat stays on fast Haiku. useSmartTier already required a
+        // non-empty smartModel.
+        model: useSmartTier ? smartModel : "claude-haiku-4-5-20251001",
+        max_tokens: useSmartTier ? 3000 : 1500,
         system: systemPrompt,
         messages: apiMessages,
         stream: true,
