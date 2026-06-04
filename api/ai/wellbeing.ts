@@ -13,6 +13,7 @@ import {
   isProUser,
 } from "../_lib/ai-guard";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
+import { detectSafetySeverity, type SafetySeverity } from "../_lib/safety";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -1609,83 +1610,12 @@ HARD RULES (never break these)
 - Be authentic — if a student shares something deeply painful, don't respond with a generic template. Be real.`;
 
 // ───────────────────────────────────────────────────────────────────
-// Crisis classifier — server-side detection of safety signals.
-//
-// Runs on the user's MOST RECENT message before the LLM call. Pattern
-// match is regex-based for speed, deterministic behaviour, and zero
-// extra latency. False positives are acceptable (the AI just gets a
-// gentler tone for one turn); false negatives are the failure mode
-// we minimise by erring on the side of detection.
-//
-// Returns:
-//   "crisis"   — suicide ideation, self-harm, hopelessness language
-//   "abuse"    — disclosure of abuse, violence, assault
-//   "elevated" — panic attack, intense overwhelm, dissociation
-//   "none"     — normal conversation
+// Crisis classifier — now lives in the SHARED safety lib so every Tony
+// surface (tutor, wellbeing, future unified Tony) runs the SAME always-on
+// detection. detectSafetySeverity + SafetySeverity are imported at the top
+// of this file. Behaviour here is unchanged — the patterns moved verbatim
+// into api/_lib/safety.ts.
 // ───────────────────────────────────────────────────────────────────
-
-type SafetySeverity = "none" | "elevated" | "crisis" | "abuse";
-
-const CRISIS_PATTERNS: RegExp[] = [
-  // English — explicit suicide / self-harm
-  /\b(kill|end)\s+(myself|me|my\s+life)\b/i,
-  /\bwant(?:ing)?\s+to\s+die\b/i,
-  /\bwish\s+i\s+(was|were)\s+(dead|never\s+born)\b/i,
-  /\b(no|nothing|zero)\s+(point|reason)\s+(in\s+|to\s+)?(liv|going\s+on|being\s+here)/i,
-  /\bcan(?:'?t|not)\s+(go\s+on|take\s+(it|this|anymore)|do\s+this\s+anymore)\b/i,
-  /\b(better\s+off\s+(dead|without\s+me)|world\s+(would\s+be\s+)?better\s+without\s+me)\b/i,
-  /\b(suicid(e|al)|self[\s-]?harm|harming\s+myself|hurting\s+myself|cutting\s+myself|cut\s+myself)\b/i,
-  /\bwant(?:ing)?\s+to\s+disappear\b/i,
-  /\bend\s+(it|things|all)\b/i,
-  /\bgive\s+up\s+on\s+(life|everything)\b/i,
-  // Arabic — same set
-  /بدي\s*(اموت|امووت|اقتل\s*حالي|اذي\s*حالي)/,
-  /انتحار/,
-  /ما\s*(بقدر|بدي)\s*(اعيش|اكمل|اكمّل)/,
-  /اود\s*التخلص\s*من\s*حياتي/,
-  /حياتي\s*ما\s*الها\s*معنى/,
-  /ما\s*في\s*أمل/,
-  /تعبت\s*من\s*الحياة/,
-  /لا\s*يوجد\s*أمل/,
-];
-
-const ABUSE_PATTERNS: RegExp[] = [
-  // Physical / sexual abuse disclosure (English)
-  /\b(he|she|they|my\s+(dad|father|mom|mother|brother|sister|husband|wife|partner|boyfriend|girlfriend|family|stepdad|stepmom))\s+(hits|hit|hurts|hurt|beats|beat|abuses|abused|raped|rapes|attacks|attacked|assaults|assaulted)\s+me\b/i,
-  /\b(i'?m|i\s+am|i\s+was|i'?ve\s+been)\s+(being\s+)?(abused|raped|attacked|assaulted|molested|beaten)\b/i,
-  /\b(domestic\s+(violence|abuse))\b/i,
-  /\bsomeone\s+(is\s+)?(hurting|abusing|attacking)\s+me\b/i,
-  // Arabic
-  /(يضربني|تضربني|بضربني|بتضربني)/,
-  /(اعتدى\s*علي|اعتدت\s*علي)/,
-  /(اغتصاب|اغتصبني)/,
-  /عنف\s*(منزلي|اسري|أسري)/,
-  /(بيأذيني|بتأذيني|بأذيني)/,
-];
-
-const ELEVATED_PATTERNS: RegExp[] = [
-  // Panic attack / acute anxiety / dissociation (English)
-  /\b(panic\s+attack|having\s+a\s+panic)\b/i,
-  /\b(can(?:'?t|not)\s+breathe|hyperventilat)/i,
-  /\b(chest\s+(is\s+)?tight|heart\s+(is\s+)?racing)\b/i,
-  /\b(not\s+real|dissociating|outside\s+my\s+body)\b/i,
-  /\bshaking\s+(uncontrollably|so\s+(bad|hard|much))\b/i,
-  // Arabic
-  /(نوبة\s*هلع|هلع\s*شديد)/,
-  /ما\s*بقدر\s*(أتنفس|اتنفس|أرتاح)/,
-  /صدري\s*(ضايق|مشدود)/,
-  /قلبي\s*(دقاتو\s*سريعة|دقاته\s*سريعة|بيخفق\s*بسرعة)/,
-];
-
-function detectSafetySeverity(message: string): SafetySeverity {
-  if (!message || typeof message !== "string") return "none";
-  // Cap the input — pathological payloads shouldn't slow detection.
-  const text = message.slice(0, 4000);
-  for (const re of CRISIS_PATTERNS) if (re.test(text)) return "crisis";
-  for (const re of ABUSE_PATTERNS) if (re.test(text)) return "abuse";
-  for (const re of ELEVATED_PATTERNS) if (re.test(text)) return "elevated";
-  return "none";
-}
 
 // ───────────────────────────────────────────────────────────────────
 // Tone-mode blocks — appended to the system prompt based on the
