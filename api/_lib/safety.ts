@@ -97,6 +97,32 @@ export function detectSafetySeverity(message: string): SafetySeverity {
 }
 
 /**
+ * Like detectSafetySeverity, but scans the LAST N user messages and returns the
+ * most severe signal found. A real crisis is often disclosed across two turns —
+ * "I've been thinking about something" → "...ending it." Looking only at the
+ * final message misses that. We check recent turns and return the worst.
+ *
+ * Severity ranking: crisis > abuse > elevated > none. We return the highest
+ * found across the window (a crisis in turn N-1 still wins even if turn N is
+ * "ok"). Window default 3 — enough to catch a split disclosure without
+ * re-flagging an old, resolved exchange from far earlier in the chat.
+ */
+export function detectSafetySeverityAcrossMessages(
+  userMessages: string[],
+  window = 3,
+): SafetySeverity {
+  if (!Array.isArray(userMessages) || userMessages.length === 0) return "none";
+  const recent = userMessages.slice(-window);
+  const rank: Record<SafetySeverity, number> = { none: 0, elevated: 1, abuse: 2, crisis: 3 };
+  let worst: SafetySeverity = "none";
+  for (const msg of recent) {
+    const sev = detectSafetySeverity(msg);
+    if (rank[sev] > rank[worst]) worst = sev;
+  }
+  return worst;
+}
+
+/**
  * A tutor/general-surface crisis block. When a student signals crisis or abuse
  * while NOT in the dedicated wellbeing chat (e.g. mid-study-session, or in the
  * unified Tony), this is injected at the TOP of the system prompt so it

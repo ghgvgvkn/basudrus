@@ -44,9 +44,16 @@ import {
   isProUser,
 } from "../_lib/ai-guard";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
-import { searchTavily, shouldSearchAurora, renderTavilyBlock } from "../_lib/tavily";
+import {
+  searchTavily,
+  shouldSearchAurora,
+  renderTavilyBlock,
+  extractUrls,
+  extractTavily,
+  renderExtractBlock,
+} from "../_lib/tavily";
 import { decideModelTier, strongTierModel } from "../_lib/modelTiering";
-import { detectSafetySeverity, tutorCrisisBlock } from "../_lib/safety";
+import { detectSafetySeverityAcrossMessages, tutorCrisisBlock } from "../_lib/safety";
 import { buildAuroraPrompt } from "./_prompts/aurora-prompt";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -225,7 +232,16 @@ export default async function handler(req: Request): Promise<Response> {
     // Skip entirely if TAVILY_API_KEY isn't configured.
     const searchQuery = TAVILY_API_KEY ? shouldSearchAurora(lastUserText) : null;
 
-    const [memoryRows, tavilyResults] = await Promise.all([
+    // "Send Tony a link, he reads it." Detect pasted URL(s) and fetch their
+    // cleaned page text via Tavily /extract. This capability was fully built in
+    // tavily.ts but aurora never called it — so a pasted link sat unread and
+    // Tony hallucinated about it. Capped at 2 to bound latency + context.
+    const linkedUrls = TAVILY_API_KEY ? extractUrls(lastUserText, 2) : [];
+
+    // Fetch THIS USER's Zapier MCP URL in PARALLEL with memory/search/extract
+    // instead of after them — removes a full Supabase round-trip from the
+    // critical path of every turn. (Was a serial await below.)
+    const [memoryRows, tavilyResults, extractResults, userZapierUrl] = await Promise.all([
       fetchStudentMemoryRelevant({
         supabaseUrl: SUPABASE_URL,
         supabaseAnonKey: SUPABASE_ANON_KEY,
@@ -247,10 +263,15 @@ export default async function handler(req: Request): Promise<Response> {
             signal: req.signal,
           }).catch(() => [])
         : Promise.resolve([]),
+      linkedUrls.length > 0
+        ? extractTavily({ apiKey: TAVILY_API_KEY, urls: linkedUrls, signal: req.signal }).catch(() => [])
+        : Promise.resolve([]),
+      fetchUserZapierUrl(authHeader, req.signal).catch(() => ""),
     ]);
 
     const memoryBlock = renderMemoryBlock(memoryRows);
     const tavilyBlock = searchQuery ? renderTavilyBlock(searchQuery, tavilyResults) : "";
+    const extractBlock = linkedUrls.length > 0 ? renderExtractBlock(extractResults) : "";
 
     // ── Intent detection (cost lever) ──
     // The full tutoring (~113KB) + deep wellbeing (~43KB) prompt
@@ -286,19 +307,26 @@ export default async function handler(req: Request): Promise<Response> {
 
     // ── ALWAYS-ON SAFETY CHECK (shared with tutor.ts) ──
     // Aurora is the general "open for anything" Tony, so it especially must
-    // catch a crisis no matter what the user was talking about. On crisis/abuse
-    // we prepend a safety block to the system prompt (overrides everything) and
-    // force the strong model.
-    const safetySeverity = detectSafetySeverity(lastUserText);
+    // catch a crisis no matter what the user was talking about. We scan the
+    // last few user turns (not just the latest) so a crisis disclosed across
+    // two messages — "i've been thinking about something" → "...ending it" —
+    // still triggers. On crisis/abuse we prepend a safety block (overrides
+    // everything) and force the strong model.
+    const recentUserTexts = apiMessages
+      .filter((m) => m.role === "user" && typeof m.content === "string")
+      .map((m) => m.content as string);
+    const safetySeverity = detectSafetySeverityAcrossMessages(recentUserTexts, 3);
     const crisisBlock = tutorCrisisBlock(safetySeverity);
     const inCrisis = crisisBlock.length > 0;
     if (inCrisis) {
       console.log(`[aurora] SAFETY OVERRIDE → ${safetySeverity}`);
     }
 
-    // ── Model tiering ── hard questions (or a crisis) use the strong model
-    // when SMART_TIER_MODEL is configured; everyday chat stays on fast Haiku.
-    const tierDecision = decideModelTier(lastUserText);
+    // ── Model tiering ── hard questions, substantive emotional/advice turns,
+    // or a crisis use the strong model when SMART_TIER_MODEL is configured;
+    // everyday chat stays on fast Haiku. `emotional` lets a wellbeing turn
+    // escalate so someone struggling doesn't get a shallow reply.
+    const tierDecision = decideModelTier(lastUserText, { emotional: wantsWellbeing });
     const smartModel = strongTierModel();
     const useSmartTier = (tierDecision.escalate || inCrisis) && smartModel.length > 0;
     if (useSmartTier) {
@@ -308,12 +336,10 @@ export default async function handler(req: Request): Promise<Response> {
     // ── System prompt ──
     // buildAuroraPrompt is the ONLY entry point into the personality
     // text. To edit Tony-on-Aurora, edit aurora-prompt.ts.
-    // Fetch THIS USER's Zapier MCP URL up front — both the prompt
-    // builder (needs to know whether action tools exist) and the
-    // Anthropic call (needs the URL to include) depend on it. Doing
-    // the fetch here keeps the two in lockstep: same boolean answers
-    // "does Tony have tools right now?" for both consumers.
-    const userZapierUrl = await fetchUserZapierUrl(authHeader, req.signal);
+    // userZapierUrl was fetched in the Promise.all above (parallel with
+    // memory/search) so both consumers — the prompt builder (needs to know
+    // whether action tools exist) and the Anthropic call (needs the URL) —
+    // stay in lockstep on "does Tony have tools right now?".
     const effectiveZapierUrl = userZapierUrl || ZAPIER_MCP_URL_DEV_FALLBACK;
     const willUseMcp = !!effectiveZapierUrl;
 
@@ -324,11 +350,10 @@ export default async function handler(req: Request): Promise<Response> {
       year,
       personality,
       memory: memoryBlock || undefined,
-      // Live web retrieval (Tavily). Empty when the turn didn't
-      // warrant a search or when the search returned nothing. The
-      // block carries its own citation rules so Tony attributes any
-      // fact drawn from it to the source domain.
-      webContext: tavilyBlock || undefined,
+      // Live web context: search results (Tavily) + any pasted-link page
+      // content (extract). Both carry their own citation rules so Tony
+      // attributes facts to the source. Empty when neither applies.
+      webContext: [tavilyBlock, extractBlock].filter(Boolean).join("\n\n") || undefined,
       // Action tools awareness — Tony only sees this block when MCP
       // is actually wired (i.e. ZAPIER_MCP_URL is set). Without it,
       // he reverts to talk-only behavior.
@@ -425,11 +450,18 @@ export default async function handler(req: Request): Promise<Response> {
 
     let response = await callAnthropic();
     for (const delay of RETRY_BACKOFF_MS) {
-      if (!response.ok && isTransient(response.status)) {
-        await new Promise((r) => setTimeout(r, delay));
-        try { await response.body?.cancel(); } catch { /* noop */ }
-        response = await callAnthropic();
-      }
+      // Stop the moment we have a usable response — no point iterating the
+      // remaining backoffs once we're ok.
+      if (response.ok) break;
+      // Only retry transient upstream failures (529 overload / 5xx).
+      if (!isTransient(response.status)) break;
+      // Don't re-fire the EXPENSIVE smart-tier turn (Fable/Sonnet at 3000
+      // tokens) up to 3×: one strong attempt, then fall through to the error
+      // path. Cheap Haiku turns still get the full retry budget.
+      if (useSmartTier) break;
+      await new Promise((r) => setTimeout(r, delay));
+      try { await response.body?.cancel(); } catch { /* noop */ }
+      response = await callAnthropic();
     }
 
     if (!response.ok || !response.body) {

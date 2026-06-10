@@ -73,6 +73,15 @@ function looksMathHeavy(text: string): boolean {
   return ops >= 4;
 }
 
+// "Unicorn general-assistant" signals — the turns where a smarter model is
+// most visibly better but that the academic-only heuristics above miss:
+// planning, weighing options, drafting real writing, nuanced advice. These are
+// gated on message LENGTH (below) so a casual "should I nap?" stays cheap; only
+// a substantive ask escalates. This is where a flagship model earns its cost
+// for a general "open for anything" Tony.
+const REASONING_INTENT_RE =
+  /\b(compare|comparison|versus|vs\.?|trade[\s-]?offs?|pros and cons|which (?:is )?(?:better|should)|recommend|advice|advise|strategy|plan|plan out|roadmap|outline|draft|write me|help me write|rewrite|improve this|analyz|evaluate|decide|decision|figure out|brainstorm|come up with|how (?:do|should|can) i)\b/i;
+
 /**
  * Decide whether THIS user message warrants the strong model.
  *
@@ -84,7 +93,7 @@ function looksMathHeavy(text: string): boolean {
  */
 export function decideModelTier(
   userText: string,
-  opts: { hasAttachment?: boolean } = {},
+  opts: { hasAttachment?: boolean; emotional?: boolean } = {},
 ): ModelTierDecision {
   const text = (userText || "").trim();
   if (!text) return { escalate: false, reason: "empty" };
@@ -105,6 +114,22 @@ export function decideModelTier(
   // model (student is stuck on a real problem and photographed it).
   if (opts.hasAttachment && text.length >= 30) {
     return { escalate: true, reason: "attachment_with_question" };
+  }
+
+  // Emotional / wellbeing turns of real substance deserve the stronger model —
+  // a shallow reply to someone struggling is the worst place to be cheap. The
+  // caller (aurora) sets emotional=true from its wellbeing intent detection.
+  // Length-gated so a passing "i'm tired lol" stays cheap.
+  if (opts.emotional && text.length >= 40) {
+    return { escalate: true, reason: "emotional_substantive" };
+  }
+
+  // General-assistant reasoning (planning, advice, drafting, comparison). Gated
+  // on length so only a substantive ask escalates — "compare these two study
+  // plans for my finals" yes; "vs" in passing no. This is the big "feels
+  // smarter for everyday use" win for the general Tony.
+  if (REASONING_INTENT_RE.test(text) && text.length >= 50) {
+    return { escalate: true, reason: "reasoning_intent" };
   }
 
   return { escalate: false, reason: "default_cheap" };

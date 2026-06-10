@@ -78,5 +78,20 @@ all&=t("'this exam is killing me' (idiom) → none-ish", detect("this exam is so
 all&=t("greeting → none", detect("hey tony how are you")==="none");
 all&=t("empty → none", detect("")==="none");
 
+// ── multi-message recall (mirror of detectSafetySeverityAcrossMessages) ──
+function detectAcross(msgs, window=3){
+  if(!Array.isArray(msgs)||msgs.length===0) return "none";
+  const recent=msgs.slice(-window);
+  const rank={none:0,elevated:1,abuse:2,crisis:3};
+  let worst="none";
+  for(const m of recent){ const s=detect(m); if(rank[s]>rank[worst]) worst=s; }
+  return worst;
+}
+all&=t("split crisis across 2 turns → crisis", detectAcross(["i've been thinking about something heavy","honestly i just want to die"])==="crisis");
+all&=t("crisis in earlier turn still caught", detectAcross(["i can't go on anymore","anyway thanks for listening"])==="crisis");
+all&=t("all-normal turns → none", detectAcross(["explain recursion","what about loops","thanks"])==="none");
+all&=t("old crisis outside window → none", detectAcross(["i want to die","ok better now","what's 2+2","explain loops"])==="none"); // window=3 drops the 1st
+all&=t("worst-wins: elevated + crisis → crisis", detectAcross(["i'm having a panic attack","i want to end it"])==="crisis");
+
 console.log(`\nSafety detection: ${all?"ALL PASSED":"SOME FAILED"}`);
 process.exit(all?0:1);
