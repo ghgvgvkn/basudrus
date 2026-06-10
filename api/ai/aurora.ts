@@ -54,7 +54,7 @@ import {
 } from "../_lib/tavily";
 import { decideModelTier, strongTierModel } from "../_lib/modelTiering";
 import { detectSafetySeverityAcrossMessages, tutorCrisisBlock } from "../_lib/safety";
-import { buildAuroraPrompt } from "./_prompts/aurora-prompt";
+import { buildAuroraPrompt, buildAuroraSystemField } from "./_prompts/aurora-prompt";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -84,6 +84,13 @@ const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
 // SELECT to their own row. No service-role bypass. No cross-user
 // leakage possible from this code path.
 const ZAPIER_MCP_URL_DEV_FALLBACK = process.env.ZAPIER_MCP_URL || "";
+// Prompt caching (off by default). When "1"/"true", Tony's big static persona
+// prefix is sent as an Anthropic cached block (cache_control: ephemeral) —
+// lower latency + input cost on follow-up turns. Behavior-neutral: the model
+// sees the identical prompt text either way. Flag-guarded so it can be enabled
+// AND instantly reverted via env without a code change (high blast radius:
+// this changes the request shape on the live main AI). See buildAuroraSystemField.
+const AURORA_PROMPT_CACHE = /^(1|true|yes|on)$/i.test(process.env.AURORA_PROMPT_CACHE || "");
 
 // Aurora is conversational + voice-driven so we lean a bit more
 // generous than tutor.ts but still cost-bounded.
@@ -343,7 +350,7 @@ export default async function handler(req: Request): Promise<Response> {
     const effectiveZapierUrl = userZapierUrl || ZAPIER_MCP_URL_DEV_FALLBACK;
     const willUseMcp = !!effectiveZapierUrl;
 
-    const builtPrompt = buildAuroraPrompt({
+    const promptCtx = {
       studentName,
       uni,
       major,
@@ -362,11 +369,18 @@ export default async function handler(req: Request): Promise<Response> {
       // Cost-control flags — gate the giant capability blocks
       includeTutoring: wantsTutoring,
       includeWellbeing: wantsWellbeing,
-    });
+    };
 
-    // SAFETY FIRST: prepend the crisis block so it dominates the persona text
-    // below it. Empty on normal turns (no-op). This is the always-on layer.
-    const systemPrompt = inCrisis ? `${crisisBlock}\n\n${builtPrompt}` : builtPrompt;
+    // Build the system field. On normal turns we can use the cache-aware
+    // field (big static persona prefix cached when AURORA_PROMPT_CACHE is on).
+    // On CRISIS turns we keep it dead simple: a plain string with the crisis
+    // block prepended FIRST — safety must never interact with a caching edge
+    // case, and crisis turns are rare so there's nothing to optimize.
+    // `system` is either a string or Anthropic system-block array; both are
+    // valid request shapes.
+    const systemPrompt: string | ReturnType<typeof buildAuroraSystemField> = inCrisis
+      ? `${crisisBlock}\n\n${buildAuroraPrompt(promptCtx)}`
+      : buildAuroraSystemField(promptCtx, AURORA_PROMPT_CACHE);
 
     // ── Call Anthropic with retry-with-backoff + upstream timeout ──
     // Same transient-status policy as tutor.ts (529 overload, 5xx).
