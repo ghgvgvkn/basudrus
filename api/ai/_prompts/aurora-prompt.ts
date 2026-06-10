@@ -113,6 +113,20 @@ export function buildAuroraPrompt(ctx: {
    *  the no-tools behavior (talk-only). */
   hasMcpTools?: boolean;
 }): string {
+  const halves = buildAuroraPromptHalves(ctx);
+  return [...halves.staticSections, ...halves.dynamicSections].join("\n\n");
+}
+
+/**
+ * Internal: build the prompt as two arrays — the STATIC (cacheable) prefix
+ * and the DYNAMIC (per-turn) suffix. Both buildAuroraPrompt (string) and
+ * buildAuroraSystemField (cache-aware) consume this so there is ONE source
+ * of truth for ordering/content and zero drift between the two paths.
+ */
+function buildAuroraPromptHalves(ctx: Parameters<typeof buildAuroraPrompt>[0]): {
+  staticSections: string[];
+  dynamicSections: string[];
+} {
   const name = (ctx.studentName ?? "").trim();
   const uni = (ctx.uni ?? "").trim();
   const major = (ctx.major ?? "").trim();
@@ -163,7 +177,13 @@ export function buildAuroraPrompt(ctx: {
   // here's the deep approach..."). If they ever start to dominate
   // unexpectedly, consider gating them in the endpoint (only inject
   // when the last user message looks academic/emotional).
-  const sections = [
+  // STATIC sections — identical text on every turn for a given
+  // tutoring/wellbeing gate combination. These form the cacheable prefix
+  // (see buildAuroraSystemField): big persona prose that doesn't change
+  // turn-to-turn. The DYNAMIC sections (per-user context, live web,
+  // MCP awareness, language lock, safety) follow and are never cached
+  // because they change every turn / must stay last.
+  const staticSections = [
     // Identity FIRST — this establishes who Tony is before anything
     // else (capabilities, topic rules, voice patterns). The model
     // anchors to whatever's at the top.
@@ -208,31 +228,89 @@ export function buildAuroraPrompt(ctx: {
     includeTutoring && AURORA_TOOL_REALITY_OVERRIDE,
     includeWellbeing && "# Mental-health depth (use when the user needs serious emotional support)",
     includeWellbeing && AURORA_WELLBEING,
+  ].filter((s): s is string => typeof s === "string" && s.length > 0);
+
+  // DYNAMIC sections — change per turn (user context, live web/links,
+  // MCP awareness which depends on the user's connection, language lock)
+  // or must stay LAST (safety). Never part of the cached prefix.
+  const dynamicSections = [
     ctxBlock.trim() ? ctxBlock.trim() : "",
-    // Web context lands LAST among the data blocks (right before
-    // langLock + safety) so Tony sees the live retrieval AFTER his
-    // persona/voice/capabilities are anchored — the search results
-    // are tools the persona uses, not the persona itself. The block
-    // already contains its own MUST-cite-source-domain rules; we
-    // just paste it through.
+    // Web context lands among the data blocks (right before langLock +
+    // safety) so Tony sees live retrieval AFTER his persona is anchored —
+    // search results are tools the persona uses, not the persona itself.
     webContext,
-    // Zapier MCP tools awareness — only shown when the API call
-    // actually wired up mcp_servers. Tells Tony he genuinely has
-    // callable actions (Gmail, Calendar, Slack, etc.) and to USE
-    // them when the user asks, not just describe what would happen.
+    // Zapier MCP tools awareness — only shown when the API call actually
+    // wired up mcp_servers. Tells Tony he genuinely has callable actions.
     hasMcpTools && buildMcpAwarenessBlock(),
-    // INVERSE — when MCP is NOT wired, Tony needs to know there are
-    // tools the USER could enable to unlock action capability. Without
-    // this, when the user asks "send John an email" Tony just refuses
-    // or describes what he'd do — leaving the user to wonder if the
-    // product is broken. This block teaches him to invite the user to
-    // connect Zapier in Settings instead.
+    // INVERSE — when MCP is NOT wired, teach Tony to invite the user to
+    // connect Zapier in Settings rather than refuse or hallucinate.
     !hasMcpTools && buildMcpUnconnectedHintBlock(),
     langLock.trim(),
     AURORA_SAFETY,
   ].filter((s): s is string => typeof s === "string" && s.length > 0);
 
-  return sections.join("\n\n");
+  return { staticSections, dynamicSections };
+}
+
+/**
+ * Cache-aware system field for the Anthropic call.
+ *
+ * WHY (the "deep inside, how it works" upgrade): Tony's persona prose is
+ * 40–155KB and identical turn-to-turn, but today it's re-sent and re-billed
+ * on EVERY message — the way an un-optimized assistant works. Anthropic's
+ * prompt caching lets us send the big static prefix once and have it reused:
+ * dramatically lower time-to-first-word and input cost on follow-up turns.
+ * This is standard practice in production assistants (ChatGPT/Claude do the
+ * equivalent internally).
+ *
+ * BEHAVIOR-NEUTRAL: the model sees the EXACT same text either way. We only
+ * change the request SHAPE:
+ *   - cache off → a single system STRING (current behavior, byte-identical)
+ *   - cache on  → an array of text blocks; the last STATIC block carries
+ *     `cache_control: { type: "ephemeral" }` so everything up to and
+ *     including it is cached. Dynamic blocks (user context, live web, MCP,
+ *     language lock, safety) follow UNCACHED so they stay fresh + safety
+ *     stays last.
+ *
+ * Concatenating the returned blocks' text with "\n\n" reproduces
+ * buildAuroraPrompt(ctx) exactly — verified by scripts/tests/aurora-prompt-cache.test.mjs.
+ *
+ * @param enableCache when false (default), returns the plain string — zero
+ *        behavior change, the safe default. The caller flips this on via the
+ *        AURORA_PROMPT_CACHE env flag so it can be enabled/reverted without a
+ *        code change.
+ */
+export type AnthropicSystemBlock = {
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+};
+
+export function buildAuroraSystemField(
+  ctx: Parameters<typeof buildAuroraPrompt>[0],
+  enableCache = false,
+): string | AnthropicSystemBlock[] {
+  const halves = buildAuroraPromptHalves(ctx);
+  const staticText = halves.staticSections.join("\n\n");
+  const dynamicText = halves.dynamicSections.join("\n\n");
+
+  // Default / disabled path: identical to buildAuroraPrompt — one string.
+  if (!enableCache) {
+    return [staticText, dynamicText].filter(Boolean).join("\n\n");
+  }
+
+  // Enabled path: static prefix as a cached block, dynamic as a fresh block.
+  const blocks: AnthropicSystemBlock[] = [];
+  if (staticText) {
+    blocks.push({ type: "text", text: staticText, cache_control: { type: "ephemeral" } });
+  }
+  if (dynamicText) {
+    blocks.push({ type: "text", text: dynamicText });
+  }
+  // Edge case: if somehow both empty, return an empty string (Anthropic
+  // rejects an empty system array). Won't happen in practice (CORE is always
+  // present) but defensive.
+  return blocks.length > 0 ? blocks : "";
 }
 
 /**

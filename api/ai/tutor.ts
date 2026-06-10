@@ -23,7 +23,7 @@ import {
 } from "../_lib/tavily";
 import { fetchStudentMemoryRelevant, renderMemoryBlock } from "../_lib/student-memory";
 import { decideModelTier, strongTierModel } from "../_lib/modelTiering";
-import { detectSafetySeverity, tutorCrisisBlock } from "../_lib/safety";
+import { detectSafetySeverityAcrossMessages, tutorCrisisBlock } from "../_lib/safety";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
@@ -2231,9 +2231,12 @@ If the student asks a question that goes beyond what's in the document, answer u
     // safety block at the TOP of the system prompt so Tony stops teaching and
     // pivots to care + Jordan resources. Previously this only existed in the
     // wellbeing endpoint — a student in danger while doing homework got a
-    // calculus explanation. That gap is now closed. Computed here (before the
-    // system prompt is assembled) since it only needs the last user message.
-    const safetySeverity = detectSafetySeverity(lastUserText);
+    // calculus explanation. That gap is now closed. Scans the last few user
+    // turns so a crisis split across messages still triggers.
+    const recentUserTexts = apiMessages
+      .filter((m) => m.role === "user" && typeof m.content === "string")
+      .map((m) => m.content as string);
+    const safetySeverity = detectSafetySeverityAcrossMessages(recentUserTexts, 3);
     const crisisBlock = tutorCrisisBlock(safetySeverity);
     const inCrisis = crisisBlock.length > 0;
     if (inCrisis) {

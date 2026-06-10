@@ -4,6 +4,7 @@ const HARD_INTENT_RE = /\b(prove|proof|derive|derivation|step[\s-]?by[\s-]?step|
 const HARD_TOPIC_RE = /\b(integral|integrate|derivative|differentiat|limit|theorem|lemma|matrix|matrices|eigen|differential equation|big[\s-]?o|complexity analysis|dynamic programming|recursion|induction|np[\s-]?complete|asymptotic|stoichiometr|equilibrium constant|thermodynamic|quantum|relativit)\b/i;
 const CODE_BLOCK_RE = /```[\s\S]*```/;
 const CODE_TASK_RE = /\b(debug|refactor|optimi[sz]e|implement|algorithm|time complexity|space complexity|stack trace|segfault|null pointer|race condition|big o)\b/i;
+const REASONING_INTENT_RE = /\b(compare|comparison|versus|vs\.?|trade[\s-]?offs?|pros and cons|which (?:is )?(?:better|should)|recommend|advice|advise|strategy|plan|plan out|roadmap|outline|draft|write me|help me write|rewrite|improve this|analyz|evaluate|decide|decision|figure out|brainstorm|come up with|how (?:do|should|can) i)\b/i;
 function looksMathHeavy(text){ const ops=(text.match(/[=+\-*/^√∫∑±≤≥≠]|\\frac|\\int|\\sum|\\sqrt/g)||[]).length; return ops>=4; }
 function decide(userText, opts={}){
   const text=(userText||"").trim();
@@ -15,6 +16,8 @@ function decide(userText, opts={}){
   if(CODE_TASK_RE.test(text)) return {escalate:true,reason:"code_task"};
   if(looksMathHeavy(text)) return {escalate:true,reason:"math_heavy"};
   if(opts.hasAttachment && text.length>=30) return {escalate:true,reason:"attachment_with_question"};
+  if(opts.emotional && text.length>=40) return {escalate:true,reason:"emotional_substantive"};
+  if(REASONING_INTENT_RE.test(text) && text.length>=50) return {escalate:true,reason:"reasoning_intent"};
   return {escalate:false,reason:"default_cheap"};
 }
 
@@ -39,6 +42,15 @@ all&=t("casual chat → cheap", !decide("i'm feeling kinda tired today honestly"
 all&=t("short even w/ keyword → cheap", !decide("limit?").escalate); // too short guard
 all&=t("empty → cheap", !decide("").escalate);
 all&=t("trivial photo → cheap", !decide("what's this?", {hasAttachment:true}).escalate); // too short
+
+// NEW: general-assistant reasoning signals (the unicorn turns)
+all&=t("substantive comparison → escalate", decide("can you compare these two study plans and tell me which is better for my finals").escalate);
+all&=t("planning request → escalate", decide("help me make a plan to prepare for three exams in two weeks").escalate);
+all&=t("draft request → escalate", decide("help me write an email to my professor asking for an extension please").escalate);
+all&=t("short 'vs' in passing → cheap", !decide("tea vs coffee?").escalate); // under length gate
+all&=t("substantive emotional turn (emotional flag) → escalate", decide("i've been feeling really overwhelmed and i don't know how to handle everything", {emotional:true}).escalate);
+all&=t("short emotional → cheap", !decide("i'm tired lol", {emotional:true}).escalate); // under length gate
+all&=t("emotional flag but casual non-emotional → still gated by length", decide("ok thanks", {emotional:true}).escalate===false);
 
 console.log(`\nModel tiering: ${all?"ALL PASSED":"SOME FAILED"}`);
 process.exit(all?0:1);
