@@ -12,6 +12,8 @@ import {
   SWIPE_FRAMES,
   FIST_HOLD_MS,
   FIST_COOLDOWN_MS,
+  HAND_WARMUP_MS,
+  DOUBLE_PINCH_MIN_GAP_MS,
 } from "../../ai-app/src/aurora/jarvis-mode/gestures.ts";
 
 // ── synthetic-hand helpers ───────────────────────────────────────────────
@@ -213,6 +215,53 @@ function mkShapedHand(id, x, y, pose /* 'fist' | 'open' */) {
     if (r.events.some((e) => e.type === "fist-open")) fired = true;
   }
   all = t("open hand alone → never fires fist-open", !fired) && all;
+}
+
+// 8c ── ACQUISITION WARM-UP (founder bug: a page opened by itself when
+//       the camera started). With warmupMs set, jittery pinches in the
+//       first moments after a hand appears emit NOTHING; after the
+//       window, gestures work normally. Cursors still flow during warm-up.
+{
+  const eng = new GestureEngine({ warmupMs: HAND_WARMUP_MS });
+  let earlyEvents = 0;
+  // Jittery phantom pinches right after acquisition (t=0..200ms)
+  for (let i = 0; i < 6; i++) {
+    const d = i % 2 === 0 ? CLOSED : OPEN; // flicker open/closed
+    const r = eng.update({ t: i * 33, hands: [mkHand("Right", 0.5, 0.5, d)] });
+    earlyEvents += r.events.length;
+    if (i === 0) {
+      all = t("warm-up: cursors still render immediately", r.cursors.length === 1) && all;
+    }
+  }
+  all = t("warm-up: jittery start emits ZERO events", earlyEvents === 0) && all;
+
+  // After the warm-up window, a real pinch fires normally.
+  const after = HAND_WARMUP_MS + 100;
+  eng.update({ t: after, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
+  const r = eng.update({ t: after + 33, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
+  all = t("after warm-up: pinch-start fires normally", r.events.some((e) => e.type === "pinch-start")) && all;
+}
+
+// 8d ── flicker filter: a re-pinch faster than a human can physically
+//       re-pinch is tracking noise, never a double-pinch.
+{
+  const eng = new GestureEngine();
+  eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
+  eng.update({ t: 40, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
+  const r = eng.update({ t: 80, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] }); // 80ms gap < 130ms
+  all = t(
+    `re-pinch under ${DOUBLE_PINCH_MIN_GAP_MS}ms → flicker, no double-pinch`,
+    !r.events.some((e) => e.type === "double-pinch"),
+  ) && all;
+}
+
+// 8e ── 1-frame phantom pinch is NOT a tap (page can't open by itself).
+{
+  const eng = new GestureEngine();
+  eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
+  const r = eng.update({ t: 33, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // 33ms pinch
+  const end = r.events.find((e) => e.type === "pinch-end");
+  all = t("33ms phantom pinch → pinch-end but NOT a tap", !!end && !isTap(end)) && all;
 }
 
 // 9 ── garbage in → never throws

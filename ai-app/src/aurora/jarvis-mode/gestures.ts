@@ -99,6 +99,18 @@ export const CURSOR_ALPHA = 0.45;
 /** A pinch shorter than this with less travel than TAP_MAX_MOVE is a "tap". */
 export const TAP_MAX_MS = 280;
 export const TAP_MAX_MOVE = 0.035;
+/** ...and shorter than this is a tracking flicker, not a human tap. A
+ *  1-frame phantom pinch at 30fps is ~33ms; humans can't pinch+release
+ *  under ~70ms. Filters the founder-reported bug where a page opened
+ *  by itself the moment the camera started. */
+export const TAP_MIN_MS = 70;
+/** Two pinch-STARTS closer together than this are tracking jitter, not
+ *  an intentional double-pinch (humans can't re-pinch in 130ms). */
+export const DOUBLE_PINCH_MIN_GAP_MS = 130;
+/** Events from a hand are suppressed for this long after it first
+ *  appears — landmark jitter during acquisition fakes pinches. Cursors
+ *  still render immediately so tracking feels instant. */
+export const HAND_WARMUP_MS = 700;
 
 // ── Fist → open ("crush and release" — founder: "close your hand as a
 //    fist… then open it for five fingers → the page should be closed").
@@ -163,6 +175,9 @@ interface PerHand {
   fistArmed: boolean;
   fistLastSeenT: number;
   lastFistOpenT: number;
+  /** When this hand FIRST appeared in the current visibility streak —
+   *  events are suppressed until warmupMs elapse (acquisition jitter). */
+  firstSeenT: number;
   seen: boolean; // present in the latest frame
 }
 
@@ -190,6 +205,7 @@ function freshHand(): PerHand {
     fistArmed: false,
     fistLastSeenT: -1e9,
     lastFistOpenT: -1e9,
+    firstSeenT: -1,
     seen: false,
   };
 }
@@ -204,8 +220,16 @@ export class GestureEngine {
     Left: freshHand(),
     Right: freshHand(),
   };
+  /** Per-hand event suppression window after acquisition (ms). The
+   *  production layer passes HAND_WARMUP_MS; tests default to 0 so
+   *  scenarios can start at t=0 without pre-feeding warm-up frames. */
+  private readonly warmupMs: number;
   private twoHandActive = false;
   private twoHandStartDist = 0;
+
+  constructor(opts: { warmupMs?: number } = {}) {
+    this.warmupMs = opts.warmupMs ?? 0;
+  }
   private lastClapT = -1e9;
   /** Previous-frame palm distance for clap approach speed. */
   private prevPalmDist = -1;
@@ -232,6 +256,12 @@ export class GestureEngine {
       const s = this.hands[hand.id];
       if (!s || hand.landmarks.length < 21) continue;
       s.seen = true;
+      if (s.firstSeenT < 0) s.firstSeenT = t;
+      // Acquisition warm-up: landmark jitter in the first moments of
+      // tracking fakes pinches (the founder watched a page open itself).
+      // Cursors/velocity keep updating so tracking FEELS instant, but no
+      // gesture can fire until the hand has been stable for warmupMs.
+      const warm = t - s.firstSeenT >= this.warmupMs;
 
       const thumb = hand.landmarks[4];
       const index = hand.landmarks[8];
@@ -263,7 +293,11 @@ export class GestureEngine {
       s.pt = t;
 
       // ── Pinch with hysteresis ──
-      if (!s.pinching && pinchDist < PINCH_ON) {
+      if (!warm) {
+        // Still warming up — hold the state machine released so the first
+        // post-warm-up frame starts clean. No events of any kind.
+        s.pinching = false;
+      } else if (!s.pinching && pinchDist < PINCH_ON) {
         s.pinching = true;
         s.startX = s.cx;
         s.startY = s.cy;
@@ -271,9 +305,14 @@ export class GestureEngine {
         s.travel = 0;
 
         // Double-pinch: a second start close (time AND space) to the last.
+        // A re-pinch under DOUBLE_PINCH_MIN_GAP_MS is tracking flicker —
+        // humans can't physically re-pinch that fast — so it neither fires
+        // nor moves the anchor (the flicker is "the same pinch").
         const sinceLast = t - s.lastPinchStartT;
         const moveSinceLast = Math.hypot(s.cx - s.lastPinchStartX, s.cy - s.lastPinchStartY);
-        if (sinceLast < DOUBLE_PINCH_MS && moveSinceLast < DOUBLE_PINCH_MAX_MOVE) {
+        if (sinceLast < DOUBLE_PINCH_MIN_GAP_MS) {
+          /* flicker — keep the existing anchor */
+        } else if (sinceLast < DOUBLE_PINCH_MS && moveSinceLast < DOUBLE_PINCH_MAX_MOVE) {
           events.push({ type: "double-pinch", hand: hand.id, x: s.cx, y: s.cy });
           // Consume so a triple-tap doesn't fire two double-pinches.
           s.lastPinchStartT = -1e9;
@@ -301,7 +340,7 @@ export class GestureEngine {
       }
 
       // ── Swipes: open palm only (pinching = dragging, never a swipe) ──
-      if (!s.pinching && Math.abs(s.vy) < SWIPE_MAX_CROSS) {
+      if (warm && !s.pinching && Math.abs(s.vy) < SWIPE_MAX_CROSS) {
         s.swipeFramesLeft = s.vx < -SWIPE_SPEED ? s.swipeFramesLeft + 1 : 0;
         s.swipeFramesRight = s.vx > SWIPE_SPEED ? s.swipeFramesRight + 1 : 0;
       } else {
@@ -325,7 +364,7 @@ export class GestureEngine {
       // index) and for degenerate frames (handSize ≈ 0 — also keeps the
       // synthetic single-point test hands from tripping it).
       const handSize = dist(hand.landmarks[0], hand.landmarks[9]);
-      if (s.pinching || handSize < 0.02) {
+      if (!warm || s.pinching || handSize < 0.02) {
         s.fistSince = -1;
         s.fistArmed = false;
       } else {
@@ -385,13 +424,19 @@ export class GestureEngine {
         s.vy = 0;
         s.fistSince = -1;
         s.fistArmed = false;
+        s.firstSeenT = -1; // re-acquisition restarts the warm-up window
       }
     }
 
-    // ── Two-hand interactions (both hands present) ──
+    // ── Two-hand interactions (both hands present AND past warm-up) ──
     const L = this.hands.Left;
     const R = this.hands.Right;
-    if (L.seen && R.seen) {
+    const bothWarm =
+      L.firstSeenT >= 0 &&
+      R.firstSeenT >= 0 &&
+      t - L.firstSeenT >= this.warmupMs &&
+      t - R.firstSeenT >= this.warmupMs;
+    if (L.seen && R.seen && bothWarm) {
       const palmDist = Math.hypot(L.px - R.px, L.py - R.py);
 
       // Two-hand scale: BOTH pinching = holding the window with two hands.
@@ -443,7 +488,9 @@ export class GestureEngine {
 }
 
 /** True when a finished pinch reads as a "tap" (click) rather than a drag —
- *  used by the window layer to treat quick pinches as clicks on content. */
+ *  used by the window layer to treat quick pinches as clicks on content.
+ *  The TAP_MIN_MS floor rejects 1-frame tracking flickers (~33ms) that
+ *  would otherwise phantom-open pages the user never touched. */
 export function isTap(e: Extract<GestureEvent, { type: "pinch-end" }>): boolean {
-  return e.durationMs < TAP_MAX_MS && e.moved < TAP_MAX_MOVE;
+  return e.durationMs >= TAP_MIN_MS && e.durationMs < TAP_MAX_MS && e.moved < TAP_MAX_MOVE;
 }

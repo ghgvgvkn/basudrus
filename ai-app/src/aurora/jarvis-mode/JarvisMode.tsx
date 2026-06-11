@@ -33,7 +33,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ParsedMessage } from "../auroraVisuals";
-import { GestureEngine, isTap, type CursorState, type GestureEvent } from "./gestures";
+import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
 import "./jarvis-mode.css";
 
@@ -270,7 +270,9 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
   // ── Gesture + draw loop (single rAF; reads landmarksRef) ──
   useEffect(() => {
     if (status !== "running") return;
-    const engine = new GestureEngine();
+    // Production warm-up: suppress gestures for the first moments after a
+    // hand is acquired — fixes phantom new-tabs/page-opens at camera start.
+    const engine = new GestureEngine({ warmupMs: HAND_WARMUP_MS });
     let raf = 0;
     let lastT = -1;
 
