@@ -21,6 +21,8 @@ export interface AuroraHandle {
   pulseFromAll: (amp?: number) => void;
   spark: (x?: number, y?: number, count?: number) => void;
   state: () => AuroraMode;
+  /** Pause/resume the render loop while another layer owns the GPU. */
+  suspend: (on: boolean) => void;
 }
 
 export const AuroraCanvas = forwardRef<AuroraHandle, { theme?: AuroraTheme }>(({ theme = "dark" }, ref) => {
@@ -68,6 +70,7 @@ export const AuroraCanvas = forwardRef<AuroraHandle, { theme?: AuroraTheme }>(({
     pulseFromAll: (amp) => engineRef.current?.pulseFromAll(amp),
     spark: (x, y, count) => engineRef.current?.spark(x, y, count),
     state: () => engineRef.current?.state() ?? "idle",
+    suspend: (on) => engineRef.current?.suspend(on),
   }), []);
 
   return <canvas ref={canvasRef} className="aurora-matrix" />;

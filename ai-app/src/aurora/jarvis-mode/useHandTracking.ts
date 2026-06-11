@@ -234,6 +234,13 @@ export function useHandTracking(active: boolean): HandTracking {
 
       // 3 ── detection loop (throttled; writes to the ref only)
       let lastDetect = 0;
+      // Adaptive back-off: if inference itself is slow on this machine
+      // (GPU delegate fell back to CPU, thermal throttle, weak iGPU),
+      // detecting at 30fps saturates the main thread and EVERYTHING
+      // lags — gestures included. Track an EMA of detectForVideo cost
+      // and drop to ~20fps when it can't keep up; tracking at 20fps
+      // still feels instant, a starved main thread does not.
+      let detectCostMs = 0;
       // Watchdog: the founder saw tracking silently die mid-session
       // ("it just stopped showing these icons"). Two defenses:
       //   a) If the <video> gets paused by the browser (audio-session
@@ -251,7 +258,8 @@ export function useHandTracking(active: boolean): HandTracking {
           // detector simply sees no fresh frames until it recovers).
           void video.play().catch(() => {});
         }
-        if (landmarker && video.readyState >= 2 && now - lastDetect >= DETECT_INTERVAL_MS) {
+        const interval = detectCostMs > 22 ? 50 : DETECT_INTERVAL_MS;
+        if (landmarker && video.readyState >= 2 && now - lastDetect >= interval) {
           lastDetect = now;
           try {
             const res = landmarker.detectForVideo(video, now) as {
@@ -275,6 +283,7 @@ export function useHandTracking(active: boolean): HandTracking {
               });
             }
             landmarksRef.current = { hands, t: now };
+            detectCostMs += 0.2 * (performance.now() - now - detectCostMs);
             consecutiveFailures = 0;
           } catch {
             // Transient hiccup → keep the last good frame. But ~3s of

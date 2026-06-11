@@ -398,7 +398,14 @@ export function AuroraAIScreen() {
   useEffect(() => {
     if (jarvisActive) document.body.classList.add("aurora-jarvis-mode");
     else document.body.classList.remove("aurora-jarvis-mode");
-    return () => document.body.classList.remove("aurora-jarvis-mode");
+    // The dot-field canvas sits at opacity 0 behind the camera but its
+    // rAF keeps painting ~4000 dots at full orb rate — suspend it; the
+    // weak GPU belongs to the hand tracker while JARVIS is up.
+    auroraRef.current?.suspend(jarvisActive);
+    return () => {
+      document.body.classList.remove("aurora-jarvis-mode");
+      auroraRef.current?.suspend(false);
+    };
   }, [jarvisActive]);
 
   // ── Presentation mode (JARVIS-style HUD: A4 paper + corner orb) ─

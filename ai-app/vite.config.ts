@@ -19,6 +19,12 @@ import path from "node:path";
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Short commit SHA baked into the bundle (Vercel sets the env var on
+  // every build). Surfaced in the JARVIS telemetry strip so "are you
+  // on the new build?" is answerable from a screenshot.
+  define: {
+    __BUILD_SHA__: JSON.stringify((process.env.VERCEL_GIT_COMMIT_SHA ?? "dev").slice(0, 7)),
+  },
   envDir: path.resolve(__dirname, ".."),
   resolve: {
     alias: {

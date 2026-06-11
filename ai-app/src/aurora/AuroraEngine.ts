@@ -272,6 +272,9 @@ export class AuroraEngine {
    *  second — multiplied by an orb mode that draws thousands of
    *  dots that's still wasted CPU we can skip entirely. */
   private paused = false;
+  /** External pause (suspend()) — held separately from the hidden-tab
+   *  pause so a tab-switch while suspended can't accidentally resume. */
+  private suspended = false;
 
   /** Active color theme. "dark" = original void palette; "light" =
    *  Stark Daylight (white site, gold dots); "frost" = Frosted
@@ -297,7 +300,7 @@ export class AuroraEngine {
     this.ctx = ctx;
     this.resizeHandler = () => this.resize();
     this.visibilityHandler = () => {
-      this.paused = document.hidden;
+      this.paused = document.hidden || this.suspended;
       // When un-hiding, schedule the next frame immediately so the
       // orb resumes smoothly. The frame loop will short-circuit while
       // paused; resuming just means it picks up at the next tick.
@@ -345,6 +348,21 @@ export class AuroraEngine {
   toggle(): void {
     if (this.mode === "orb" || this.mode === "forming") this.deactivate();
     else this.activate();
+  }
+
+  /** Externally pause/resume the render loop. Used while JARVIS camera
+   *  mode covers the screen: the canvas sits at opacity 0 there but
+   *  would otherwise keep painting ~4000 dots per frame at full orb
+   *  rate — on the same weak GPU the hand tracker needs. Same
+   *  machinery as the hidden-tab pause. */
+  suspend(on: boolean): void {
+    if (this.destroyed) return;
+    this.suspended = on;
+    this.paused = on || document.hidden;
+    if (!this.paused) {
+      this.lastFrameDrawAt = 0;
+      if (!this.rafId) this.rafId = requestAnimationFrame((t) => this.frame(t));
+    }
   }
 
   /** Emit two waves from a point (the second slightly delayed for depth).

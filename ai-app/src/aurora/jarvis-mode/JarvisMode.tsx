@@ -38,6 +38,10 @@ import { useHandTracking } from "./useHandTracking";
 import type { ViewerHandCursor } from "../../jarvis/explode";
 import "./jarvis-mode.css";
 
+/** Short commit SHA injected by vite.config define — shown in the
+ *  telemetry strip so a screenshot tells us which build is running. */
+declare const __BUILD_SHA__: string;
+
 // ── window model ────────────────────────────────────────────────────────────
 
 type HoloPayload =
@@ -948,7 +952,10 @@ export function JarvisMode({
     const draw = (cursors: CursorState[]) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // DPR capped at 1.5 (not 2): a full-screen Retina canvas redrawn
+      // every frame is ~78% more pixels than 1.5x for a difference the
+      // eye can't see in 1-2px glow lines over live video.
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       if (canvas.width !== vw * dpr || canvas.height !== vh * dpr) {
@@ -1073,7 +1080,7 @@ export function JarvisMode({
         const hands = frame.hands.length;
         if (hands !== lastHandsShown && telemetryRef.current) {
           lastHandsShown = hands;
-          telemetryRef.current.textContent = `OPTICAL FEED · LIVE — HANDS ${hands}`;
+          telemetryRef.current.textContent = `OPTICAL FEED · LIVE — HANDS ${hands} · ${__BUILD_SHA__}`;
         }
         const { events, cursors } = engine.update(frame);
         lastCursors = cursors;
@@ -1373,7 +1380,7 @@ export function JarvisMode({
       {/* Telemetry strip — real feed state + tracked-hand count */}
       {status === "running" && (
         <div ref={telemetryRef} className="jarvis-telemetry-strip" aria-hidden>
-          OPTICAL FEED · LIVE — HANDS 0
+          OPTICAL FEED · LIVE — HANDS 0 · {__BUILD_SHA__}
         </div>
       )}
 

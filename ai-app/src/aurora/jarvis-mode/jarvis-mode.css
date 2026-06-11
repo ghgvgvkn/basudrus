@@ -12,7 +12,8 @@
    Layer order inside .jarvis-root:
      video → dim → holo-windows → cursor canvas → HUD/overlays
    Perf rules: GPU-composited transforms only; no per-frame box-shadow
-   animation; backdrop-filter used sparingly (window chrome only).
+   animation; NO backdrop-filter over the live video except transient
+   overlays (each blur region re-samples the video every frame).
    ═══════════════════════════════════════════════════════════════════ */
 
 .jarvis-root {
@@ -56,8 +57,12 @@
 }
 
 .jarvis-win {
-  /* FUI glass: heavy transparency + heavy blur, whisper of a border —
-     the BRACKETED CORNERS (::after) carry the frame, not the box. */
+  /* FUI glass: translucent panel, whisper of a border — the BRACKETED
+     CORNERS (::after) carry the frame, not the box. NO backdrop-filter
+     here: each blurred tab forces the GPU to re-blur the LIVE VIDEO
+     under it every frame — with several tabs up that alone lagged the
+     whole mode on the founder's weak MacBook. A deeper tint reads as
+     the same glass at zero per-frame cost. */
   --jbracket: rgba(64, 224, 255, 0.85);
   position: absolute;
   left: 0;
@@ -65,9 +70,7 @@
   width: clamp(220px, 24vw, 340px);
   border: 1px solid rgba(64, 224, 255, 0.16);
   border-radius: 3px;
-  background: rgba(5, 11, 20, 0.38);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(5, 11, 20, 0.74);
   box-shadow:
     0 12px 40px rgba(0, 0, 0, 0.45),
     inset 0 0 24px rgba(64, 224, 255, 0.04);
