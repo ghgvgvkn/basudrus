@@ -37,12 +37,35 @@ export type JarvisCamStatus =
 
 // Keep this version in lockstep with package.json's @mediapipe/tasks-vision.
 // The wasm fileset MUST match the installed JS API version or the worker
-// silently mismatches. (npm i bumps → update here.)
+// silently mismatches. (npm i bumps → update here AND re-copy the wasm
+// folder into public/mediapipe/wasm.)
 const TASKS_VISION_VERSION = "0.10.35";
 const WASM_CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VISION_VERSION}/wasm`;
 // Google-hosted float16 hand model (~7.5 MB, cached by the browser).
 const HAND_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+// VENDORED copies served from OUR origin (ai-app/public/mediapipe/) —
+// the founder got stuck on "Summoning JARVIS…" forever because the
+// Google/jsdelivr CDNs can stall from his region and the old code had
+// no timeout. Own-origin rides Vercel's edge network; the CDN pair
+// above stays as the fallback if the local fetch ever fails.
+const WASM_LOCAL = "/mediapipe/wasm";
+const HAND_MODEL_LOCAL = "/mediapipe/hand_landmarker.task";
+
+/** Hard ceiling per load attempt — a stalled fetch is NOT an error,
+ *  so without this the loading overlay can spin forever. */
+const LOAD_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("jarvis-load-timeout")), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
 
 /** Detect at most every DETECT_INTERVAL_MS (≈30fps). */
 const DETECT_INTERVAL_MS = 33;
@@ -125,17 +148,29 @@ export function useHandTracking(active: boolean): HandTracking {
       }
       if (cancelled) return cleanup();
 
-      // 2 ── load MediaPipe lazily (code-split chunk + CDN wasm + model)
+      // 2 ── load MediaPipe lazily (code-split chunk + wasm + model).
+      // Own-origin assets first (fast everywhere Vercel is), public
+      // CDNs as fallback, and BOTH attempts under a hard timeout so a
+      // stalled network shows the error overlay (with its Try-again
+      // that rebuilds the whole pipeline) instead of spinning forever.
       try {
         const vision = await import("@mediapipe/tasks-vision");
         if (cancelled) return cleanup();
-        const fileset = await vision.FilesetResolver.forVisionTasks(WASM_CDN);
-        if (cancelled) return cleanup();
-        landmarker = await vision.HandLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
-          runningMode: "VIDEO",
-          numHands: 2,
-        });
+        const create = async (wasmBase: string, modelUrl: string) => {
+          const fileset = await vision.FilesetResolver.forVisionTasks(wasmBase);
+          if (cancelled) throw new Error("cancelled");
+          return vision.HandLandmarker.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: modelUrl, delegate: "GPU" },
+            runningMode: "VIDEO",
+            numHands: 2,
+          });
+        };
+        try {
+          landmarker = await withTimeout(create(WASM_LOCAL, HAND_MODEL_LOCAL), LOAD_TIMEOUT_MS);
+        } catch (e) {
+          if (cancelled || (e as Error)?.message === "cancelled") return cleanup();
+          landmarker = await withTimeout(create(WASM_CDN, HAND_MODEL_URL), LOAD_TIMEOUT_MS);
+        }
       } catch {
         if (!cancelled) setStatus("error");
         cleanup();

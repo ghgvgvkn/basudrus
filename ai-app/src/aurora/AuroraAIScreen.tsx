@@ -371,6 +371,19 @@ export function AuroraAIScreen() {
     if (!voiceModeActive && jarvisActive) setJarvisActive(false);
   }, [voiceModeActive, jarvisActive]);
 
+  // ── JARVIS camera-only mode (mic mute) ──
+  // Founder: "add a mute if I only want to use the video without AI."
+  // While muted: the mic is RELEASED (not just ignored — the OS mic
+  // indicator goes off), VAD utterances can't start a pipeline, the
+  // auto-relisten loop stays closed, and Tony doesn't speak. Camera +
+  // hand gestures keep working untouched. Cleared on JARVIS exit.
+  const [jarvisMicMuted, setJarvisMicMuted] = useState(false);
+  const jarvisMicMutedRef = useRef(false);
+  jarvisMicMutedRef.current = jarvisMicMuted;
+  useEffect(() => {
+    if (!jarvisActive && jarvisMicMuted) setJarvisMicMuted(false);
+  }, [jarvisActive, jarvisMicMuted]);
+
   // One-tap JARVIS entry from the ALWAYS-VISIBLE composer camera button.
   // Without this, JARVIS could only be reached via a pill that appears
   // *after* you're already inside voice mode — so a first-time user saw
@@ -863,6 +876,9 @@ export function AuroraAIScreen() {
    */
   const beginListening = useCallback(async () => {
     if (!voiceModeActiveRef.current) return;
+    // Camera-only mode: the relisten loop stays closed while muted —
+    // the unmute effect below reopens it.
+    if (jarvisMicMutedRef.current) return;
     auroraRef.current?.activate();
     // startRecording wraps navigator.mediaDevices.getUserMedia. If
     // Safari has denied mic permission for this site, this returns
@@ -906,6 +922,20 @@ export function AuroraAIScreen() {
     }
   }, [voice]);
 
+  // Apply/release camera-only mute. Muting physically stops the
+  // recorder (mic indicator off) and cuts any in-flight speech;
+  // unmuting re-enters the listening loop if voice mode is still on.
+  useEffect(() => {
+    if (!jarvisActive) return;
+    if (jarvisMicMuted) {
+      try { voice.stopSpeaking(); } catch { /* noop */ }
+      void voice.stopRecording().catch(() => { /* discard */ });
+    } else if (voiceModeActiveRef.current) {
+      void beginListening();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jarvisMicMuted, jarvisActive]);
+
   /**
    * Post-utterance flow: stop recording, transcribe, send to Tony,
    * speak Tony's reply, then (if still in voice mode) loop back to
@@ -934,6 +964,13 @@ export function AuroraAIScreen() {
     // playback for the discarded utterance.
     const myGen = voiceSessionGenRef.current;
     const stillMine = () => voiceModeActiveRef.current && voiceSessionGenRef.current === myGen;
+
+    // Muted = camera-only: drop the utterance on the floor. (Covers the
+    // race where VAD silence fires in the same tick as the mute tap.)
+    if (jarvisMicMutedRef.current) {
+      void voice.stopRecording().catch(() => {});
+      return;
+    }
 
     const blob = await voice.stopRecording();
     if (!stillMine()) return;
@@ -1289,7 +1326,7 @@ export function AuroraAIScreen() {
       // continuous voice-mode loop can wait for it to resolve before
       // re-opening the mic. Without that gate, the mic would open
       // while Tony is still talking and capture his voice as input.
-      if (wasVoice && result.assistant.trim()) {
+      if (wasVoice && result.assistant.trim() && !jarvisMicMutedRef.current) {
         try {
           const speakRes = await voice.speak(result.assistant);
           if (speakRes.ok) {
@@ -1814,6 +1851,8 @@ export function AuroraAIScreen() {
                 presenting={presenting}
                 presentingImage={presentingImage}
                 onExit={() => setJarvisActive(false)}
+                micMuted={jarvisMicMuted}
+                onToggleMic={() => setJarvisMicMuted((m) => !m)}
               />
             </Suspense>
           )}
@@ -2222,10 +2261,64 @@ export function AuroraAIScreen() {
           )}
         </div>
 
+        {/* IDLE GATEWAY RETICLES — the two flagship modes used to hide
+            in small composer buttons while the center stage sat empty.
+            On a fresh idle screen, two low-opacity targets invite the
+            user straight into voice or JARVIS; they vanish the moment
+            conversation starts (or voice mode opens). Shown to
+            anonymous visitors too — the mode handlers themselves
+            raise the sign-up modal when needed. */}
+        {!voiceModeActive && messages.length === 0 && (
+          <div className="aurora-gateways">
+            <button
+              type="button"
+              className="aurora-gateway aurora-gateway-jarvis"
+              onClick={() => { void enterJarvis(); }}
+              title="JARVIS mode — camera + hand gestures"
+            >
+              <span className="aurora-gateway-ring">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />
+                  <circle cx="12" cy="13" r="3.5" />
+                </svg>
+              </span>
+              <span className="aurora-gateway-label">JARVIS MODE</span>
+              <span className="aurora-gateway-sub">camera + hand gestures</span>
+            </button>
+            <button
+              type="button"
+              className="aurora-gateway aurora-gateway-voice"
+              onClick={() => { void toggleVoiceMode(); }}
+              title="Talk to Tony — voice mode"
+            >
+              <span className="aurora-gateway-ring aurora-gateway-ring-dashed">
+                <span className="aurora-gateway-core" />
+              </span>
+              <span className="aurora-gateway-label">TALK TO TONY</span>
+              <span className="aurora-gateway-sub">voice commander</span>
+            </button>
+          </div>
+        )}
+
         {/* LEFT RAIL — conversation history. Only authed users see it
             (anonymous visitors have nothing to display + the rail would
             look awkward without data). */}
         {isAuthed && (
+        <>
+        {/* EDGE SEAM — when the rail is hidden, a thin instrument-panel
+            handle stays on the left edge so history is always one click
+            away (before this, the only way back was the ☰ in the topbar). */}
+        {railHidden && (
+          <button
+            type="button"
+            className="aurora-rail-seam"
+            onClick={() => setRailHidden(false)}
+            title="Show conversation history"
+            aria-label="Show conversation history"
+          >
+            <span className="aurora-rail-seam-grip" />
+          </button>
+        )}
         <aside className="aurora-chat-rail">
           <div className="aurora-rail-card">
             <h3>
@@ -2276,6 +2369,7 @@ export function AuroraAIScreen() {
             </div>
           </div>
         </aside>
+        </>
         )}
 
         {/* TOP WIDGET SHELF — Quota + Streak (authed only). Anonymous

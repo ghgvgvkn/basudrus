@@ -501,3 +501,61 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
     transition: none;
   }
 }
+
+/* Loading variant — NO full-screen dim. The camera feed must stay
+   clearly visible while the model loads, or users read the dim as
+   "the video is broken" (founder did exactly that). Compact pill,
+   bottom-center, pointer-events off so nothing is blocked. */
+.jarvis-overlay.jarvis-overlay-loading {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  align-items: flex-end;
+  padding-bottom: 12vh;
+  pointer-events: none;
+}
+.jarvis-overlay.jarvis-overlay-loading .jarvis-overlay-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: rgba(4, 14, 22, 0.80);
+  text-align: left;
+}
+.jarvis-overlay.jarvis-overlay-loading .jarvis-loading-copy h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.jarvis-overlay.jarvis-overlay-loading .jarvis-loading-copy p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* Camera-only mic toggle — sits under EXIT JARVIS, same pill
+   language. Live = cyan; muted = amber warning so the state is
+   unmissable. */
+.jarvis-mic-toggle {
+  position: absolute;
+  top: 60px;
+  right: 18px;
+  padding: 8px 14px;
+  border: 1px solid rgba(64, 224, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(4, 14, 22, 0.6);
+  color: #9be8ff;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+}
+.jarvis-mic-toggle:hover {
+  background: rgba(64, 224, 255, 0.14);
+}
+.jarvis-mic-toggle.is-muted {
+  border-color: rgba(245, 158, 11, 0.65);
+  color: #fcd34d;
+}
+.jarvis-mic-toggle.is-muted:hover {
+  background: rgba(245, 158, 11, 0.14);
+}

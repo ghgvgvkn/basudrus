@@ -97,9 +97,14 @@ interface JarvisModeProps {
   presenting: ParsedMessage;
   presentingImage: string | null;
   onExit: () => void;
+  /** Camera-only mode — Tony's mic is released and he stays silent.
+   *  Owned by the screen (it owns the voice pipeline); JARVIS just
+   *  renders the toggle. */
+  micMuted?: boolean;
+  onToggleMic?: () => void;
 }
 
-export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModeProps) {
+export function JarvisMode({ presenting, presentingImage, onExit, micMuted = false, onToggleMic }: JarvisModeProps) {
   const { videoRef, landmarksRef, status, retry } = useHandTracking(true);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -645,14 +650,33 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
       <button type="button" className="jarvis-exit" onClick={onExit}>
         EXIT JARVIS
       </button>
+      {/* Camera-only toggle — "a mute if I only want to use the video
+          without AI." Mic is physically released while muted. */}
+      {onToggleMic && (
+        <button
+          type="button"
+          className={`jarvis-mic-toggle${micMuted ? " is-muted" : ""}`}
+          onClick={onToggleMic}
+          title={micMuted
+            ? "Camera-only mode — Tony isn't listening. Tap to unmute."
+            : "Mute Tony — keep the camera and gestures, no AI listening."}
+        >
+          {micMuted ? "🔇 MUTED · CAMERA ONLY" : "🎙 MIC LIVE"}
+        </button>
+      )}
 
       {/* Status overlays */}
+      {/* Loading is a compact, non-dimming pill — the founder saw the
+          full-screen dim and thought "the video is not working" while
+          the camera was actually live behind it. Let the feed show. */}
       {status === "loading" && (
-        <div className="jarvis-overlay">
+        <div className="jarvis-overlay jarvis-overlay-loading">
           <div className="jarvis-overlay-card">
             <div className="jarvis-spinner" aria-hidden />
-            <h3>Summoning JARVIS…</h3>
-            <p>Starting your camera and loading hand tracking (first time takes a few seconds).</p>
+            <div className="jarvis-loading-copy">
+              <h3>Camera live — summoning JARVIS…</h3>
+              <p>Loading hand tracking (a few seconds on first run).</p>
+            </div>
           </div>
         </div>
       )}
