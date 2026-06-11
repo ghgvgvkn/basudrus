@@ -273,10 +273,17 @@ export function useHandTracking(active: boolean): HandTracking {
               if (!raw || raw.length < 21) continue;
               // Image-perspective label; swapped + mirrored for screen space.
               const imageLabel = res.handedness?.[i]?.[0]?.categoryName === "Left" ? "Left" : "Right";
-              const screenId = imageLabel === "Left" ? "Right" : "Left";
-              // One hand per id — if both map to the same label (rare
-              // misdetection), keep the first.
-              if (hands.some((h) => h.id === screenId)) continue;
+              let screenId: "Left" | "Right" = imageLabel === "Left" ? "Right" : "Left";
+              // One hand per id. MediaPipe sometimes labels BOTH hands
+              // the same — and a phantom detection can steal the label
+              // first, which used to DROP the user's real hand here
+              // (telemetry said HANDS 1 while the visible hand had no
+              // skeleton and no gestures). The second hand is still a
+              // hand: give it the free slot instead.
+              if (hands.some((h) => h.id === screenId)) {
+                screenId = screenId === "Left" ? "Right" : "Left";
+                if (hands.some((h) => h.id === screenId)) continue; // both taken
+              }
               hands.push({
                 id: screenId,
                 landmarks: raw.map((p) => ({ x: 1 - p.x, y: p.y })),

@@ -645,7 +645,13 @@ export function JarvisMode({
                 commitWindow(grab.id);
               }
               blip(1650, 55, 0.055); // click — a button fired
-              btn.click();
+              try {
+                // Synchronous dispatch into ANY button's onClick — a
+                // buggy handler must not take the gesture loop with it.
+                btn.click();
+              } catch (err) {
+                console.error("[jarvis] button handler threw:", err);
+              }
               break;
             }
           }
@@ -1070,7 +1076,7 @@ export function JarvisMode({
     let lastFreshAt = performance.now();
     let lastHandsShown = -1;
     let labTick = 0;
-    const loop = () => {
+    const step = () => {
       const now = performance.now();
       const frame = landmarksRef.current;
       if (frame.t !== lastT) {
@@ -1176,6 +1182,27 @@ export function JarvisMode({
         }
       }
       draw(lastCursors);
+    };
+    // UNKILLABLE LOOP. The frame body runs gesture handlers, React
+    // setters and (via the hand-tap bridge) arbitrary button onClicks —
+    // any of them throwing once used to stop the next rAF from ever
+    // being scheduled: video kept playing but skeleton/gestures froze
+    // for the rest of the session. That was the founder's recurring
+    // "it worked, then hands stopped working" — one swallowed
+    // exception, mode dead. Now a bad frame is dropped, counted, made
+    // visible in the telemetry strip, and the loop keeps running.
+    let loopErrs = 0;
+    const loop = () => {
+      try {
+        step();
+      } catch (err) {
+        loopErrs++;
+        lastHandsShown = -1; // next clean frame rewrites the strip
+        if (telemetryRef.current) {
+          telemetryRef.current.textContent = `OPTICAL FEED · FRAME ERR ×${loopErrs} · ${__BUILD_SHA__}`;
+        }
+        console.error("[jarvis] frame error (recovered):", err);
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
