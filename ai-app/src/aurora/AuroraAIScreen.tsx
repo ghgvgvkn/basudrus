@@ -42,6 +42,7 @@ import { supabase } from "@/lib/supabase";
 import { apiUrl } from "@/lib/apiBase";
 import { openSettings } from "@ai/settings/useSettingsState";
 import { AuroraCanvas, type AuroraHandle } from "./AuroraCanvas";
+import type { AuroraTheme } from "./AuroraEngine";
 import { AuroraSignUpModal } from "./AuroraSignUpModal";
 import { useGeoCity } from "./useGeoCity";
 import { parseArtifacts, fetchBriefingImage, fetchMapboxFlyImages, type MapboxFlyImages } from "./auroraVisuals";
@@ -66,7 +67,23 @@ type AuroraMessage = {
   id: string;
   role: "user" | "ai";
   text: string;
+  /** Epoch ms when the message landed — drives the REAL timestamp in
+   *  the telemetry meta row. Optional so restored sessions (saved
+   *  before this field existed) render without a stamp. */
+  at?: number;
+  /** Round-trip latency in ms for AI replies — real measured data,
+   *  never decorative. Shown as "· 1.8s" next to the stamp. */
+  ms?: number;
 };
+
+/** "10:32:15 AM" — matches the topbar's 12-hour clock convention. */
+function formatStamp(at: number): string {
+  return new Date(at).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 function nextId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -309,32 +326,37 @@ export function AuroraAIScreen() {
   const voiceModeActiveRef = useRef(false);
   const [voiceModeActive, setVoiceModeActive] = useState(false);
 
-  // ── THEME (Stark Daylight ⇄ dark void) ──
+  // ── THEME (Stark Daylight → dark void → Frosted Silicon) ──
   // Founder ask: "I want the website to be white and the dot should be
-  // yellow." Light is the DEFAULT; the dark void stays one click away via
-  // the sun/moon toggle (a pure cream-white was tried once before and
-  // reverted — keeping dark reachable is the insurance policy this time).
-  // CSS reads body.aurora-theme-light; the canvas engine gets the value
-  // as a prop (gold dot palette).
-  const [theme, setTheme] = useState<"dark" | "light">(() => {
+  // yellow." Light (gold) is the DEFAULT; the dark void and the optional
+  // cool-blue "frost" lab look cycle on the topbar toggle. The toggle
+  // icon always shows what you'll GET next (moon → snowflake → sun).
+  // CSS reads body.aurora-theme-{light|frost} plus the shared
+  // aurora-theme-bright marker (component re-skins common to both
+  // bright themes); the canvas engine gets the value as a prop.
+  const [theme, setTheme] = useState<AuroraTheme>(() => {
     try {
       const saved = localStorage.getItem("aurora-theme");
-      return saved === "dark" || saved === "light" ? saved : "light";
+      return saved === "dark" || saved === "light" || saved === "frost" ? saved : "light";
     } catch {
       return "light";
     }
   });
   useEffect(() => {
-    document.body.classList.toggle("aurora-theme-light", theme === "light");
+    const cls = document.body.classList;
+    cls.toggle("aurora-theme-light", theme === "light");
+    cls.toggle("aurora-theme-frost", theme === "frost");
+    cls.toggle("aurora-theme-bright", theme !== "dark");
     try {
       localStorage.setItem("aurora-theme", theme);
     } catch {
       /* private mode — theme just won't persist */
     }
     return () => {
-      document.body.classList.remove("aurora-theme-light");
+      cls.remove("aurora-theme-light", "aurora-theme-frost", "aurora-theme-bright");
     };
   }, [theme]);
+  const nextTheme: AuroraTheme = theme === "light" ? "dark" : theme === "dark" ? "frost" : "light";
 
   // ── JARVIS MODE (camera + hand gestures) ──
   // Founder spec: an ADDITIVE option inside voice mode — "we're not gonna
@@ -1208,7 +1230,8 @@ export function AuroraAIScreen() {
       auroraRef.current?.spark(r.left + r.width / 2, r.top + r.height / 2, 10);
     }
 
-    const userMsg: AuroraMessage = { id: nextId(), role: "user", text };
+    const sentAt = Date.now();
+    const userMsg: AuroraMessage = { id: nextId(), role: "user", text, at: sentAt };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
 
@@ -1253,7 +1276,8 @@ export function AuroraAIScreen() {
     }
 
     if (result.ok) {
-      setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: result.assistant }]);
+      const doneAt = Date.now();
+      setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: result.assistant, at: doneAt, ms: doneAt - sentAt }]);
       auroraRef.current?.pulseFromAll(0.45);
 
       // Auto-TTS: speak Tony's reply when the user used voice input.
@@ -1305,7 +1329,7 @@ export function AuroraAIScreen() {
               : result.reason === "network"
                 ? "Network issue — check your connection and try again."
                 : "Something went wrong. Try again in a moment.";
-      setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg }]);
+      setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg, at: Date.now() }]);
     }
   }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, voice, history]);
 
@@ -2080,19 +2104,23 @@ export function AuroraAIScreen() {
 
         {/* TOP RIGHT — Pro pill (tier-aware) + settings + avatar */}
         <div className="aurora-top-right">
-          {/* Theme toggle — Stark Daylight (white+gold) ⇄ dark void.
-              Sun icon shown in dark mode ("switch to light"), moon in
-              light mode. */}
+          {/* Theme cycle — Stark Daylight (gold) → dark void → Frosted
+              Silicon (cobalt) → back. The icon previews the NEXT theme:
+              moon in light, snowflake in dark, sun in frost. */}
           <button
             className="aurora-icon-btn"
             type="button"
-            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            onClick={() => setTheme(nextTheme)}
+            title={`Switch to ${nextTheme === "dark" ? "dark" : nextTheme === "frost" ? "frost (cool blue)" : "light"} theme`}
+            aria-label={`Switch to ${nextTheme} theme`}
           >
-            {theme === "light" ? (
+            {nextTheme === "dark" ? (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+              </svg>
+            ) : nextTheme === "frost" ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v20M4 6l16 12M20 6L4 18M12 6l-2.5-2.5M12 6l2.5-2.5M12 18l-2.5 2.5M12 18l2.5 2.5M6.4 7.8 3 6.9M6.4 16.2 3 17.1M17.6 7.8 21 6.9M17.6 16.2l3.4.9" />
               </svg>
             ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -2304,9 +2332,20 @@ export function AuroraAIScreen() {
               key={m.id}
               className={`aurora-msg ${m.role === "user" ? "aurora-user" : "aurora-ai"}`}
             >
+              {/* Telemetry meta row — REAL data only: sender, the actual
+                  send/arrival time, and (for Tony) the measured round-trip
+                  latency. No decorative metrics, ever. */}
               <div className="aurora-who">
-                {m.role === "ai" && <span className="aurora-pip-mini" />}
-                {m.role === "ai" ? "TONY" : "YOU"}
+                <span className="aurora-who-id">
+                  {m.role === "ai" && <span className="aurora-pip-mini" />}
+                  {m.role === "ai" ? "TONY" : "YOU"}
+                </span>
+                {m.at !== undefined && (
+                  <span className="aurora-msg-stamp">
+                    {formatStamp(m.at)}
+                    {m.ms !== undefined && ` · ${(m.ms / 1000).toFixed(1)}s`}
+                  </span>
+                )}
               </div>
               <div className="aurora-bubble">
                 {m.role === "ai" ? renderMarkdown(m.text) : m.text}
@@ -2316,8 +2355,11 @@ export function AuroraAIScreen() {
           {loading && (
             <div className="aurora-msg aurora-ai">
               <div className="aurora-who">
-                <span className="aurora-pip-mini" />
-                TONY
+                <span className="aurora-who-id">
+                  <span className="aurora-pip-mini" />
+                  TONY
+                </span>
+                <span className="aurora-msg-stamp">processing</span>
               </div>
               {partial ? (
                 <div className="aurora-bubble">{renderMarkdown(partial)}</div>

@@ -11,7 +11,7 @@
  * burning frames.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { AuroraEngine, type AuroraMode } from "./AuroraEngine";
+import { AuroraEngine, type AuroraMode, type AuroraTheme } from "./AuroraEngine";
 
 export interface AuroraHandle {
   activate: () => void;
@@ -23,7 +23,7 @@ export interface AuroraHandle {
   state: () => AuroraMode;
 }
 
-export const AuroraCanvas = forwardRef<AuroraHandle, { theme?: "dark" | "light" }>(({ theme = "dark" }, ref) => {
+export const AuroraCanvas = forwardRef<AuroraHandle, { theme?: AuroraTheme }>(({ theme = "dark" }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<AuroraEngine | null>(null);
   // The engine is created asynchronously (after fonts load), so the

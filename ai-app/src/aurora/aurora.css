@@ -1796,65 +1796,112 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   align-self: flex-start;
   align-items: flex-start;
 }
+/* ── TELEMETRY MESSAGE BLOCKS ──────────────────────────────────────
+   Messages are data frames, not iMessage pills (the soft rounded
+   gray bubbles clashed with the monospace topbar + dot grid). Each
+   message = meta row (sender / REAL timestamp / REAL latency) +
+   translucent glass panel with asymmetric corners and corner ticks.
+   Tony: sharp top-left & bottom-right; user: mirrored. Dark theme =
+   dark glass + light text + cyan ticks; bright themes re-skin below.
+   No fake metrics anywhere — every number shown is measured. */
 .aurora-app .aurora-msg .aurora-who {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   font-family: 'Geist Mono', monospace;
   font-size: 9px;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--aurora-text-primary);
-  text-shadow: 0 0 12px rgba(255,255,255,0.45);
-  padding: 0 4px;
+  padding: 0 5px;
+}
+.aurora-app .aurora-msg .aurora-who .aurora-who-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.aurora-app .aurora-msg .aurora-msg-stamp {
+  letter-spacing: 0.14em;
+  color: rgba(150,205,255,0.60);
+  white-space: nowrap;
 }
 .aurora-app .aurora-msg .aurora-who .aurora-pip-mini {
   display: inline-block;
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 6px rgba(255,255,255,0.9);
-  margin-right: 8px;
+  background: var(--aurora-accent);
+  box-shadow: 0 0 6px var(--aurora-accent-55);
   animation: aurora-livePulse 2.4s ease-in-out infinite;
-  vertical-align: 1px;
 }
 .aurora-app .aurora-msg .aurora-bubble {
-  padding: 14px 18px;
-  border-radius: 18px;
+  position: relative;
+  padding: 13px 17px;
+  border-radius: 0 14px 0 14px;
   font-size: 14.5px;
   font-weight: 400;
-  line-height: 1.5;
-  color: #0E1622;
-  backdrop-filter: blur(34px) saturate(200%);
-  -webkit-backdrop-filter: blur(34px) saturate(200%);
-  border: 0.5px solid rgba(213,209,209,0.85);
-  background: rgba(213,209,209,0.94);
+  line-height: 1.55;
+  color: #E9F2FF;
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 0.5px solid rgba(140,200,255,0.24);
+  background: rgba(8,15,30,0.38);
   box-shadow:
-    inset 0 0.5px 0 rgba(255,255,255,0.6),
-    inset 0 -0.5px 0 rgba(255,255,255,0.10),
-    0 18px 40px rgba(0,0,0,0.45);
+    inset 0 0.5px 0 rgba(170,215,255,0.10),
+    0 14px 36px rgba(0,0,0,0.35);
   white-space: pre-wrap;
   word-wrap: break-word;
 }
-.aurora-app .aurora-msg.aurora-user .aurora-bubble {
-  background: #D5D1D1;
-  color: #0E1622;
-  border-radius: 18px 18px 4px 18px;
+/* Corner ticks — the bracket accents that make the frame read as an
+   instrument panel. Color rides --aurora-tick so themes swap it. */
+.aurora-app .aurora-msg .aurora-bubble::before,
+.aurora-app .aurora-msg .aurora-bubble::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 0 solid var(--aurora-tick, rgba(110,200,255,0.85));
+  pointer-events: none;
 }
-.aurora-app .aurora-msg.aurora-ai .aurora-bubble {
-  border-radius: 18px 18px 18px 4px;
+.aurora-app .aurora-msg .aurora-bubble::before {
+  top: -1px;
+  left: -1px;
+  border-width: 1px 0 0 1px;
+}
+.aurora-app .aurora-msg .aurora-bubble::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 1px 1px 0;
+}
+.aurora-app .aurora-msg.aurora-user .aurora-bubble {
+  background: rgba(14,24,44,0.46);
+  border-radius: 14px 0 14px 0;
+}
+.aurora-app .aurora-msg.aurora-user .aurora-bubble::before {
+  left: auto;
+  right: -1px;
+  border-width: 1px 1px 0 0;
+}
+.aurora-app .aurora-msg.aurora-user .aurora-bubble::after {
+  right: auto;
+  left: -1px;
+  border-width: 0 0 1px 1px;
 }
 .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 16px 20px;
-  background: rgba(213,209,209,0.94);
+  background: rgba(8,15,30,0.38);
 }
 .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble i {
   display: block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #0E1622;
+  background: rgba(170,215,255,0.95);
   opacity: 0.45;
   animation: aurora-pipBlink 1.3s ease-in-out infinite;
 }
@@ -2297,7 +2344,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #0E1622;
+  background: rgba(170,215,255,0.95);
   opacity: 0.45;
   animation: aurora-pipBlink 1.3s ease-in-out infinite;
 }
@@ -3285,257 +3332,351 @@ body.aurora-presenting .aurora-app .aurora-infocard-hero::before {
   }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════════
-   STARK DAYLIGHT — white + gold light theme (body.aurora-theme-light)
+   BRIGHT THEMES — Stark Daylight (gold, DEFAULT) + Frosted Silicon
+   (cobalt, optional). Architecture:
 
-   Founder ask: "I want the website to be white and the dot should be
-   yellow." A pure cream-white was tried once before and reverted
-   ("killed the cinematic tension") — this attempt differs on purpose:
-   the accent flips from electric cyan to GOLD/AMBER (the color of the
-   in-helmet Iron Man HUD), giving the bright canvas its own identity
-   instead of being the dark theme with the lights on. Dark stays one
-   click away via the topbar sun/moon toggle.
+   - body.aurora-theme-bright   → all component re-skins shared by any
+     bright theme. Rules reference rgb-triplet tokens, never literal
+     accent colors, so adding a palette = adding ONE token block.
+   - body.aurora-theme-light    → gold tokens ("white site, yellow
+     dot" — the founder's spec). A pure cream-white was tried once and
+     reverted; the gold accent is what makes this attempt distinct.
+   - body.aurora-theme-frost    → cobalt "lab monitor" tokens.
+   The canvas dot field is themed in AuroraEngine (THEME_TINTS).      */
 
-   Mechanism: token overrides do the heavy lifting (everything that
-   reads var(--aurora-*) flips automatically); the rules after them
-   re-skin the surfaces that hardcode dark-void colors. The canvas dot
-   field is themed separately in AuroraEngine (DOT_TINTS_LIGHT).      */
+/* ── Token block: STARK DAYLIGHT (gold) ── */
 body.aurora-theme-light .aurora-app {
   --aurora-bg-base:      #FBFAF7;
   --aurora-bg-surface:   #FFFFFF;
   --aurora-bg-elevated:  #FFFFFF;
-
   --aurora-text-primary:    #1A2333;
   --aurora-text-secondary:  #5A6478;
   --aurora-text-tertiary:   #8B94A6;
   --aurora-text-dark:       #0E1622;
-
-  --aurora-accent:         #D97706;  /* gold — readable on white */
+  --aurora-accent:         #D97706;
   --aurora-accent-glow:    #F59E0B;
   --aurora-accent-deep:    #B45309;
+  --aurora-accent-rgb:      217,119,6;
+  --aurora-glow-rgb:        245,158,11;
+  --aurora-deep-rgb:        180,83,9;
+  --aurora-ink-rgb:         26,35,51;
+  --aurora-shadow-rgb:      86,60,10;
+  --aurora-grid-rgb:        180,130,40;
+  --aurora-tint-rgb:        205,160,70;
+  --aurora-user-bubble:     #FCF1DE;
+  --aurora-tick:            rgba(217,119,6,0.85);
+  --aurora-radar-filter:    hue-rotate(190deg) saturate(1.5) brightness(0.72);
   --aurora-accent-08: rgba(217,119,6,0.08);
   --aurora-accent-20: rgba(217,119,6,0.20);
   --aurora-accent-35: rgba(217,119,6,0.35);
   --aurora-accent-55: rgba(217,119,6,0.55);
   --aurora-accent-75: rgba(217,119,6,0.75);
-
   --aurora-state-idle:      #94A3B8;
   --aurora-state-listening: #D97706;
   --aurora-state-thinking:  #7C3AED;
   --aurora-state-speaking:  #F59E0B;
-
   background:
     radial-gradient(ellipse at 50% 30%, #FFFFFF 0%, #FAF7F0 60%, #F1EBDD 100%);
 }
-/* Technical grid: faint warm gold instead of faint cyan. */
-body.aurora-theme-light .aurora-app::before {
-  background-image:
-    linear-gradient(to right, rgba(180,130,40,0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(180,130,40,0.06) 1px, transparent 1px);
-}
-/* Vignette flips polarity: a warm sunlit glow, not darkness. */
-body.aurora-theme-light .aurora-app .aurora-vignette {
+
+/* ── Token block: FROSTED SILICON (cobalt) ── */
+body.aurora-theme-frost .aurora-app {
+  --aurora-bg-base:      #F4F7F9;
+  --aurora-bg-surface:   #FFFFFF;
+  --aurora-bg-elevated:  #FFFFFF;
+  --aurora-text-primary:    #14253E;
+  --aurora-text-secondary:  #51607A;
+  --aurora-text-tertiary:   #8595AC;
+  --aurora-text-dark:       #0E1622;
+  --aurora-accent:         #0052FF;
+  --aurora-accent-glow:    #3B82F6;
+  --aurora-accent-deep:    #003BBE;
+  --aurora-accent-rgb:      0,82,255;
+  --aurora-glow-rgb:        59,130,246;
+  --aurora-deep-rgb:        0,59,190;
+  --aurora-ink-rgb:         20,37,62;
+  --aurora-shadow-rgb:      18,42,84;
+  --aurora-grid-rgb:        0,82,255;
+  --aurora-tint-rgb:        130,160,210;
+  --aurora-user-bubble:     #E8F0FE;
+  --aurora-tick:            rgba(0,82,255,0.80);
+  --aurora-radar-filter:    hue-rotate(15deg) saturate(1.8) brightness(0.85);
+  --aurora-accent-08: rgba(0,82,255,0.08);
+  --aurora-accent-20: rgba(0,82,255,0.20);
+  --aurora-accent-35: rgba(0,82,255,0.35);
+  --aurora-accent-55: rgba(0,82,255,0.55);
+  --aurora-accent-75: rgba(0,82,255,0.75);
+  --aurora-state-idle:      #94A3B8;
+  --aurora-state-listening: #0052FF;
+  --aurora-state-thinking:  #7C3AED;
+  --aurora-state-speaking:  #3B82F6;
   background:
-    radial-gradient(80% 70% at 50% 35%, transparent 0%, rgba(205,160,70,0.12) 95%),
-    radial-gradient(50% 40% at 50% 100%, rgba(205,160,70,0.14), transparent 70%);
+    radial-gradient(ellipse at 50% 30%, #FFFFFF 0%, #F4F7F9 60%, #E9EFF5 100%);
 }
 
-/* ── Topbar chrome ── */
-body.aurora-theme-light .aurora-app .aurora-top-bar { text-shadow: none; }
-body.aurora-theme-light .aurora-app .aurora-top-bar .aurora-sep {
-  background: rgba(26,35,51,0.30);
+/* ── Shared bright re-skins (token-driven) ── */
+body.aurora-theme-bright .aurora-app::before {
+  background-image:
+    linear-gradient(to right, rgba(var(--aurora-grid-rgb),0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(var(--aurora-grid-rgb),0.06) 1px, transparent 1px);
 }
-body.aurora-theme-light .aurora-app .aurora-icon-btn {
-  background: rgba(26,35,51,0.04);
-  border-color: rgba(26,35,51,0.14);
-  color: rgba(26,35,51,0.55);
-}
-body.aurora-theme-light .aurora-app .aurora-icon-btn:hover {
-  background: rgba(217,119,6,0.10);
-  border-color: rgba(217,119,6,0.40);
-  color: #B45309;
-}
-body.aurora-theme-light .aurora-app .aurora-pro-pill {
-  background: linear-gradient(135deg, rgba(245,158,11,0.16), rgba(217,119,6,0.08));
-  border-color: rgba(217,119,6,0.40);
-  color: #B45309;
-  box-shadow: 0 8px 24px rgba(217,119,6,0.12);
-}
-body.aurora-theme-light .aurora-app .aurora-signin-pill {
-  background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(217,119,6,0.10));
-  border-color: rgba(217,119,6,0.45);
-}
-body.aurora-theme-light .aurora-app .aurora-logo-mark .aurora-pip {
-  background: #F59E0B;
-  box-shadow: 0 0 12px rgba(245,158,11,0.8);
+body.aurora-theme-bright .aurora-app .aurora-vignette {
+  background:
+    radial-gradient(80% 70% at 50% 35%, transparent 0%, rgba(var(--aurora-tint-rgb),0.12) 95%),
+    radial-gradient(50% 40% at 50% 100%, rgba(var(--aurora-tint-rgb),0.14), transparent 70%);
 }
 
-/* ── Composer (chat bar) ── */
-body.aurora-theme-light .aurora-app .aurora-chat-bar {
+/* Topbar chrome */
+body.aurora-theme-bright .aurora-app .aurora-top-bar { text-shadow: none; }
+body.aurora-theme-bright .aurora-app .aurora-top-bar .aurora-sep {
+  background: rgba(var(--aurora-ink-rgb),0.30);
+}
+body.aurora-theme-bright .aurora-app .aurora-icon-btn {
+  background: rgba(var(--aurora-ink-rgb),0.04);
+  border-color: rgba(var(--aurora-ink-rgb),0.14);
+  color: rgba(var(--aurora-ink-rgb),0.55);
+}
+body.aurora-theme-bright .aurora-app .aurora-pro-pill {
+  background: linear-gradient(135deg, rgba(var(--aurora-glow-rgb),0.16), rgba(var(--aurora-accent-rgb),0.08));
+  border-color: rgba(var(--aurora-accent-rgb),0.40);
+  color: var(--aurora-accent-deep);
+  box-shadow: 0 8px 24px rgba(var(--aurora-accent-rgb),0.12);
+}
+body.aurora-theme-bright .aurora-app .aurora-signin-pill {
+  background: linear-gradient(135deg, rgba(var(--aurora-glow-rgb),0.22), rgba(var(--aurora-accent-rgb),0.10));
+  border-color: rgba(var(--aurora-accent-rgb),0.45);
+}
+body.aurora-theme-bright .aurora-app .aurora-logo-mark .aurora-pip {
+  background: var(--aurora-accent-glow);
+  box-shadow: 0 0 12px rgba(var(--aurora-glow-rgb),0.8);
+}
+
+/* Composer */
+body.aurora-theme-bright .aurora-app .aurora-chat-bar {
   background: rgba(255,255,255,0.70);
-  border-color: rgba(26,35,51,0.14);
+  border-color: rgba(var(--aurora-ink-rgb),0.14);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
-    inset 0 -0.5px 0 rgba(26,35,51,0.06),
-    0 18px 50px rgba(86,60,10,0.14),
-    0 4px 12px rgba(86,60,10,0.08);
+    inset 0 -0.5px 0 rgba(var(--aurora-ink-rgb),0.06),
+    0 18px 50px rgba(var(--aurora-shadow-rgb),0.14),
+    0 4px 12px rgba(var(--aurora-shadow-rgb),0.08);
 }
-body.aurora-theme-light.aurora-typing .aurora-app .aurora-chat-bar {
+body.aurora-theme-bright.aurora-typing .aurora-app .aurora-chat-bar {
   background: rgba(255,255,255,0.85);
-  border-color: rgba(217,119,6,0.45);
+  border-color: rgba(var(--aurora-accent-rgb),0.45);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,1),
-    0 22px 60px rgba(86,60,10,0.16),
-    0 0 0 3px rgba(217,119,6,0.07);
+    0 22px 60px rgba(var(--aurora-shadow-rgb),0.16),
+    0 0 0 3px rgba(var(--aurora-accent-rgb),0.07);
 }
-/* THE yellow dot — the breathing pip in the composer. */
-body.aurora-theme-light .aurora-app .aurora-pip-mark .aurora-pip {
-  background: #F59E0B;
-  box-shadow: 0 0 14px rgba(245,158,11,0.9);
+body.aurora-theme-bright .aurora-app .aurora-pip-mark .aurora-pip {
+  background: var(--aurora-accent-glow);
+  box-shadow: 0 0 14px rgba(var(--aurora-glow-rgb),0.9);
 }
-body.aurora-theme-light .aurora-app .aurora-pip-mark .aurora-ring {
-  border-color: rgba(180,116,9,0.40);
+body.aurora-theme-bright .aurora-app .aurora-pip-mark .aurora-ring {
+  border-color: rgba(var(--aurora-deep-rgb),0.40);
+}
+body.aurora-theme-bright .aurora-app .aurora-mic-btn,
+body.aurora-theme-bright .aurora-app .aurora-cam-btn {
+  border-color: rgba(var(--aurora-accent-rgb),0.60);
+  color: var(--aurora-accent-glow);
 }
 
-/* ── Widgets + history rail ── */
-body.aurora-theme-light .aurora-app .aurora-widget,
-body.aurora-theme-light .aurora-app .aurora-rail-card {
+/* Widgets + history rail */
+body.aurora-theme-bright .aurora-app .aurora-widget,
+body.aurora-theme-bright .aurora-app .aurora-rail-card {
   background: rgba(255,255,255,0.75);
-  border-color: rgba(26,35,51,0.10);
+  border-color: rgba(var(--aurora-ink-rgb),0.10);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
-    0 12px 36px rgba(86,60,10,0.10),
-    0 2px 8px rgba(86,60,10,0.06);
+    0 12px 36px rgba(var(--aurora-shadow-rgb),0.10),
+    0 2px 8px rgba(var(--aurora-shadow-rgb),0.06);
+}
+body.aurora-theme-bright .aurora-app .aurora-new-chat {
+  background: linear-gradient(135deg, var(--aurora-accent-glow), var(--aurora-accent));
+  border-color: rgba(var(--aurora-deep-rgb),0.55);
+  color: #FFFFFF;
+  box-shadow: 0 8px 24px rgba(var(--aurora-accent-rgb),0.30);
+}
+body.aurora-theme-bright .aurora-app .aurora-new-chat:hover {
+  filter: brightness(1.07);
+}
+body.aurora-theme-bright .aurora-app .aurora-footer-info {
+  color: rgba(var(--aurora-ink-rgb),0.45);
 }
 
-/* ── Chat bubbles ── */
-body.aurora-theme-light .aurora-app .aurora-msg .aurora-bubble {
-  background: rgba(255,255,255,0.92);
-  border-color: rgba(26,35,51,0.12);
+/* Telemetry blocks — bright re-skin: white glass, ink text, accent
+   ticks. The asymmetric geometry comes from the base rules. */
+body.aurora-theme-bright .aurora-app .aurora-msg .aurora-bubble {
+  background: rgba(255,255,255,0.66);
+  border-color: rgba(var(--aurora-ink-rgb),0.16);
+  color: var(--aurora-text-primary);
   box-shadow:
     inset 0 0.5px 0 rgba(255,255,255,0.9),
-    0 10px 30px rgba(86,60,10,0.10);
+    0 10px 30px rgba(var(--aurora-shadow-rgb),0.10);
 }
-body.aurora-theme-light .aurora-app .aurora-msg.aurora-user .aurora-bubble {
-  background: #FCF1DE; /* warm gold-tinted paper for the user's words */
+body.aurora-theme-bright .aurora-app .aurora-msg.aurora-user .aurora-bubble {
+  background: var(--aurora-user-bubble);
 }
-body.aurora-theme-light .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble {
-  background: rgba(255,255,255,0.92);
+body.aurora-theme-bright .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble {
+  background: rgba(255,255,255,0.66);
+}
+body.aurora-theme-bright .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble i,
+body.aurora-theme-bright .aurora-app .aurora-bubble.aurora-typing-bubble i {
+  background: rgba(var(--aurora-ink-rgb),0.85);
+}
+body.aurora-theme-bright .aurora-app .aurora-msg .aurora-msg-stamp {
+  color: rgba(var(--aurora-deep-rgb),0.75);
 }
 
-/* ── Voice stage: ring, radar, texts go gold ── */
-body.aurora-theme-light .aurora-app .aurora-stage-ring-inner {
-  border-color: rgba(217,119,6,0.65);
+/* Voice stage: ring, radar, texts */
+body.aurora-theme-bright .aurora-app .aurora-stage-ring-inner {
+  border-color: rgba(var(--aurora-accent-rgb),0.65);
   box-shadow:
-    0 0 40px rgba(217,119,6,0.30),
-    0 0 80px rgba(245,158,11,0.16),
-    inset 0 0 36px rgba(245,158,11,0.12);
+    0 0 40px rgba(var(--aurora-accent-rgb),0.30),
+    0 0 80px rgba(var(--aurora-glow-rgb),0.16),
+    inset 0 0 36px rgba(var(--aurora-glow-rgb),0.12);
 }
-body.aurora-theme-light .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-ring-inner,
-body.aurora-theme-light .aurora-app .aurora-stage-ring.is-listening .aurora-stage-ring-inner {
-  border-color: rgba(180,83,9,0.85);
+body.aurora-theme-bright .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-ring-inner,
+body.aurora-theme-bright .aurora-app .aurora-stage-ring.is-listening .aurora-stage-ring-inner {
+  border-color: rgba(var(--aurora-deep-rgb),0.85);
   box-shadow:
-    0 0 50px rgba(217,119,6,0.40),
-    inset 0 0 50px rgba(245,158,11,0.18);
+    0 0 50px rgba(var(--aurora-accent-rgb),0.40),
+    inset 0 0 50px rgba(var(--aurora-glow-rgb),0.18);
 }
-/* The radar tick-ring / echo / sweep are hardcoded cyan conic
-   gradients (12 stops) — rather than re-declaring them, rotate the
-   hue: cyan (~205°) lands on amber after ~150° back-rotation, then
-   darken so it reads on white. */
-body.aurora-theme-light .aurora-app .aurora-stage-radar {
-  filter: hue-rotate(190deg) saturate(1.5) brightness(0.72)
-          drop-shadow(0 0 calc(6px + var(--audio-level, 0) * 12px) rgba(217,119,6, calc(0.40 + var(--audio-level, 0) * 0.35)));
+/* The radar/echo/sweep are hardcoded cyan conic gradients (12 stops)
+   — rather than re-declaring them, rotate the rendered hue into the
+   theme accent and darken so it reads on white. */
+body.aurora-theme-bright .aurora-app .aurora-stage-radar {
+  filter: var(--aurora-radar-filter)
+          drop-shadow(0 0 calc(6px + var(--audio-level, 0) * 12px) rgba(var(--aurora-accent-rgb), calc(0.40 + var(--audio-level, 0) * 0.35)));
 }
-body.aurora-theme-light .aurora-app .aurora-stage-echo,
-body.aurora-theme-light .aurora-app .aurora-stage-sweep {
-  filter: hue-rotate(190deg) saturate(1.5) brightness(0.72);
+body.aurora-theme-bright .aurora-app .aurora-stage-echo,
+body.aurora-theme-bright .aurora-app .aurora-stage-sweep {
+  filter: var(--aurora-radar-filter);
 }
-body.aurora-theme-light .aurora-app .aurora-stage-clock {
-  color: rgba(146,98,12,0.85);
+body.aurora-theme-bright .aurora-app .aurora-stage-clock {
+  color: rgba(var(--aurora-deep-rgb),0.85);
   text-shadow: none;
 }
-body.aurora-theme-light .aurora-app .aurora-stage-status {
-  color: rgba(146,98,12,0.90);
+body.aurora-theme-bright .aurora-app .aurora-stage-status {
+  color: rgba(var(--aurora-deep-rgb),0.90);
   text-shadow: none;
 }
-body.aurora-theme-light .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-status {
-  color: #B45309;
+body.aurora-theme-bright .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-status {
+  color: var(--aurora-accent-deep);
 }
-body.aurora-theme-light .aurora-app .aurora-stage-brand {
-  color: rgba(146,98,12,0.50);
+body.aurora-theme-bright .aurora-app .aurora-stage-brand {
+  color: rgba(var(--aurora-deep-rgb),0.50);
 }
-body.aurora-theme-light .aurora-app .aurora-stage-text {
-  color: #1A2333;
+body.aurora-theme-bright .aurora-app .aurora-stage-text {
+  color: var(--aurora-text-primary);
   text-shadow:
-    0 0 22px rgba(245,158,11,0.30),
-    0 0 44px rgba(245,158,11,0.14);
+    0 0 22px rgba(var(--aurora-glow-rgb),0.30),
+    0 0 44px rgba(var(--aurora-glow-rgb),0.14);
 }
 
-/* ── Tony's briefing card (infocard) ── */
-body.aurora-theme-light .aurora-app .aurora-infocard {
+/* Tony's briefing card (infocard) */
+body.aurora-theme-bright .aurora-app .aurora-infocard {
   background: rgba(255,255,255,0.94);
-  border-color: rgba(217,119,6,0.35);
+  border-color: rgba(var(--aurora-accent-rgb),0.35);
   box-shadow:
     inset 0 0.5px 0 rgba(255,255,255,0.95),
-    0 24px 60px rgba(86,60,10,0.18),
-    0 0 36px rgba(217,119,6,0.10);
-  color: #1A2333;
+    0 24px 60px rgba(var(--aurora-shadow-rgb),0.18),
+    0 0 36px rgba(var(--aurora-accent-rgb),0.10);
+  color: var(--aurora-text-primary);
 }
-body.aurora-theme-light .aurora-app .aurora-infocard-title,
-body.aurora-theme-light .aurora-app .aurora-infocard-facts-title,
-body.aurora-theme-light .aurora-app .aurora-infocard-stat-label,
-body.aurora-theme-light .aurora-app .aurora-infocard-compare-title { color: #B45309; }
-body.aurora-theme-light .aurora-app .aurora-infocard-description,
-body.aurora-theme-light .aurora-app .aurora-infocard-facts-row,
-body.aurora-theme-light .aurora-app .aurora-infocard-quote-text,
-body.aurora-theme-light .aurora-app .aurora-infocard-stat-big { color: rgba(26,35,51,0.88); }
-body.aurora-theme-light .aurora-app .aurora-infocard-source,
-body.aurora-theme-light .aurora-app .aurora-infocard-stat-sub,
-body.aurora-theme-light .aurora-app .aurora-infocard-quote-attr { color: rgba(26,35,51,0.55); }
-body.aurora-theme-light .aurora-app .aurora-infocard-ask-more {
-  color: #B45309;
-  border-color: rgba(217,119,6,0.40);
+body.aurora-theme-bright .aurora-app .aurora-infocard-title,
+body.aurora-theme-bright .aurora-app .aurora-infocard-facts-title,
+body.aurora-theme-bright .aurora-app .aurora-infocard-stat-label,
+body.aurora-theme-bright .aurora-app .aurora-infocard-compare-title { color: var(--aurora-accent-deep); }
+body.aurora-theme-bright .aurora-app .aurora-infocard-description,
+body.aurora-theme-bright .aurora-app .aurora-infocard-facts-row,
+body.aurora-theme-bright .aurora-app .aurora-infocard-quote-text,
+body.aurora-theme-bright .aurora-app .aurora-infocard-stat-big { color: rgba(var(--aurora-ink-rgb),0.88); }
+body.aurora-theme-bright .aurora-app .aurora-infocard-source,
+body.aurora-theme-bright .aurora-app .aurora-infocard-stat-sub,
+body.aurora-theme-bright .aurora-app .aurora-infocard-quote-attr { color: rgba(var(--aurora-ink-rgb),0.55); }
+body.aurora-theme-bright .aurora-app .aurora-infocard-ask-more {
+  color: var(--aurora-accent-deep);
+  border-color: rgba(var(--aurora-accent-rgb),0.40);
 }
 
-/* ── Sign-up modal ── */
-body.aurora-theme-light .aurora-signup-card {
+/* Sign-up modal */
+body.aurora-theme-bright .aurora-signup-card {
   background: rgba(255,255,255,0.97);
-  border-color: rgba(26,35,51,0.12);
+  border-color: rgba(var(--aurora-ink-rgb),0.12);
   box-shadow:
-    0 30px 80px rgba(86,60,10,0.22),
-    0 0 100px rgba(217,119,6,0.08);
+    0 30px 80px rgba(var(--aurora-shadow-rgb),0.22),
+    0 0 100px rgba(var(--aurora-accent-rgb),0.08);
 }
-body.aurora-theme-light .aurora-signup-card,
-body.aurora-theme-light .aurora-signup-title { color: #1A2333; }
-body.aurora-theme-light .aurora-signup-sub,
-body.aurora-theme-light .aurora-signup-tos { color: rgba(26,35,51,0.55); }
-body.aurora-theme-light .aurora-signup-field {
-  background: rgba(26,35,51,0.045);
-  border-color: rgba(26,35,51,0.14);
+body.aurora-theme-bright .aurora-signup-card,
+body.aurora-theme-bright .aurora-signup-title { color: var(--aurora-text-primary, #1A2333); }
+body.aurora-theme-bright .aurora-signup-sub,
+body.aurora-theme-bright .aurora-signup-tos { color: rgba(var(--aurora-ink-rgb, 26,35,51),0.55); }
+body.aurora-theme-bright .aurora-signup-field {
+  background: rgba(var(--aurora-ink-rgb, 26,35,51),0.045);
+  border-color: rgba(var(--aurora-ink-rgb, 26,35,51),0.14);
 }
-body.aurora-theme-light .aurora-signup-field input { color: #1A2333; }
-body.aurora-theme-light .aurora-signup-field input::placeholder { color: rgba(26,35,51,0.40); }
-body.aurora-theme-light .aurora-signup-divider { color: rgba(26,35,51,0.40); }
+body.aurora-theme-bright .aurora-signup-field input { color: #1A2333; }
+body.aurora-theme-bright .aurora-signup-field input::placeholder { color: rgba(26,35,51,0.40); }
+body.aurora-theme-bright .aurora-signup-divider { color: rgba(26,35,51,0.40); }
 
-/* Light theme — primary CTA goes gold (it was a dark pill whose label
-   reads var(--text-primary), i.e. ink-on-dark mud in light mode). */
-body.aurora-theme-light .aurora-app .aurora-new-chat {
-  background: linear-gradient(135deg, #F59E0B, #D97706);
-  border-color: rgba(180,83,9,0.55);
-  color: #FFFFFF;
-  box-shadow: 0 8px 24px rgba(217,119,6,0.30);
+/* ═══════════════════════════════════════════════════════════════════
+   COMPOSER MORPH — visual continuity into voice mode. Instead of the
+   bar fading in place, it flies up toward the stage center and
+   shrinks into a dot while the orb wakes — one continuous object.
+   transform + opacity only (compositor-friendly; no layout work,
+   no battery burn on the weak MacBook).                              */
+/* The bar's entrance (aurora-rise … forwards) pins opacity/transform
+   at animation priority, so a transition can never move it — the
+   morph must live in the animation slot too, REPLACING aurora-rise
+   while voice mode is on. Exiting voice mode re-applies aurora-rise
+   (a name change restarts it), so the bar gracefully rises back in. */
+@keyframes aurora-chatbar-morph {
+  from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(calc(-53vh + 60px)) scale(0.07); }
 }
-body.aurora-theme-light .aurora-app .aurora-new-chat:hover {
-  background: linear-gradient(135deg, #FBAD24, #E28209);
+body.aurora-active .aurora-chat-bar {
+  pointer-events: none;
+  animation: aurora-chatbar-morph 560ms cubic-bezier(.45,.05,.25,1) forwards;
 }
-/* Footer watermark was white-on-white. */
-body.aurora-theme-light .aurora-app .aurora-footer-info {
-  color: rgba(26,35,51,0.45);
+@media (prefers-reduced-motion: reduce) {
+  body.aurora-active .aurora-chat-bar {
+    animation: none;
+    opacity: 0;
+  }
 }
-/* Mic + camera buttons keep their dark cores (strong contrast anchors
-   on the bright canvas) but their rims/glows go gold instead of cyan. */
-body.aurora-theme-light .aurora-app .aurora-mic-btn,
-body.aurora-theme-light .aurora-app .aurora-cam-btn {
-  border-color: rgba(217,119,6,0.60);
-  color: #FDE68A;
+
+/* ═══════════════════════════════════════════════════════════════════
+   AEROSPACE ORANGE — #FF5A00 hover/active accents on interactive
+   targets, ALL themes (high-visibility focal anchors; pairs with
+   both the cyan void and the bright accents).                        */
+.aurora-app {
+  --aurora-hot: #FF5A00;
+  --aurora-hot-rgb: 255,90,0;
+}
+.aurora-app .aurora-icon-btn:hover,
+.aurora-app .aurora-icon-btn:focus-visible {
+  background: rgba(var(--aurora-hot-rgb),0.10);
+  border-color: rgba(var(--aurora-hot-rgb),0.65);
+  color: var(--aurora-hot);
+}
+.aurora-app .aurora-send-btn:hover:not(:disabled) {
+  border-color: rgba(var(--aurora-hot-rgb),0.70);
+  box-shadow: 0 0 16px rgba(var(--aurora-hot-rgb),0.30);
+}
+.aurora-app .aurora-mic-btn:hover,
+.aurora-app .aurora-cam-btn:hover {
+  border-color: rgba(var(--aurora-hot-rgb),0.70);
+  box-shadow: 0 0 18px rgba(var(--aurora-hot-rgb),0.35);
+}
+.aurora-app .aurora-signin-pill:hover,
+.aurora-app .aurora-pro-pill:hover {
+  border-color: rgba(var(--aurora-hot-rgb),0.60);
+}
+.aurora-app .aurora-new-chat:hover {
+  box-shadow: 0 8px 24px rgba(var(--aurora-hot-rgb),0.25);
 }
