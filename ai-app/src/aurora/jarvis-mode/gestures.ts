@@ -58,6 +58,13 @@ export interface CursorState {
    *  Drives proximity feedback: tabs glow brighter as the grab nears
    *  (Ultraleap-style "light up on approach"). */
   pinchStrength: number;
+  /** Index extended, other fingers curled — the "Tony points at a
+   *  hologram" pose. Drives dwell-to-open. */
+  pointing: boolean;
+  /** Openness ratio (avg fingertip↔palm / hand size) — LAB telemetry. */
+  open: number;
+  /** Palm faces the camera (2D winding) — LAB telemetry. */
+  facing: boolean;
 }
 
 export type GestureEvent =
@@ -112,9 +119,21 @@ export const CURSOR_ALPHA = 0.35;
 export const CURSOR_ALPHA_MAX = 0.95;
 /** Raw cursor speed (normalized units/sec) at which alpha hits the ceiling. */
 export const CURSOR_SPEED_FULL = 0.8;
-/** A pinch shorter than this with less travel than TAP_MAX_MOVE is a "tap". */
-export const TAP_MAX_MS = 280;
+/** A pinch shorter than this with less travel than TAP_MAX_MOVE is a "tap".
+ *  Real releases pass slowly through the hysteresis band, so this is
+ *  looser than it looks (280ms classified almost every real tap as a drag). */
+export const TAP_MAX_MS = 380;
 export const TAP_MAX_MOVE = 0.035;
+
+// ── Pointing pose ("Tony points at a hologram"): index extended while
+//    middle/ring/pinky curl toward the palm. Drives dwell-to-open.
+/** Index-tip↔palm / hand-size must exceed this (finger extended). */
+export const POINT_INDEX_MIN = 1.0;
+/** Avg middle/ring/pinky tip↔palm / hand-size must stay under this. */
+export const POINT_CURL_MAX = 0.75;
+/** No pinch-start within this window of a fist pose (the thumb brushes
+ *  the index while a fist forms/opens — that contact is not a pinch). */
+export const PINCH_FIST_GUARD_MS = 300;
 /** ...and shorter than this is a tracking flicker, not a human tap. A
  *  1-frame phantom pinch at 30fps is ~33ms; humans can't pinch+release
  *  under ~70ms. Filters the founder-reported bug where a page opened
@@ -328,6 +347,42 @@ export class GestureEngine {
       // z-depth proxy (a hand pushed toward the camera grows).
       const handSize = dist(hand.landmarks[0], hand.landmarks[9]);
 
+      // ── Hand pose — computed BEFORE the pinch machine because a REAL
+      //    fist presses the thumb against the index, which reads as a
+      //    "pinch" and used to skip fist detection entirely (founder:
+      //    fist→open never fired on camera). poseValid guards degenerate
+      //    frames and the single-point synthetic test hands.
+      const poseValid = handSize >= 0.02;
+      let openAvg = 1; // neutral
+      let indexRatio = 1;
+      let curlAvg = 1;
+      let palmFacing = false;
+      if (poseValid) {
+        const tips = [8, 12, 16, 20];
+        let sum = 0;
+        for (const i of tips) sum += dist(hand.landmarks[i], palm);
+        openAvg = sum / tips.length / handSize;
+        indexRatio = dist(hand.landmarks[8], palm) / handSize;
+        curlAvg =
+          (dist(hand.landmarks[12], palm) +
+            dist(hand.landmarks[16], palm) +
+            dist(hand.landmarks[20], palm)) /
+          3 /
+          handSize;
+        // Facing from 2D winding of wrist→indexMCP × wrist→pinkyMCP —
+        // mirrors when the hand flips over, opposite signs per hand.
+        const v1x = hand.landmarks[5].x - hand.landmarks[0].x;
+        const v1y = hand.landmarks[5].y - hand.landmarks[0].y;
+        const v2x = hand.landmarks[17].x - hand.landmarks[0].x;
+        const v2y = hand.landmarks[17].y - hand.landmarks[0].y;
+        const cross = v1x * v2y - v1y * v2x;
+        palmFacing = hand.id === "Right" ? cross > 0 : cross < 0;
+      }
+      // Fist needs the INDEX curled too — a pointing hand (index out,
+      // rest curled) has a low average but is NOT a fist.
+      const fistPose = poseValid && openAvg < FIST_RATIO && indexRatio < FIST_RATIO;
+      const pointing = poseValid && !s.pinching && indexRatio > POINT_INDEX_MIN && curlAvg < POINT_CURL_MAX;
+
       // ── Cursor smoothing (midpoint of thumb+index reads as "the grab
       //    point"; while open, the index tip alone feels more precise) ──
       const rawX = s.pinching ? (thumb.x + index.x) / 2 : index.x;
@@ -369,8 +424,23 @@ export class GestureEngine {
         // Still warming up — hold the state machine released so the first
         // post-warm-up frame starts clean. No events of any kind.
         s.pinching = false;
-      } else if (!s.pinching && pinchDist < PINCH_ON) {
+      } else if (
+        !s.pinching &&
+        pinchDist < PINCH_ON &&
+        // A forming/opening FIST brushes thumb against index — only read a
+        // pinch when middle/ring/pinky are extended (a deliberate pinch
+        // keeps them out) and no fist pose was seen in the last beat.
+        (!poseValid || (curlAvg > FIST_RATIO && t - s.fistLastSeenT > PINCH_FIST_GUARD_MS))
+      ) {
         s.pinching = true;
+        // SNAP the cursor to the thumb/index midpoint — the raw source
+        // switches from index-tip to midpoint while pinching, and letting
+        // the EMA chase that jump counted as "travel", so real taps were
+        // classified as drags (founder: tap-to-open never fired).
+        s.cx = (thumb.x + index.x) / 2;
+        s.cy = (thumb.y + index.y) / 2;
+        s.rx = s.cx;
+        s.ry = s.cy;
         s.startX = s.cx;
         s.startY = s.cy;
         s.pinchStartT = t;
@@ -438,28 +508,20 @@ export class GestureEngine {
       }
 
       // ── Fist → open: crush-and-release closes the open page view ──
-      // Ratio = avg(non-thumb fingertip ↔ palm-center) / hand size, so it
-      // works at any distance from the camera. The thumb is excluded (it
-      // curls differently). Skipped while pinching (a pinch half-curls the
-      // index) and for degenerate frames (handSize ≈ 0 — also keeps the
-      // synthetic single-point test hands from tripping it).
-      if (!warm || s.pinching || handSize < 0.02) {
+      // Uses the pose computed ABOVE the pinch machine (a real fist's
+      // thumb touches the index, so this must outrank pinch detection).
+      if (!warm || s.pinching || !poseValid) {
         s.fistSince = -1;
         s.fistArmed = false;
         s.palmSince = -1;
       } else {
-        const tips = [8, 12, 16, 20];
-        let avg = 0;
-        for (const i of tips) avg += dist(hand.landmarks[i], palm);
-        avg = avg / tips.length / handSize;
-
-        if (avg < FIST_RATIO) {
+        if (fistPose) {
           if (s.fistSince < 0) s.fistSince = t;
           if (t - s.fistSince >= FIST_HOLD_MS) s.fistArmed = true;
           s.fistLastSeenT = t;
         } else {
           if (
-            avg > OPEN_RATIO &&
+            openAvg > OPEN_RATIO &&
             s.fistArmed &&
             t - s.fistLastSeenT <= FIST_OPEN_WINDOW_MS &&
             t - s.lastFistOpenT > FIST_COOLDOWN_MS
@@ -481,17 +543,9 @@ export class GestureEngine {
         }
 
         // ── Palm-up quick menu: hand open wide, palm toward the camera,
-        //    held still. Facing comes from 2D landmark winding (the cross
-        //    product mirrors when the hand flips over, with opposite
-        //    signs per anatomical hand in mirrored screen space).
-        const v1x = hand.landmarks[5].x - hand.landmarks[0].x;
-        const v1y = hand.landmarks[5].y - hand.landmarks[0].y;
-        const v2x = hand.landmarks[17].x - hand.landmarks[0].x;
-        const v2y = hand.landmarks[17].y - hand.landmarks[0].y;
-        const cross = v1x * v2y - v1y * v2x;
-        const palmFacing = hand.id === "Right" ? cross > 0 : cross < 0;
+        //    held still (facing computed with the pose block above). ──
         const palmStill = Math.hypot(s.vx, s.vy) < PALM_MAX_SPEED;
-        if (avg > OPEN_RATIO && palmFacing && palmStill) {
+        if (openAvg > OPEN_RATIO && palmFacing && palmStill) {
           if (s.palmSince < 0) s.palmSince = t;
           if (t - s.palmSince >= PALM_HOLD_MS && t - s.lastPalmT > PALM_COOLDOWN_MS) {
             events.push({ type: "palm-menu", hand: hand.id, x: s.px, y: s.py });
@@ -508,7 +562,16 @@ export class GestureEngine {
         1,
         Math.max(0, (PINCH_OFF - pinchDist) / (PINCH_OFF - PINCH_ON)),
       );
-      cursors.push({ hand: hand.id, x: s.cx, y: s.cy, pinching: s.pinching, pinchStrength });
+      cursors.push({
+        hand: hand.id,
+        x: s.cx,
+        y: s.cy,
+        pinching: s.pinching,
+        pinchStrength,
+        pointing,
+        open: openAvg,
+        facing: palmFacing,
+      });
     }
 
     // ── Hands that vanished mid-pinch: emit a clean pinch-end so a grabbed

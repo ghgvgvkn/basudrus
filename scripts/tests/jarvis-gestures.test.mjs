@@ -174,10 +174,12 @@ function mkShapedHand(id, x, y, pose /* 'fist' | 'open' */) {
   lm[17] = { x: x + 0.05, y };         // pinky MCP
   // palmCenter ≈ mean of those 5 ≈ (x, y+0.03); handSize ≈ 0.15
   const tipDist = pose === "fist" ? 0.01 : 0.2; // ratio ≈ 0.07 vs ≈ 1.3
-  lm[8] = { x, y: y + 0.03 - tipDist };
-  lm[12] = { x: x + 0.01, y: y + 0.03 - tipDist };
-  lm[16] = { x: x + 0.02, y: y + 0.03 - tipDist };
-  lm[20] = { x: x + 0.03, y: y + 0.03 - tipDist };
+  const indexDist = pose === "point" ? 0.2 : tipDist;
+  const curlDist = pose === "point" ? 0.01 : tipDist;
+  lm[8] = { x, y: y + 0.03 - indexDist };
+  lm[12] = { x: x + 0.01, y: y + 0.03 - curlDist };
+  lm[16] = { x: x + 0.02, y: y + 0.03 - curlDist };
+  lm[20] = { x: x + 0.03, y: y + 0.03 - curlDist };
   // Thumb tip far from index tip so a fist never reads as a pinch.
   lm[4] = { x: x - 0.12, y: y + 0.1 };
   return { id, landmarks: lm };
@@ -298,6 +300,11 @@ function mkSizedPinchHand(id, x, y, scale) {
   lm[0] = { x, y: y + 0.1 * scale }; // wrist — handSize = 0.1·scale
   lm[4] = { x: x - CLOSED / 2, y };
   lm[8] = { x: x + CLOSED / 2, y };
+  // Middle/ring/pinky EXTENDED — a deliberate pinch keeps them out (the
+  // engine refuses pinches with curled fingers: that's a forming fist).
+  lm[12] = { x, y: y - 0.15 * scale };
+  lm[16] = { x: x + 0.01, y: y - 0.15 * scale };
+  lm[20] = { x: x + 0.02, y: y - 0.15 * scale };
   return { id, landmarks: lm };
 }
 {
@@ -333,6 +340,56 @@ function mkSizedPinchHand(id, x, y, scale) {
     for (const e of r.events) if (e.type === "pinch-move") maxSteady = Math.max(maxSteady, e.depth);
   }
   all = t(`steady drag → depth stays ~1 (got ${maxSteady.toFixed(2)})`, maxSteady < 1.1) && all;
+}
+
+// 8h ── REALISTIC fist: thumb pressed against the index (pinchDist ≈ 0,
+//       the way humans actually make fists). Must NOT read as a pinch,
+//       and fist→open must fire. This is the regression test for the
+//       founder's "fist never works on camera" bug.
+{
+  const realFist = (id, x, y) => {
+    const h = mkShapedHand(id, x, y, "fist");
+    h.landmarks[4] = { ...h.landmarks[8] }; // thumb ON index tip
+    return h;
+  };
+  const eng = new GestureEngine();
+  let pinched = false;
+  let opened = false;
+  eng.update({ t: 0, hands: [realFist("Right", 0.5, 0.5)] });
+  const r1 = eng.update({ t: FIST_HOLD_MS + 60, hands: [realFist("Right", 0.5, 0.5)] });
+  const r2 = eng.update({ t: FIST_HOLD_MS + 220, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  for (const r of [r1, r2]) {
+    if (r.events.some((e) => e.type === "pinch-start")) pinched = true;
+    if (r.events.some((e) => e.type === "fist-open")) opened = true;
+  }
+  all = t("realistic fist (thumb on index) → NOT a pinch", !pinched) && all;
+  all = t("realistic fist → open → fist-open fires", opened) && all;
+}
+
+// 8i ── pointing pose: index out, rest curled → cursors report pointing;
+//       open hand and fist don't; un-pointing never fires fist-open.
+{
+  const eng = new GestureEngine();
+  const r1 = eng.update({ t: 0, hands: [mkShapedHand("Right", 0.5, 0.5, "point")] });
+  all = t("index-out pose → pointing cursor", r1.cursors[0]?.pointing === true) && all;
+  const r2 = eng.update({ t: 100, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  all = t("open hand → NOT pointing", r2.cursors[0]?.pointing === false) && all;
+  all = t("point → open never fires fist-open", !r2.events.some((e) => e.type === "fist-open")) && all;
+  const eng2 = new GestureEngine();
+  const r3 = eng2.update({ t: 0, hands: [mkShapedHand("Right", 0.5, 0.5, "fist")] });
+  all = t("fist → NOT pointing", r3.cursors[0]?.pointing === false) && all;
+}
+
+// 8j ── tap snap regression: a perfectly still quick pinch reports ~zero
+//       travel (the cursor-source switch used to count as movement).
+{
+  const eng = new GestureEngine();
+  eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
+  eng.update({ t: 33, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
+  eng.update({ t: 100, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
+  const r = eng.update({ t: 160, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
+  const end = r.events.find((e) => e.type === "pinch-end");
+  all = t(`still tap → travel ≈ 0 (got ${end ? end.moved.toFixed(4) : "none"})`, !!end && end.moved < 0.005) && all;
 }
 
 // 9 ── garbage in → never throws
