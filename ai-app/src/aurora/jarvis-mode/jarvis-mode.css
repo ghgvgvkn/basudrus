@@ -56,19 +56,21 @@
 }
 
 .jarvis-win {
+  /* FUI glass: heavy transparency + heavy blur, whisper of a border —
+     the BRACKETED CORNERS (::after) carry the frame, not the box. */
+  --jbracket: rgba(64, 224, 255, 0.85);
   position: absolute;
   left: 0;
   top: 0;
   width: clamp(220px, 24vw, 340px);
-  border: 1px solid rgba(64, 224, 255, 0.38);
-  border-radius: 12px;
-  background: rgba(4, 14, 22, 0.72);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(64, 224, 255, 0.16);
+  border-radius: 3px;
+  background: rgba(5, 11, 20, 0.38);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    0 0 0 1px rgba(64, 224, 255, 0.08),
     0 12px 40px rgba(0, 0, 0, 0.45),
-    inset 0 0 24px rgba(64, 224, 255, 0.05);
+    inset 0 0 24px rgba(64, 224, 255, 0.04);
   color: #d9f6ff;
   will-change: transform;
   touch-action: none;
@@ -100,36 +102,58 @@
 }
 
 .jarvis-win.is-grabbed {
-  border-color: rgba(255, 96, 168, 0.65);
+  --jbracket: rgba(255, 96, 168, 0.9);
+  border-color: rgba(255, 96, 168, 0.4);
   box-shadow:
-    0 0 0 1px rgba(255, 96, 168, 0.18),
     0 16px 48px rgba(0, 0, 0, 0.55),
     inset 0 0 28px rgba(255, 96, 168, 0.07);
   cursor: grabbing;
 }
 
-/* faint scanline texture for the holo feel — static, zero animation cost */
+/* Bracketed corners + faint scanline texture — one static pseudo,
+   zero animation cost. Eight tiny gradient strokes draw the four
+   corner brackets (FUI rule: corner accents, not bounding boxes);
+   the repeating gradient underneath is the holo scanline. */
 .jarvis-win::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0 3px,
-    rgba(64, 224, 255, 0.025) 3px 4px
-  );
+  background-image:
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    linear-gradient(var(--jbracket), var(--jbracket)),
+    repeating-linear-gradient(to bottom, transparent 0 3px, rgba(64, 224, 255, 0.025) 3px 4px);
+  background-repeat: no-repeat;
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom,
+    0 0;
+  background-size:
+    12px 1px, 1px 12px,
+    12px 1px, 1px 12px,
+    12px 1px, 1px 12px,
+    12px 1px, 1px 12px,
+    100% 100%;
 }
 
 .jarvis-win-chrome {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(64, 224, 255, 0.18);
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(64, 224, 255, 0.12);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: rgba(151, 222, 255, 0.85);
 }
@@ -149,13 +173,13 @@
 }
 .jarvis-win-close {
   flex: none;
-  width: 22px;
-  height: 22px;
-  border: 1px solid rgba(151, 222, 255, 0.35);
-  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(151, 222, 255, 0.3);
+  border-radius: 2px;
   background: transparent;
   color: rgba(151, 222, 255, 0.85);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
@@ -277,12 +301,23 @@
   border: none;
   outline: none;
   resize: none;
-  background: transparent;
   color: rgba(224, 250, 255, 0.95);
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
   caret-color: rgba(64, 224, 255, 0.95);
+  /* Borderless input with a glowing bottom accent line that expands
+     from center on focus — the FUI input signature. Painted as a
+     background gradient so no extra markup is needed. */
+  background-color: transparent;
+  background-image: linear-gradient(to right, rgba(64, 224, 255, 0.9), rgba(64, 224, 255, 0.9));
+  background-repeat: no-repeat;
+  background-position: bottom center;
+  background-size: 0% 1px;
+  transition: background-size 280ms ease;
+}
+.jarvis-note-input:focus {
+  background-size: 100% 1px;
 }
 .jarvis-note-input::placeholder {
   color: rgba(150, 210, 235, 0.45);
@@ -334,8 +369,29 @@
   pointer-events: none;
 }
 
-/* HUD */
-.jarvis-hud {
+/* Telemetry strip — top-left, REAL data only (feed state + tracked
+   hand count, written by the rAF via textContent — no React state). */
+.jarvis-telemetry-strip {
+  position: absolute;
+  top: 20px;
+  left: 18px;
+  padding: 5px 10px;
+  border-left: 2px solid rgba(64, 224, 255, 0.6);
+  background: rgba(5, 11, 20, 0.45);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(151, 222, 255, 0.8);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Gesture guide (bottom-left chip row). NOTE: deliberately NOT named
+   .jarvis-hud — the 3D viewer's stylesheet (src/jarvis/jarvis.css)
+   owns that class as a full-screen frame, and both sheets are loaded
+   when the viewer opens over camera mode. */
+.jarvis-gesture-guide {
   position: absolute;
   left: 16px;
   bottom: 14px;
@@ -347,11 +403,14 @@
 }
 .jarvis-chip {
   padding: 4px 9px;
-  border: 1px solid rgba(64, 224, 255, 0.3);
-  border-radius: 999px;
-  background: rgba(4, 14, 22, 0.6);
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  border: 1px solid rgba(64, 224, 255, 0.22);
+  border-left: 2px solid rgba(64, 224, 255, 0.6);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: rgba(173, 230, 255, 0.85);
   white-space: nowrap;
 }
@@ -362,13 +421,16 @@
 }
 
 .jarvis-privacy {
+  /* Bottom-right, clear of the gesture chips (bottom-left) and below
+     the docked orb ring (which ends ~32px up). */
   position: absolute;
-  left: 50%;
+  right: 18px;
   bottom: 14px;
-  transform: translateX(-50%);
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  color: rgba(151, 222, 255, 0.6);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(151, 222, 255, 0.55);
   pointer-events: none;
   white-space: nowrap;
 }
@@ -378,12 +440,13 @@
   top: 18px;
   right: 18px;
   padding: 8px 14px;
-  border: 1px solid rgba(255, 96, 168, 0.5);
-  border-radius: 999px;
-  background: rgba(4, 14, 22, 0.6);
+  border: 1px solid rgba(255, 96, 168, 0.45);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
   color: #ff9cc7;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
   cursor: pointer;
 }
 .jarvis-exit:hover {
@@ -397,10 +460,12 @@
   transform: translateY(-50%);
   padding: 10px 14px;
   border: 1px dashed rgba(64, 224, 255, 0.45);
-  border-radius: 10px;
-  background: rgba(4, 14, 22, 0.65);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.55);
   color: #9be9ff;
-  font-size: 12px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
 
@@ -418,16 +483,19 @@
 .jarvis-overlay-card {
   max-width: 420px;
   padding: 26px 28px;
-  border: 1px solid rgba(64, 224, 255, 0.35);
-  border-radius: 14px;
-  background: rgba(4, 14, 22, 0.92);
+  border: 1px solid rgba(64, 224, 255, 0.25);
+  border-radius: 3px;
+  background: rgba(5, 11, 20, 0.7);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   text-align: center;
   color: #d9f6ff;
 }
 .jarvis-overlay-card h3 {
   margin: 14px 0 8px;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: 0.06em;
   color: #eafcff;
 }
 .jarvis-overlay-card p {
@@ -445,10 +513,13 @@
 .jarvis-btn {
   padding: 9px 16px;
   border: 1px solid rgba(151, 222, 255, 0.4);
-  border-radius: 999px;
+  border-radius: 2px;
   background: transparent;
   color: #d9f6ff;
-  font-size: 12.5px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
 }
 .jarvis-btn-primary {
@@ -519,8 +590,8 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   align-items: center;
   gap: 14px;
   padding: 12px 22px;
-  border-radius: 999px;
-  background: rgba(4, 14, 22, 0.80);
+  border-radius: 3px;
+  background: rgba(5, 11, 20, 0.6);
   text-align: left;
 }
 .jarvis-overlay.jarvis-overlay-loading .jarvis-loading-copy h3 {
@@ -538,16 +609,33 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
    unmissable. */
 .jarvis-mic-toggle {
   position: absolute;
-  top: 60px;
+  top: 58px;
   right: 18px;
   padding: 8px 14px;
-  border: 1px solid rgba(64, 224, 255, 0.45);
-  border-radius: 999px;
-  background: rgba(4, 14, 22, 0.6);
+  border: 1px solid rgba(64, 224, 255, 0.4);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
   color: #9be8ff;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
   cursor: pointer;
+}
+/* live/muted state dot — replaces the emoji glyphs */
+.jarvis-mic-toggle::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: #40e0ff;
+  box-shadow: 0 0 8px rgba(64, 224, 255, 0.9);
+}
+.jarvis-mic-toggle.is-muted::before {
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.9);
 }
 .jarvis-mic-toggle:hover {
   background: rgba(64, 224, 255, 0.14);

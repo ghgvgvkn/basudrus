@@ -132,6 +132,9 @@ export function JarvisMode({
   const { videoRef, landmarksRef, status, retry } = useHandTracking(true);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
+  // Telemetry strip — written via textContent from the rAF (real hand
+  // count, no per-frame React state).
+  const telemetryRef = useRef<HTMLDivElement | null>(null);
 
   const [windows, setWindows] = useState<HoloWindow[]>([]);
   const [focusMode, setFocusMode] = useState(false);
@@ -595,12 +598,19 @@ export function JarvisMode({
     };
 
     let lastFreshAt = performance.now();
+    let lastHandsShown = -1;
     const loop = () => {
       const now = performance.now();
       const frame = landmarksRef.current;
       if (frame.t !== lastT) {
         lastT = frame.t;
         lastFreshAt = now;
+        // Telemetry strip: real tracked-hand count, DOM write only on change.
+        const hands = frame.hands.length;
+        if (hands !== lastHandsShown && telemetryRef.current) {
+          lastHandsShown = hands;
+          telemetryRef.current.textContent = `OPTICAL FEED · LIVE — HANDS ${hands}`;
+        }
         const { events, cursors } = engine.update(frame);
         lastCursors = cursors;
         for (const e of events) handleEvent(e);
@@ -769,15 +779,22 @@ export function JarvisMode({
         </button>
       )}
 
+      {/* Telemetry strip — real feed state + tracked-hand count */}
+      {status === "running" && (
+        <div ref={telemetryRef} className="jarvis-telemetry-strip" aria-hidden>
+          OPTICAL FEED · LIVE — HANDS 0
+        </div>
+      )}
+
       {/* HUD — gesture guide (bottom-left), privacy note, exit */}
-      <div className="jarvis-hud" aria-hidden>
+      <div className="jarvis-gesture-guide" aria-hidden>
         {gestureChips.map(([k, v]) => (
           <span key={k} className="jarvis-chip">
             <b>{k}</b> {v}
           </span>
         ))}
       </div>
-      <div className="jarvis-privacy">🔒 Hands are read on-device — the camera never uploads anything.</div>
+      <div className="jarvis-privacy">Hands read on-device · camera never uploads</div>
       <button type="button" className="jarvis-exit" onClick={onExit}>
         EXIT JARVIS
       </button>
@@ -792,7 +809,7 @@ export function JarvisMode({
             ? "Camera-only mode — Tony isn't listening. Tap to unmute."
             : "Mute Tony — keep the camera and gestures, no AI listening."}
         >
-          {micMuted ? "🔇 MUTED · CAMERA ONLY" : "🎙 MIC LIVE"}
+          {micMuted ? "MUTED · CAMERA ONLY" : "MIC LIVE"}
         </button>
       )}
 
