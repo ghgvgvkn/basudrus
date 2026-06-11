@@ -309,6 +309,33 @@ export function AuroraAIScreen() {
   const voiceModeActiveRef = useRef(false);
   const [voiceModeActive, setVoiceModeActive] = useState(false);
 
+  // ── THEME (Stark Daylight ⇄ dark void) ──
+  // Founder ask: "I want the website to be white and the dot should be
+  // yellow." Light is the DEFAULT; the dark void stays one click away via
+  // the sun/moon toggle (a pure cream-white was tried once before and
+  // reverted — keeping dark reachable is the insurance policy this time).
+  // CSS reads body.aurora-theme-light; the canvas engine gets the value
+  // as a prop (gold dot palette).
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try {
+      const saved = localStorage.getItem("aurora-theme");
+      return saved === "dark" || saved === "light" ? saved : "light";
+    } catch {
+      return "light";
+    }
+  });
+  useEffect(() => {
+    document.body.classList.toggle("aurora-theme-light", theme === "light");
+    try {
+      localStorage.setItem("aurora-theme", theme);
+    } catch {
+      /* private mode — theme just won't persist */
+    }
+    return () => {
+      document.body.classList.remove("aurora-theme-light");
+    };
+  }, [theme]);
+
   // ── JARVIS MODE (camera + hand gestures) ──
   // Founder spec: an ADDITIVE option inside voice mode — "we're not gonna
   // leave the old option, we're just gonna add a new option." When on, the
@@ -1604,7 +1631,7 @@ export function AuroraAIScreen() {
 
   return (
     <div className="aurora-app">
-      <AuroraCanvas ref={auroraRef} />
+      <AuroraCanvas ref={auroraRef} theme={theme} />
       <div className="aurora-vignette" />
 
       {/* ── @huwprosser JARVIS arc-reactor — appears in VOICE MODE
@@ -2053,6 +2080,27 @@ export function AuroraAIScreen() {
 
         {/* TOP RIGHT — Pro pill (tier-aware) + settings + avatar */}
         <div className="aurora-top-right">
+          {/* Theme toggle — Stark Daylight (white+gold) ⇄ dark void.
+              Sun icon shown in dark mode ("switch to light"), moon in
+              light mode. */}
+          <button
+            className="aurora-icon-btn"
+            type="button"
+            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+          >
+            {theme === "light" ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              </svg>
+            )}
+          </button>
           {isPro ? (
             <div className="aurora-pro-pill aurora-pro-active" title="Pro tier active">
               <svg className="aurora-star" viewBox="0 0 12 12" fill="none">

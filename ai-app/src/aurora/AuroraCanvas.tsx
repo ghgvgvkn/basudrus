@@ -23,9 +23,14 @@ export interface AuroraHandle {
   state: () => AuroraMode;
 }
 
-export const AuroraCanvas = forwardRef<AuroraHandle>((_, ref) => {
+export const AuroraCanvas = forwardRef<AuroraHandle, { theme?: "dark" | "light" }>(({ theme = "dark" }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<AuroraEngine | null>(null);
+  // The engine is created asynchronously (after fonts load), so the
+  // theme effect below may run first — keep the latest value in a ref
+  // and apply it at creation time too.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -37,6 +42,7 @@ export const AuroraCanvas = forwardRef<AuroraHandle>((_, ref) => {
     const start = () => {
       if (cancelled) return;
       engineRef.current = new AuroraEngine(canvas);
+      engineRef.current.setTheme(themeRef.current);
     };
     if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
       document.fonts.ready.then(start).catch(start);
@@ -49,6 +55,10 @@ export const AuroraCanvas = forwardRef<AuroraHandle>((_, ref) => {
       engineRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setTheme(theme);
+  }, [theme]);
 
   useImperativeHandle(ref, () => ({
     activate: () => engineRef.current?.activate(),

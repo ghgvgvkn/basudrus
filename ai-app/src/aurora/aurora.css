@@ -3284,3 +3284,258 @@ body.aurora-presenting .aurora-app .aurora-infocard-hero::before {
     display: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   STARK DAYLIGHT — white + gold light theme (body.aurora-theme-light)
+
+   Founder ask: "I want the website to be white and the dot should be
+   yellow." A pure cream-white was tried once before and reverted
+   ("killed the cinematic tension") — this attempt differs on purpose:
+   the accent flips from electric cyan to GOLD/AMBER (the color of the
+   in-helmet Iron Man HUD), giving the bright canvas its own identity
+   instead of being the dark theme with the lights on. Dark stays one
+   click away via the topbar sun/moon toggle.
+
+   Mechanism: token overrides do the heavy lifting (everything that
+   reads var(--aurora-*) flips automatically); the rules after them
+   re-skin the surfaces that hardcode dark-void colors. The canvas dot
+   field is themed separately in AuroraEngine (DOT_TINTS_LIGHT).      */
+body.aurora-theme-light .aurora-app {
+  --aurora-bg-base:      #FBFAF7;
+  --aurora-bg-surface:   #FFFFFF;
+  --aurora-bg-elevated:  #FFFFFF;
+
+  --aurora-text-primary:    #1A2333;
+  --aurora-text-secondary:  #5A6478;
+  --aurora-text-tertiary:   #8B94A6;
+  --aurora-text-dark:       #0E1622;
+
+  --aurora-accent:         #D97706;  /* gold — readable on white */
+  --aurora-accent-glow:    #F59E0B;
+  --aurora-accent-deep:    #B45309;
+  --aurora-accent-08: rgba(217,119,6,0.08);
+  --aurora-accent-20: rgba(217,119,6,0.20);
+  --aurora-accent-35: rgba(217,119,6,0.35);
+  --aurora-accent-55: rgba(217,119,6,0.55);
+  --aurora-accent-75: rgba(217,119,6,0.75);
+
+  --aurora-state-idle:      #94A3B8;
+  --aurora-state-listening: #D97706;
+  --aurora-state-thinking:  #7C3AED;
+  --aurora-state-speaking:  #F59E0B;
+
+  background:
+    radial-gradient(ellipse at 50% 30%, #FFFFFF 0%, #FAF7F0 60%, #F1EBDD 100%);
+}
+/* Technical grid: faint warm gold instead of faint cyan. */
+body.aurora-theme-light .aurora-app::before {
+  background-image:
+    linear-gradient(to right, rgba(180,130,40,0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(180,130,40,0.06) 1px, transparent 1px);
+}
+/* Vignette flips polarity: a warm sunlit glow, not darkness. */
+body.aurora-theme-light .aurora-app .aurora-vignette {
+  background:
+    radial-gradient(80% 70% at 50% 35%, transparent 0%, rgba(205,160,70,0.12) 95%),
+    radial-gradient(50% 40% at 50% 100%, rgba(205,160,70,0.14), transparent 70%);
+}
+
+/* ── Topbar chrome ── */
+body.aurora-theme-light .aurora-app .aurora-top-bar { text-shadow: none; }
+body.aurora-theme-light .aurora-app .aurora-top-bar .aurora-sep {
+  background: rgba(26,35,51,0.30);
+}
+body.aurora-theme-light .aurora-app .aurora-icon-btn {
+  background: rgba(26,35,51,0.04);
+  border-color: rgba(26,35,51,0.14);
+  color: rgba(26,35,51,0.55);
+}
+body.aurora-theme-light .aurora-app .aurora-icon-btn:hover {
+  background: rgba(217,119,6,0.10);
+  border-color: rgba(217,119,6,0.40);
+  color: #B45309;
+}
+body.aurora-theme-light .aurora-app .aurora-pro-pill {
+  background: linear-gradient(135deg, rgba(245,158,11,0.16), rgba(217,119,6,0.08));
+  border-color: rgba(217,119,6,0.40);
+  color: #B45309;
+  box-shadow: 0 8px 24px rgba(217,119,6,0.12);
+}
+body.aurora-theme-light .aurora-app .aurora-signin-pill {
+  background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(217,119,6,0.10));
+  border-color: rgba(217,119,6,0.45);
+}
+body.aurora-theme-light .aurora-app .aurora-logo-mark .aurora-pip {
+  background: #F59E0B;
+  box-shadow: 0 0 12px rgba(245,158,11,0.8);
+}
+
+/* ── Composer (chat bar) ── */
+body.aurora-theme-light .aurora-app .aurora-chat-bar {
+  background: rgba(255,255,255,0.70);
+  border-color: rgba(26,35,51,0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 0 -0.5px 0 rgba(26,35,51,0.06),
+    0 18px 50px rgba(86,60,10,0.14),
+    0 4px 12px rgba(86,60,10,0.08);
+}
+body.aurora-theme-light.aurora-typing .aurora-app .aurora-chat-bar {
+  background: rgba(255,255,255,0.85);
+  border-color: rgba(217,119,6,0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,1),
+    0 22px 60px rgba(86,60,10,0.16),
+    0 0 0 3px rgba(217,119,6,0.07);
+}
+/* THE yellow dot — the breathing pip in the composer. */
+body.aurora-theme-light .aurora-app .aurora-pip-mark .aurora-pip {
+  background: #F59E0B;
+  box-shadow: 0 0 14px rgba(245,158,11,0.9);
+}
+body.aurora-theme-light .aurora-app .aurora-pip-mark .aurora-ring {
+  border-color: rgba(180,116,9,0.40);
+}
+
+/* ── Widgets + history rail ── */
+body.aurora-theme-light .aurora-app .aurora-widget,
+body.aurora-theme-light .aurora-app .aurora-rail-card {
+  background: rgba(255,255,255,0.75);
+  border-color: rgba(26,35,51,0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 12px 36px rgba(86,60,10,0.10),
+    0 2px 8px rgba(86,60,10,0.06);
+}
+
+/* ── Chat bubbles ── */
+body.aurora-theme-light .aurora-app .aurora-msg .aurora-bubble {
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(26,35,51,0.12);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.9),
+    0 10px 30px rgba(86,60,10,0.10);
+}
+body.aurora-theme-light .aurora-app .aurora-msg.aurora-user .aurora-bubble {
+  background: #FCF1DE; /* warm gold-tinted paper for the user's words */
+}
+body.aurora-theme-light .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble {
+  background: rgba(255,255,255,0.92);
+}
+
+/* ── Voice stage: ring, radar, texts go gold ── */
+body.aurora-theme-light .aurora-app .aurora-stage-ring-inner {
+  border-color: rgba(217,119,6,0.65);
+  box-shadow:
+    0 0 40px rgba(217,119,6,0.30),
+    0 0 80px rgba(245,158,11,0.16),
+    inset 0 0 36px rgba(245,158,11,0.12);
+}
+body.aurora-theme-light .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-ring-inner,
+body.aurora-theme-light .aurora-app .aurora-stage-ring.is-listening .aurora-stage-ring-inner {
+  border-color: rgba(180,83,9,0.85);
+  box-shadow:
+    0 0 50px rgba(217,119,6,0.40),
+    inset 0 0 50px rgba(245,158,11,0.18);
+}
+/* The radar tick-ring / echo / sweep are hardcoded cyan conic
+   gradients (12 stops) — rather than re-declaring them, rotate the
+   hue: cyan (~205°) lands on amber after ~150° back-rotation, then
+   darken so it reads on white. */
+body.aurora-theme-light .aurora-app .aurora-stage-radar {
+  filter: hue-rotate(190deg) saturate(1.5) brightness(0.72)
+          drop-shadow(0 0 calc(6px + var(--audio-level, 0) * 12px) rgba(217,119,6, calc(0.40 + var(--audio-level, 0) * 0.35)));
+}
+body.aurora-theme-light .aurora-app .aurora-stage-echo,
+body.aurora-theme-light .aurora-app .aurora-stage-sweep {
+  filter: hue-rotate(190deg) saturate(1.5) brightness(0.72);
+}
+body.aurora-theme-light .aurora-app .aurora-stage-clock {
+  color: rgba(146,98,12,0.85);
+  text-shadow: none;
+}
+body.aurora-theme-light .aurora-app .aurora-stage-status {
+  color: rgba(146,98,12,0.90);
+  text-shadow: none;
+}
+body.aurora-theme-light .aurora-app .aurora-stage-ring.is-speaking .aurora-stage-status {
+  color: #B45309;
+}
+body.aurora-theme-light .aurora-app .aurora-stage-brand {
+  color: rgba(146,98,12,0.50);
+}
+body.aurora-theme-light .aurora-app .aurora-stage-text {
+  color: #1A2333;
+  text-shadow:
+    0 0 22px rgba(245,158,11,0.30),
+    0 0 44px rgba(245,158,11,0.14);
+}
+
+/* ── Tony's briefing card (infocard) ── */
+body.aurora-theme-light .aurora-app .aurora-infocard {
+  background: rgba(255,255,255,0.94);
+  border-color: rgba(217,119,6,0.35);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255,255,255,0.95),
+    0 24px 60px rgba(86,60,10,0.18),
+    0 0 36px rgba(217,119,6,0.10);
+  color: #1A2333;
+}
+body.aurora-theme-light .aurora-app .aurora-infocard-title,
+body.aurora-theme-light .aurora-app .aurora-infocard-facts-title,
+body.aurora-theme-light .aurora-app .aurora-infocard-stat-label,
+body.aurora-theme-light .aurora-app .aurora-infocard-compare-title { color: #B45309; }
+body.aurora-theme-light .aurora-app .aurora-infocard-description,
+body.aurora-theme-light .aurora-app .aurora-infocard-facts-row,
+body.aurora-theme-light .aurora-app .aurora-infocard-quote-text,
+body.aurora-theme-light .aurora-app .aurora-infocard-stat-big { color: rgba(26,35,51,0.88); }
+body.aurora-theme-light .aurora-app .aurora-infocard-source,
+body.aurora-theme-light .aurora-app .aurora-infocard-stat-sub,
+body.aurora-theme-light .aurora-app .aurora-infocard-quote-attr { color: rgba(26,35,51,0.55); }
+body.aurora-theme-light .aurora-app .aurora-infocard-ask-more {
+  color: #B45309;
+  border-color: rgba(217,119,6,0.40);
+}
+
+/* ── Sign-up modal ── */
+body.aurora-theme-light .aurora-signup-card {
+  background: rgba(255,255,255,0.97);
+  border-color: rgba(26,35,51,0.12);
+  box-shadow:
+    0 30px 80px rgba(86,60,10,0.22),
+    0 0 100px rgba(217,119,6,0.08);
+}
+body.aurora-theme-light .aurora-signup-card,
+body.aurora-theme-light .aurora-signup-title { color: #1A2333; }
+body.aurora-theme-light .aurora-signup-sub,
+body.aurora-theme-light .aurora-signup-tos { color: rgba(26,35,51,0.55); }
+body.aurora-theme-light .aurora-signup-field {
+  background: rgba(26,35,51,0.045);
+  border-color: rgba(26,35,51,0.14);
+}
+body.aurora-theme-light .aurora-signup-field input { color: #1A2333; }
+body.aurora-theme-light .aurora-signup-field input::placeholder { color: rgba(26,35,51,0.40); }
+body.aurora-theme-light .aurora-signup-divider { color: rgba(26,35,51,0.40); }
+
+/* Light theme — primary CTA goes gold (it was a dark pill whose label
+   reads var(--text-primary), i.e. ink-on-dark mud in light mode). */
+body.aurora-theme-light .aurora-app .aurora-new-chat {
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  border-color: rgba(180,83,9,0.55);
+  color: #FFFFFF;
+  box-shadow: 0 8px 24px rgba(217,119,6,0.30);
+}
+body.aurora-theme-light .aurora-app .aurora-new-chat:hover {
+  background: linear-gradient(135deg, #FBAD24, #E28209);
+}
+/* Footer watermark was white-on-white. */
+body.aurora-theme-light .aurora-app .aurora-footer-info {
+  color: rgba(26,35,51,0.45);
+}
+/* Mic + camera buttons keep their dark cores (strong contrast anchors
+   on the bright canvas) but their rims/glows go gold instead of cyan. */
+body.aurora-theme-light .aurora-app .aurora-mic-btn,
+body.aurora-theme-light .aurora-app .aurora-cam-btn {
+  border-color: rgba(217,119,6,0.60);
+  color: #FDE68A;
+}

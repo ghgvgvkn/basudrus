@@ -106,6 +106,23 @@ const DOT_TINTS: Record<DotTint, { fill: string; shadow: string }> = {
 };
 
 /**
+ * Light-theme twin of DOT_TINTS — the founder's "white website,
+ * yellow dot" ask. On the warm-white daylight background the field
+ * flips polarity: the bulk tint becomes deep GOLD (dark enough to
+ * read on white) and the punctuation tints become warm siblings
+ * (burnt orange / bronze / violet / bright amber). Same keys, so a
+ * dot keeps its tint category across theme switches and only the
+ * lookup table swaps.
+ */
+const DOT_TINTS_LIGHT: Record<DotTint, { fill: string; shadow: string }> = {
+  white:  { fill: "176,108,10",  shadow: "rgba(245,158,11,0.55)" },
+  pink:   { fill: "194,65,12",   shadow: "rgba(234,88,12,0.50)" },
+  cyan:   { fill: "146,64,14",   shadow: "rgba(180,83,9,0.50)" },
+  purple: { fill: "109,40,217",  shadow: "rgba(139,92,246,0.45)" },
+  gold:   { fill: "217,119,6",   shadow: "rgba(245,158,11,0.65)" },
+};
+
+/**
  * Weighted random tint picker. Most dots are white (the field
  * should read as a coherent grid first, with colored "punctuation"
  * second). Total weights = 100 for easy mental math:
@@ -199,6 +216,12 @@ export class AuroraEngine {
    *  second — multiplied by an orb mode that draws thousands of
    *  dots that's still wasted CPU we can skip entirely. */
   private paused = false;
+
+  /** Active color theme. "dark" = original void palette; "light" =
+   *  Stark Daylight (white site, gold dots). Swapped live via
+   *  setTheme() — dots keep their tint categories, only the color
+   *  tables change, so a theme flip costs nothing per frame. */
+  private theme: "dark" | "light" = "dark";
 
   // Frame-rate throttling so the canvas doesn't burn 144 Hz on a
   // gaming monitor when the visuals only need 30 fps to look smooth.
@@ -313,6 +336,10 @@ export class AuroraEngine {
 
   state(): AuroraMode {
     return this.mode;
+  }
+
+  setTheme(theme: "dark" | "light"): void {
+    this.theme = theme;
   }
 
   destroy(): void {
@@ -501,6 +528,12 @@ export class AuroraEngine {
     const cx = this.W / 2;
     const cy = this.H / 2;
 
+    // Theme-dependent colors, resolved ONCE per frame (never inside
+    // the ~4000-dot hot loop). `tints` swaps the whole dot palette;
+    // `lite` gates the handful of hardcoded accents below.
+    const lite = this.theme === "light";
+    const tints = lite ? DOT_TINTS_LIGHT : DOT_TINTS;
+
     // Prune expired pulses/ghosts
     this.pulses = this.pulses.filter((pl) => now - pl.born < pl.ttl);
     this.ghosts = this.ghosts.filter((g) => now - g.born < g.ttl);
@@ -510,8 +543,13 @@ export class AuroraEngine {
       const orbA = Math.min(1, (globalMix - 0.3) / 0.7);
       const R = Math.min(this.W, this.H) * 0.22;
       const grd = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.5);
-      grd.addColorStop(0, `rgba(200,180,255,${0.10 * orbA})`);
-      grd.addColorStop(0.3, `rgba(255,138,166,${0.05 * orbA})`);
+      if (lite) {
+        grd.addColorStop(0, `rgba(245,158,11,${0.08 * orbA})`);
+        grd.addColorStop(0.3, `rgba(217,119,6,${0.04 * orbA})`);
+      } else {
+        grd.addColorStop(0, `rgba(200,180,255,${0.10 * orbA})`);
+        grd.addColorStop(0.3, `rgba(255,138,166,${0.05 * orbA})`);
+      }
       grd.addColorStop(1, `rgba(255,255,255,0)`);
       ctx.fillStyle = grd;
       ctx.fillRect(0, 0, this.W, this.H);
@@ -630,7 +668,7 @@ export class AuroraEngine {
       // table-driven lookup keeps the hot loop branch-free —
       // important because this runs once per dot per frame across
       // ~4000 dots.
-      const palette = DOT_TINTS[d.tint];
+      const palette = tints[d.tint];
       ctx.shadowColor = palette.shadow;
       ctx.fillStyle = `rgba(${palette.fill},${finalA.toFixed(3)})`;
       ctx.beginPath();
@@ -646,13 +684,13 @@ export class AuroraEngine {
       g.y += g.vy;
       const calm = isTyping;
       ctx.shadowBlur = calm ? 0.3 : 1;
-      ctx.shadowColor = "rgba(255,255,255,0.6)";
-      ctx.fillStyle = `rgba(255,255,255,${(a * (calm ? 0.55 : 0.85)).toFixed(3)})`;
+      ctx.shadowColor = lite ? "rgba(217,119,6,0.5)" : "rgba(255,255,255,0.6)";
+      ctx.fillStyle = `rgba(${lite ? "176,108,10" : "255,255,255"},${(a * (calm ? 0.55 : 0.85)).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(g.x, g.y, g.r * (calm ? 0.7 : 0.85), 0, Math.PI * 2);
       ctx.fill();
       if (!calm && a > 0.7) {
-        ctx.strokeStyle = `rgba(255,255,255,${((a - 0.7) * 0.4).toFixed(3)})`;
+        ctx.strokeStyle = `rgba(${lite ? "176,108,10" : "255,255,255"},${((a - 0.7) * 0.4).toFixed(3)})`;
         ctx.lineWidth = 0.4;
         const armR = g.r * 2.2;
         ctx.beginPath();
@@ -689,8 +727,8 @@ export class AuroraEngine {
         const aR = 1.2 + f * 1.6;
         const aA = 0.20 + f * 0.65;
         ctx.shadowBlur = 6 + f * 8;
-        ctx.shadowColor = "rgba(255,210,225,0.9)";
-        ctx.fillStyle = `rgba(255,220,235,${(aA * orbA).toFixed(3)})`;
+        ctx.shadowColor = lite ? "rgba(217,119,6,0.6)" : "rgba(255,210,225,0.9)";
+        ctx.fillStyle = `rgba(${lite ? "194,65,12" : "255,220,235"},${(aA * orbA).toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(cx + px, cy + py, aR, 0, Math.PI * 2);
         ctx.fill();
@@ -717,8 +755,8 @@ export class AuroraEngine {
         const f = (1 - pz / innerR2) * 0.5;
         const aA = 0.18 + f * 0.6;
         ctx.shadowBlur = 5 + f * 7;
-        ctx.shadowColor = "rgba(196,184,255,0.9)";
-        ctx.fillStyle = `rgba(220,210,255,${(aA * orbA).toFixed(3)})`;
+        ctx.shadowColor = lite ? "rgba(139,92,246,0.5)" : "rgba(196,184,255,0.9)";
+        ctx.fillStyle = `rgba(${lite ? "109,40,217" : "220,210,255"},${(aA * orbA).toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(cx + px, cy + py, 1.6 + f * 1.6, 0, Math.PI * 2);
         ctx.fill();
@@ -738,14 +776,14 @@ export class AuroraEngine {
         const f = (1 - pz / (R * planet.dist)) * 0.5;
         const aA = planet.alpha * orbA * (0.5 + f * 0.5);
         ctx.shadowBlur = 16;
-        ctx.shadowColor = "rgba(255,210,225,0.85)";
-        ctx.fillStyle = `rgba(255,220,235,${aA.toFixed(3)})`;
+        ctx.shadowColor = lite ? "rgba(217,119,6,0.55)" : "rgba(255,210,225,0.85)";
+        ctx.fillStyle = `rgba(${lite ? "176,108,10" : "255,220,235"},${aA.toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(cx + px, cy + py, planet.r * (0.7 + f * 0.6), 0, Math.PI * 2);
         ctx.fill();
         if (planet.hasRing) {
           ctx.shadowBlur = 6;
-          ctx.strokeStyle = `rgba(255,220,235,${(aA * 0.6).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(${lite ? "176,108,10" : "255,220,235"},${(aA * 0.6).toFixed(3)})`;
           ctx.lineWidth = 0.7;
           ctx.beginPath();
           ctx.ellipse(cx + px, cy + py, planet.r * 2.4, planet.r * 0.7, planet.tilt + Math.PI / 6, 0, Math.PI * 2);
