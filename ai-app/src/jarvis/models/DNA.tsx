@@ -16,7 +16,8 @@
  */
 import { useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group } from "three";
+import type { Group, Mesh, MeshStandardMaterial } from "three";
+import type { ModelExplodeProps } from "../explode";
 
 const STEPS = 64;             // vertical samples
 const HELIX_RADIUS = 1.0;     // radius of each backbone
@@ -25,8 +26,17 @@ const TURNS = 4;              // full rotations across the height
 const BACKBONE_R = 0.18;      // sphere radius for backbone particles
 const BASE_R = 0.05;          // bond cylinder radius
 
-export function DNA() {
+/** EXPLODED VIEW: radial separation of the strands at t=1. Because
+ *  strand B is strand A point-mirrored through the helix axis, an
+ *  XZ scale on each strand group IS the unzip — every base pair's
+ *  two halves fly directly apart along their own pair axis. */
+const STRAND_EXPLODE_GAIN = 1.4;
+
+export function DNA({ explodeRef }: ModelExplodeProps) {
   const groupRef = useRef<Group>(null);
+  const strandARef = useRef<Group>(null);
+  const strandBRef = useRef<Group>(null);
+  const bondsRef = useRef<Group>(null);
 
   // Stable per-step data — only computed once.
   const steps = useMemo(() => {
@@ -50,47 +60,72 @@ export function DNA() {
     return out;
   }, []);
 
+  // EXPLODED VIEW: XZ-scale each strand group so every backbone
+  // sphere moves radially out from the helix axis — opposite strands
+  // separate symmetrically ("the strands part"). The base-pair
+  // cylinders sit in a group scaled by the SAME factor so their
+  // endpoints stay glued to both strands while they stretch; their
+  // material fades out as they break (H-bonds dissolving).
   useFrame((_, delta) => {
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * 0.25;
+    }
+    const t = explodeRef?.current ?? 0;
+    const s = 1 + t * STRAND_EXPLODE_GAIN;
+    if (strandARef.current) strandARef.current.scale.set(s, 1, s);
+    if (strandBRef.current) strandBRef.current.scale.set(s, 1, s);
+    if (bondsRef.current) {
+      bondsRef.current.scale.set(s, 1, s);
+      const opacity = Math.max(0, 1 - t * 2.2);
+      for (const child of bondsRef.current.children) {
+        const mat = (child as Mesh).material as MeshStandardMaterial;
+        if (mat.opacity !== opacity) mat.opacity = opacity;
+        child.visible = opacity > 0.01;
+      }
     }
   });
 
   return (
     <group ref={groupRef}>
       {/* Backbone spheres — Strand A (cyan) */}
-      {steps.map((s, i) => (
-        <mesh key={`a-${i}`} position={s.a}>
-          <sphereGeometry args={[BACKBONE_R, 12, 12]} />
-          <meshStandardMaterial
-            color="#a8d1ff"
-            emissive="#4a90e2"
-            emissiveIntensity={0.55}
-            roughness={0.4}
-            metalness={0.30}
-          />
-        </mesh>
-      ))}
+      <group ref={strandARef}>
+        {steps.map((s, i) => (
+          <mesh key={`a-${i}`} position={s.a}>
+            <sphereGeometry args={[BACKBONE_R, 12, 12]} />
+            <meshStandardMaterial
+              color="#a8d1ff"
+              emissive="#4a90e2"
+              emissiveIntensity={0.55}
+              roughness={0.4}
+              metalness={0.30}
+            />
+          </mesh>
+        ))}
+      </group>
       {/* Backbone spheres — Strand B (rose) */}
-      {steps.map((s, i) => (
-        <mesh key={`b-${i}`} position={s.b}>
-          <sphereGeometry args={[BACKBONE_R, 12, 12]} />
-          <meshStandardMaterial
-            color="#ff9eb5"
-            emissive="#c46a8a"
-            emissiveIntensity={0.55}
-            roughness={0.4}
-            metalness={0.30}
-          />
-        </mesh>
-      ))}
+      <group ref={strandBRef}>
+        {steps.map((s, i) => (
+          <mesh key={`b-${i}`} position={s.b}>
+            <sphereGeometry args={[BACKBONE_R, 12, 12]} />
+            <meshStandardMaterial
+              color="#ff9eb5"
+              emissive="#c46a8a"
+              emissiveIntensity={0.55}
+              roughness={0.4}
+              metalness={0.30}
+            />
+          </mesh>
+        ))}
+      </group>
       {/* Base pairs — thin cylinders connecting opposite strands.
           We draw them only every-other-step to reduce visual noise
           and match the stylized look (not anatomical). */}
-      {steps.map((s, i) => {
-        if (i % 2 !== 0) return null;
-        return <BasePair key={`bp-${i}`} a={s.a} b={s.b} />;
-      })}
+      <group ref={bondsRef}>
+        {steps.map((s, i) => {
+          if (i % 2 !== 0) return null;
+          return <BasePair key={`bp-${i}`} a={s.a} b={s.b} />;
+        })}
+      </group>
     </group>
   );
 }
@@ -124,11 +159,15 @@ function BasePair({ a, b }: { a: [number, number, number]; b: [number, number, n
   return (
     <mesh position={mid} rotation={rotation}>
       <cylinderGeometry args={[BASE_R, BASE_R, length, 8]} />
+      {/* transparent so the exploded view can fade the bonds out as
+          the strands separate (opacity driven per-frame by DNA). */}
       <meshStandardMaterial
         color="#7ec0c0"
         emissive="#2a5050"
         emissiveIntensity={0.35}
         roughness={0.6}
+        transparent
+        opacity={1}
       />
     </mesh>
   );

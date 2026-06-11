@@ -31,6 +31,17 @@
   display: block;
 }
 
+/* Hand-cursor overlay — 2D canvas above the WebGL scene (and below
+   the HUD). Mirrors the JARVIS hand rings onto the 3D viewer. */
+.jarvis-view .jarvis-hand-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* ── HUD overlay ──────────────────────────────────────────────────
    The chrome that frames the 3D scene. Pointer-events: none on the
    root so the user can still drag the 3D model behind these
@@ -195,8 +206,94 @@
   100% { opacity: 0.20; }
 }
 
+/* ── EXPLODED VIEW control ────────────────────────────────────────
+   Bottom-center slider that pulls a model apart. Sits above the
+   gesture hint; opts back into pointer events (HUD root disables). */
+.jarvis-explode-control {
+  position: absolute;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(340px, 76vw);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 16px 13px;
+  border-radius: 14px;
+  background: rgba(6, 12, 24, 0.55);
+  border: 1px solid rgba(64, 224, 255, 0.20);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  animation: jarvis-view-in 360ms cubic-bezier(.2,.85,.3,1) both;
+}
+.jarvis-explode-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: rgba(180, 220, 255, 0.72);
+}
+.jarvis-explode-readout {
+  color: #5fe0ff;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+.jarvis-explode-verb {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(150, 195, 235, 0.42);
+  text-align: center;
+}
+/* Range input — themed to the cyan HUD. Track + thumb, both engines. */
+.jarvis-explode-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(64, 224, 255, 0.55), rgba(64, 224, 255, 0.12));
+  outline: none;
+  cursor: pointer;
+}
+.jarvis-explode-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #aef2ff, #2bbbe0 60%, #0a7fa0);
+  border: 1px solid rgba(174, 244, 255, 0.9);
+  box-shadow: 0 0 10px rgba(64, 224, 255, 0.7);
+  cursor: grab;
+}
+.jarvis-explode-slider::-webkit-slider-thumb:active { cursor: grabbing; }
+.jarvis-explode-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #aef2ff, #2bbbe0 60%, #0a7fa0);
+  border: 1px solid rgba(174, 244, 255, 0.9);
+  box-shadow: 0 0 10px rgba(64, 224, 255, 0.7);
+  cursor: grab;
+}
+.jarvis-explode-slider:focus-visible {
+  box-shadow: 0 0 0 2px rgba(64, 224, 255, 0.5);
+}
+
 /* Mobile — shrink HUD chrome so it doesn't dominate the scene */
 @media (max-width: 720px) {
+  .jarvis-explode-control {
+    bottom: 64px;
+    width: 82vw;
+    padding: 10px 14px 11px;
+  }
   .jarvis-hud .jarvis-hud-corner {
     width: 24px;
     height: 24px;

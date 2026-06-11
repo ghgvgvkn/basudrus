@@ -13,21 +13,30 @@
  *
  * NOT anatomically precise — the goal is "recognizable cell mental
  * model" for a student, not biology textbook accuracy.
+ *
+ * EXPLODED VIEW (explodeRef, 0..1): the organelles radiate outward
+ * from the cell center along their own resting-position rays while
+ * the membrane fades, so a student can see each part on its own.
+ * The nucleus stays anchored at center as the reference point.
  */
 import { useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group } from "three";
+import type { Group, Mesh, Material, Vector3 } from "three";
+import type { ModelExplodeProps } from "../explode";
 
 const CELL_RADIUS = 3.5;
 
-export function AnimalCell() {
-  const groupRef = useRef<Group>(null);
+/** EXPLODED VIEW: organelles radiate outward from the cell center by
+ *  this factor of their resting distance at t=1. */
+const ORGANELLE_EXPLODE_GAIN = 0.95;
 
-  useFrame((_, delta) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y += delta * 0.10;
-    }
-  });
+export function AnimalCell({ explodeRef }: ModelExplodeProps) {
+  const groupRef = useRef<Group>(null);
+  const organellesRef = useRef<Group>(null);
+  const membraneRef = useRef<Group>(null);
+  // Base positions of each organelle, captured once on first frame so
+  // the explode push is relative to the resting layout (not cumulative).
+  const basePosRef = useRef<Vector3[] | null>(null);
 
   // Stable random positions for ribosomes so they don't move each
   // frame. Computed once at mount, scattered on the surface of a
@@ -48,30 +57,67 @@ export function AnimalCell() {
     return out;
   }, []);
 
+  useFrame((_, delta) => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += delta * 0.10;
+    }
+    const t = explodeRef?.current ?? 0;
+    if (organellesRef.current) {
+      const kids = organellesRef.current.children;
+      // Capture resting positions once, in JSX child order.
+      if (!basePosRef.current) {
+        basePosRef.current = kids.map((k) => k.position.clone());
+      }
+      const bases = basePosRef.current;
+      const f = 1 + t * ORGANELLE_EXPLODE_GAIN;
+      for (let i = 0; i < kids.length && i < bases.length; i++) {
+        kids[i].position.copy(bases[i]).multiplyScalar(f);
+      }
+    }
+    if (membraneRef.current) {
+      // The membrane fades as the cell comes apart, so it doesn't hide
+      // the now-separated organelles behind a boundary sphere.
+      const fade = Math.max(0, 1 - t * 1.4);
+      for (const child of membraneRef.current.children) {
+        const mat = (child as Mesh).material as Material & {
+          opacity: number;
+          userData: { baseOpacity?: number };
+        };
+        if (mat.userData.baseOpacity == null) mat.userData.baseOpacity = mat.opacity;
+        mat.opacity = mat.userData.baseOpacity * fade;
+        child.visible = mat.opacity > 0.005;
+      }
+    }
+  });
+
   return (
     <group ref={groupRef}>
-      {/* Cell membrane — large translucent sphere. Bigger than
-          anything inside so we see the boundary. */}
-      <mesh>
-        <sphereGeometry args={[CELL_RADIUS, 32, 32]} />
-        <meshStandardMaterial
-          color="#88a0c4"
-          transparent
-          opacity={0.10}
-          emissive="#2a4070"
-          emissiveIntensity={0.20}
-          roughness={0.40}
-          metalness={0.10}
-        />
-      </mesh>
-      {/* Thin outer membrane line — slightly bigger transparent
-          sphere with no fill (basic material at low opacity). */}
-      <mesh>
-        <sphereGeometry args={[CELL_RADIUS * 1.005, 24, 24]} />
-        <meshBasicMaterial color="#4a90e2" transparent opacity={0.18} wireframe />
-      </mesh>
+      {/* Cell membrane — fades out in the exploded view. */}
+      <group ref={membraneRef}>
+        {/* Large translucent sphere. Bigger than anything inside so
+            we see the boundary. */}
+        <mesh>
+          <sphereGeometry args={[CELL_RADIUS, 32, 32]} />
+          <meshStandardMaterial
+            color="#88a0c4"
+            transparent
+            opacity={0.10}
+            emissive="#2a4070"
+            emissiveIntensity={0.20}
+            roughness={0.40}
+            metalness={0.10}
+          />
+        </mesh>
+        {/* Thin outer membrane line — slightly bigger transparent
+            sphere with no fill (basic material at low opacity). */}
+        <mesh>
+          <sphereGeometry args={[CELL_RADIUS * 1.005, 24, 24]} />
+          <meshBasicMaterial color="#4a90e2" transparent opacity={0.18} wireframe />
+        </mesh>
+      </group>
 
-      {/* Nucleus — center sphere. */}
+      {/* Nucleus — center sphere. Stays anchored as the reference
+          point while everything else flies outward. */}
       <group position={[0, 0.2, 0]}>
         <mesh>
           <sphereGeometry args={[1.0, 28, 28]} />
@@ -106,72 +152,75 @@ export function AnimalCell() {
         ))}
       </group>
 
-      {/* Mitochondria (3) — elongated capsules. Three.js capsule
-          geometry is available; we use it for the bean-like shape. */}
-      {[
-        { pos: [1.8, 0.6, 0.5] as [number, number, number], rot: [0.3, 0.5, 0.4] as [number, number, number] },
-        { pos: [-1.6, -0.3, 1.0] as [number, number, number], rot: [0.1, -0.8, -0.2] as [number, number, number] },
-        { pos: [0.3, -1.5, -1.0] as [number, number, number], rot: [0.6, 0.2, 0.7] as [number, number, number] },
-      ].map((m, i) => (
-        <mesh key={`mito-${i}`} position={m.pos} rotation={m.rot}>
-          <capsuleGeometry args={[0.30, 0.8, 8, 16]} />
-          <meshStandardMaterial
-            color="#ff9b6e"
-            emissive="#7a3a18"
-            emissiveIntensity={0.50}
-            roughness={0.55}
-          />
-        </mesh>
-      ))}
-
-      {/* Endoplasmic reticulum — represented as several connected
-          tube segments around the nucleus. Stylized as a folded ribbon. */}
-      <group position={[1.5, -0.5, -1.2]} rotation={[0.4, 0.7, 0.1]}>
-        {[0, 1, 2, 3].map((i) => (
-          <mesh key={`er-${i}`} position={[i * 0.40 - 0.6, Math.sin(i) * 0.15, 0]}>
-            <torusGeometry args={[0.35, 0.06, 8, 24]} />
+      {/* Organelles — each a direct child of this group so the
+          explode loop can radiate them by index. Order here IS the
+          capture order (mito ×3, ER, golgi, vacuole ×2). */}
+      <group ref={organellesRef}>
+        {/* Mitochondria (3) — elongated capsules. */}
+        {[
+          { pos: [1.8, 0.6, 0.5] as [number, number, number], rot: [0.3, 0.5, 0.4] as [number, number, number] },
+          { pos: [-1.6, -0.3, 1.0] as [number, number, number], rot: [0.1, -0.8, -0.2] as [number, number, number] },
+          { pos: [0.3, -1.5, -1.0] as [number, number, number], rot: [0.6, 0.2, 0.7] as [number, number, number] },
+        ].map((m, i) => (
+          <mesh key={`mito-${i}`} position={m.pos} rotation={m.rot}>
+            <capsuleGeometry args={[0.30, 0.8, 8, 16]} />
             <meshStandardMaterial
-              color="#6ed0c4"
-              emissive="#2a6e60"
-              emissiveIntensity={0.40}
+              color="#ff9b6e"
+              emissive="#7a3a18"
+              emissiveIntensity={0.50}
               roughness={0.55}
             />
           </mesh>
         ))}
-      </group>
 
-      {/* Golgi apparatus — stacked flat discs (a few cylinders) */}
-      <group position={[-1.8, 1.0, -0.5]} rotation={[0.3, 0.4, -0.2]}>
-        {[0, 1, 2, 3].map((i) => (
-          <mesh key={`golgi-${i}`} position={[0, i * 0.15 - 0.225, 0]}>
-            <cylinderGeometry args={[0.45 - i * 0.05, 0.45 - i * 0.05, 0.06, 32]} />
+        {/* Endoplasmic reticulum — folded ribbon of tube segments. */}
+        <group position={[1.5, -0.5, -1.2]} rotation={[0.4, 0.7, 0.1]}>
+          {[0, 1, 2, 3].map((i) => (
+            <mesh key={`er-${i}`} position={[i * 0.40 - 0.6, Math.sin(i) * 0.15, 0]}>
+              <torusGeometry args={[0.35, 0.06, 8, 24]} />
+              <meshStandardMaterial
+                color="#6ed0c4"
+                emissive="#2a6e60"
+                emissiveIntensity={0.40}
+                roughness={0.55}
+              />
+            </mesh>
+          ))}
+        </group>
+
+        {/* Golgi apparatus — stacked flat discs. */}
+        <group position={[-1.8, 1.0, -0.5]} rotation={[0.3, 0.4, -0.2]}>
+          {[0, 1, 2, 3].map((i) => (
+            <mesh key={`golgi-${i}`} position={[0, i * 0.15 - 0.225, 0]}>
+              <cylinderGeometry args={[0.45 - i * 0.05, 0.45 - i * 0.05, 0.06, 32]} />
+              <meshStandardMaterial
+                color="#ffd58a"
+                emissive="#7a5018"
+                emissiveIntensity={0.40}
+                roughness={0.55}
+              />
+            </mesh>
+          ))}
+        </group>
+
+        {/* Vacuoles — translucent bubbles. */}
+        {[
+          [-1.0, -1.5, 1.3] as [number, number, number],
+          [1.4, 1.7, 0.8] as [number, number, number],
+        ].map((p, i) => (
+          <mesh key={`vac-${i}`} position={p}>
+            <sphereGeometry args={[0.45, 20, 20]} />
             <meshStandardMaterial
-              color="#ffd58a"
-              emissive="#7a5018"
-              emissiveIntensity={0.40}
-              roughness={0.55}
+              color="#a0e0f5"
+              transparent
+              opacity={0.45}
+              emissive="#3a7a90"
+              emissiveIntensity={0.30}
+              roughness={0.20}
             />
           </mesh>
         ))}
       </group>
-
-      {/* Vacuoles — translucent bubbles */}
-      {[
-        [-1.0, -1.5, 1.3] as [number, number, number],
-        [1.4, 1.7, 0.8] as [number, number, number],
-      ].map((p, i) => (
-        <mesh key={`vac-${i}`} position={p}>
-          <sphereGeometry args={[0.45, 20, 20]} />
-          <meshStandardMaterial
-            color="#a0e0f5"
-            transparent
-            opacity={0.45}
-            emissive="#3a7a90"
-            emissiveIntensity={0.30}
-            roughness={0.20}
-          />
-        </mesh>
-      ))}
     </group>
   );
 }

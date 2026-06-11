@@ -53,6 +53,7 @@ import { renderMarkdown } from "./auroraMarkdown";
 // resolveModelKey is a tiny string-lookup function with no Three.js
 // dependency, so it's imported eagerly from its own module.
 import { resolveModelKey, type ModelKey } from "../jarvis/modelKeys";
+import { explodeTargetFromRatio, type ViewerHandCursor } from "../jarvis/explode";
 const JarvisView = lazy(() => import("../jarvis/JarvisView").then((m) => ({ default: m.JarvisView })));
 // JARVIS MODE — the camera + hand-gesture holodeck layer: an OPTIONAL second
 // way to use voice mode (classic voice mode is untouched). Lazy so the
@@ -635,6 +636,26 @@ export function AuroraAIScreen() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [activeJarvisModel]);
+
+  // ── EXPLODED VIEW plumbing ──
+  // The target the 3D model eases toward (0..1). Written by the
+  // viewer's slider AND, in JARVIS camera mode, by the two-hand
+  // pull-apart gesture. A ref (not state) so per-frame gesture writes
+  // never re-render the screen.
+  const modelExplodeTargetRef = useRef(0);
+  // Explode-t captured at the moment a two-hand gesture starts, so the
+  // gesture composes on top of the current explosion (pull → more,
+  // push → less) exactly like the holo-tab resize feels.
+  const modelExplodeBaseRef = useRef(0);
+  // Hand cursors mirrored from JarvisMode → drawn over the 3D scene.
+  const modelCursorsRef = useRef<ViewerHandCursor[]>([]);
+  // A model always opens assembled — reset the target whenever the
+  // active model changes (open, close, or swap).
+  useEffect(() => {
+    modelExplodeTargetRef.current = 0;
+    modelExplodeBaseRef.current = 0;
+    modelCursorsRef.current = [];
   }, [activeJarvisModel]);
 
   /**
@@ -1738,6 +1759,9 @@ export function AuroraAIScreen() {
                 : voice.isTranscribing ? "processing"
                 : "ready"
             }
+            explodeTargetRef={modelExplodeTargetRef}
+            handCursorsRef={modelCursorsRef}
+            gestureActive={jarvisActive}
           />
         </Suspense>
       )}
@@ -1853,6 +1877,20 @@ export function AuroraAIScreen() {
                 onExit={() => setJarvisActive(false)}
                 micMuted={jarvisMicMuted}
                 onToggleMic={() => setJarvisMicMuted((m) => !m)}
+                modelViewerOpen={!!activeJarvisModel}
+                onModelExplodeStart={() => {
+                  // Capture the current explosion so the pull composes
+                  // on top of it (matches the holo-tab resize feel).
+                  modelExplodeBaseRef.current = modelExplodeTargetRef.current;
+                }}
+                onModelExplode={(ratio) => {
+                  modelExplodeTargetRef.current = explodeTargetFromRatio(
+                    modelExplodeBaseRef.current,
+                    ratio,
+                  );
+                }}
+                onModelClose={() => setActiveJarvisModel(null)}
+                modelCursorsRef={modelCursorsRef}
               />
             </Suspense>
           )}

@@ -35,6 +35,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ParsedMessage } from "../auroraVisuals";
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
+import type { ViewerHandCursor } from "../../jarvis/explode";
 import "./jarvis-mode.css";
 
 // ── window model ────────────────────────────────────────────────────────────
@@ -102,9 +103,32 @@ interface JarvisModeProps {
    *  renders the toggle. */
   micMuted?: boolean;
   onToggleMic?: () => void;
+  /** EXPLODED VIEW bridge — when the 3D model viewer is open ON TOP of
+   *  this camera layer, two-hand pull-apart drives the model's explode
+   *  instead of resizing a (now-hidden) holo-tab, and fist→open closes
+   *  the viewer. All holo-window gestures are suppressed while it's open.
+   *  Owned by the screen; JARVIS just forwards the gesture stream. */
+  modelViewerOpen?: boolean;
+  onModelExplodeStart?: () => void;
+  onModelExplode?: (ratio: number) => void;
+  onModelClose?: () => void;
+  /** Shared sink for hand cursors (screen-space px) so the viewer can
+   *  draw them over the 3D scene — the camera canvas sits behind it. */
+  modelCursorsRef?: { current: ViewerHandCursor[] };
 }
 
-export function JarvisMode({ presenting, presentingImage, onExit, micMuted = false, onToggleMic }: JarvisModeProps) {
+export function JarvisMode({
+  presenting,
+  presentingImage,
+  onExit,
+  micMuted = false,
+  onToggleMic,
+  modelViewerOpen = false,
+  onModelExplodeStart,
+  onModelExplode,
+  onModelClose,
+  modelCursorsRef,
+}: JarvisModeProps) {
   const { videoRef, landmarksRef, status, retry } = useHandTracking(true);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -134,6 +158,16 @@ export function JarvisMode({ presenting, presentingImage, onExit, micMuted = fal
   const scalingRef = useRef<{ id: number; baseScale: number } | null>(null);
   // Pinch sparks (decorative): spawn on pinch-start, fade ~360ms.
   const sparksRef = useRef<Array<{ x: number; y: number; t0: number; hue: "cyan" | "gold" }>>([]);
+
+  // Model-viewer routing read inside the rAF via refs, so toggling the
+  // viewer (or swapping its callbacks) never tears down + restarts the
+  // GestureEngine (which would reset the per-hand warm-up window).
+  const modelViewerOpenRef = useRef(modelViewerOpen);
+  modelViewerOpenRef.current = modelViewerOpen;
+  const modelHandlersRef = useRef({ onModelExplodeStart, onModelExplode, onModelClose });
+  modelHandlersRef.current = { onModelExplodeStart, onModelExplode, onModelClose };
+  const modelCursorsSinkRef = useRef(modelCursorsRef);
+  modelCursorsSinkRef.current = modelCursorsRef;
 
   const applyTransform = useCallback((id: number) => {
     const el = elsRef.current.get(id);
@@ -190,6 +224,16 @@ export function JarvisMode({ presenting, presentingImage, onExit, micMuted = fal
     if (!tr) return;
     setWindows((ws) => ws.map((w) => (w.id === id ? { ...w, x: tr.x, y: tr.y, scale: tr.scale, z: tr.z } : w)));
   }, []);
+
+  // When the 3D model viewer opens on top, drop any in-flight holo-tab
+  // grab/scale so a half-finished window gesture can't keep mutating a
+  // hidden tab while the user is now driving the model.
+  useEffect(() => {
+    if (modelViewerOpen) {
+      grabsRef.current.clear();
+      scalingRef.current = null;
+    }
+  }, [modelViewerOpen]);
 
   // ── Welcome card on first successful camera start ──
   const welcomedRef = useRef(false);
@@ -310,6 +354,26 @@ export function JarvisMode({ presenting, presentingImage, onExit, micMuted = fal
     };
 
     const handleEvent = (e: GestureEvent) => {
+      // EXPLODED VIEW takes over the gesture stream while the 3D model
+      // viewer is open on top of the camera. Two-hand pull drives the
+      // model's explode; fist→open closes it. Every holo-window gesture
+      // is suppressed — the tabs are hidden behind the viewer (z 50), so
+      // grabbing/scaling them would be invisible and confusing.
+      if (modelViewerOpenRef.current) {
+        switch (e.type) {
+          case "two-hand-scale-start":
+            modelHandlersRef.current.onModelExplodeStart?.();
+            return;
+          case "two-hand-scale":
+            modelHandlersRef.current.onModelExplode?.(e.ratio);
+            return;
+          case "fist-open":
+            modelHandlersRef.current.onModelClose?.();
+            return;
+          default:
+            return;
+        }
+      }
       switch (e.type) {
         case "pinch-start": {
           const { x, y } = toScreen(e.x, e.y);
@@ -496,13 +560,36 @@ export function JarvisMode({ presenting, presentingImage, onExit, micMuted = fal
       }
     };
 
+    let lastFreshAt = performance.now();
     const loop = () => {
+      const now = performance.now();
       const frame = landmarksRef.current;
       if (frame.t !== lastT) {
         lastT = frame.t;
+        lastFreshAt = now;
         const { events, cursors } = engine.update(frame);
         lastCursors = cursors;
         for (const e of events) handleEvent(e);
+        // Mirror cursors (screen-space px) to the viewer overlay sink so
+        // the 3D model viewer can draw the hands over its scene — the
+        // camera's own cursor canvas sits behind the viewer (z 50). Only
+        // while the viewer is open: nothing reads the sink otherwise, so
+        // skip the per-frame allocation + coord mapping when it's closed.
+        const sink = modelCursorsSinkRef.current;
+        if (sink && modelViewerOpenRef.current) {
+          sink.current = cursors.map((c) => {
+            const { x, y } = toScreen(c.x, c.y);
+            return { x, y, pinching: c.pinching };
+          });
+        }
+      } else {
+        // Frames stalled (tab hidden, camera track ended, tracking
+        // wedged): clear the sink so the viewer's overlay doesn't keep
+        // drawing frozen rings on the 3D scene indefinitely.
+        const sink = modelCursorsSinkRef.current;
+        if (sink && sink.current.length && now - lastFreshAt > 500) {
+          sink.current = [];
+        }
       }
       draw(lastCursors);
       raf = requestAnimationFrame(loop);

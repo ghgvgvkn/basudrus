@@ -13,6 +13,12 @@
 import { useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { Group } from "three";
+import type { ModelExplodeProps } from "../explode";
+
+/** EXPLODED VIEW: how much the orbital radii grow at t=1. Planets
+ *  and their orbit rings scale by the SAME factor so a planet never
+ *  drifts off its painted orbit line. */
+const ORBIT_EXPLODE_GAIN = 0.55;
 
 interface PlanetSpec {
   name: string;
@@ -46,14 +52,24 @@ const PLANETS: PlanetSpec[] = [
   { name: "Neptune", radius: 0.48, distance: 8.9,  color: "#4d6dc7", emissive: "#1a2858", emissiveIntensity: 0.35, orbitSpeed: 0.16, spinSpeed: 0.60 },
 ];
 
-export function SolarSystem() {
+export function SolarSystem({ explodeRef }: ModelExplodeProps) {
   const wholeRef = useRef<Group>(null);
+  const orbitPathsRef = useRef<Group>(null);
 
   // Very slow whole-system rotation so the camera always sees a
-  // slightly different orbit configuration.
+  // slightly different orbit configuration. Exploded view: the orbit
+  // path rings scale up in lockstep with the planets' radial push
+  // (see Planet below) — the system spreads, Kepler speeds intact.
   useFrame((_, delta) => {
     if (wholeRef.current) {
       wholeRef.current.rotation.y += delta * 0.05;
+    }
+    if (orbitPathsRef.current) {
+      const t = explodeRef?.current ?? 0;
+      const s = 1 + t * ORBIT_EXPLODE_GAIN;
+      for (const ring of orbitPathsRef.current.children) {
+        ring.scale.setScalar(s);
+      }
     }
   });
 
@@ -80,24 +96,27 @@ export function SolarSystem() {
       <pointLight position={[0, 0, 0]} intensity={2.0} distance={20} decay={1.4} color="#ffd770" />
 
       {/* Orbital paths — thin torus rings at each planet's distance. */}
-      {PLANETS.map((p) => (
-        <mesh key={`orbit-${p.name}`} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[p.distance, 0.008, 6, 96]} />
-          <meshBasicMaterial color="#4a90e2" transparent opacity={0.20} />
-        </mesh>
-      ))}
+      <group ref={orbitPathsRef}>
+        {PLANETS.map((p) => (
+          <mesh key={`orbit-${p.name}`} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[p.distance, 0.008, 6, 96]} />
+            <meshBasicMaterial color="#4a90e2" transparent opacity={0.20} />
+          </mesh>
+        ))}
+      </group>
 
       {/* Planets — each one in its own orbiting group. */}
       {PLANETS.map((p) => (
-        <Planet key={p.name} spec={p} />
+        <Planet key={p.name} spec={p} explodeRef={explodeRef} />
       ))}
     </group>
   );
 }
 
-function Planet({ spec }: { spec: PlanetSpec }) {
+function Planet({ spec, explodeRef }: { spec: PlanetSpec } & ModelExplodeProps) {
   const orbitRef = useRef<Group>(null);
   const spinRef = useRef<Group>(null);
+  const radialRef = useRef<Group>(null);
 
   // Stable random starting phase per planet so they don't all line
   // up on first paint. useMemo with empty deps locks the value
@@ -122,11 +141,17 @@ function Planet({ spec }: { spec: PlanetSpec }) {
     if (spinRef.current) {
       spinRef.current.rotation.y += delta * spec.spinSpeed;
     }
+    if (radialRef.current) {
+      // Exploded view — push the planet outward along its orbital
+      // radius. Same factor as the painted orbit ring's scale.
+      const t = explodeRef?.current ?? 0;
+      radialRef.current.position.x = spec.distance * (1 + t * ORBIT_EXPLODE_GAIN);
+    }
   });
 
   return (
     <group ref={orbitRef}>
-      <group position={[spec.distance, 0, 0]}>
+      <group ref={radialRef} position={[spec.distance, 0, 0]}>
         <group ref={spinRef}>
           <mesh>
             <sphereGeometry args={[spec.radius, 28, 28]} />

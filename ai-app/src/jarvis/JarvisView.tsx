@@ -12,6 +12,16 @@
  *     founder asked for)
  *   - The model itself comes from the MODEL_REGISTRY below
  *
+ * EXPLODED VIEW:
+ *   Every model takes an explodeRef (0..1, smoothed). Two inputs
+ *   drive it: the EXPLODED VIEW slider in the HUD, and — when the
+ *   JARVIS camera is on — the two-hand pull-apart gesture (the
+ *   parent writes the target into explodeTargetRef). <ExplodeRig>
+ *   lives inside the Canvas and eases the rendered value toward the
+ *   target every frame, then reflects it back onto the slider so the
+ *   two controls stay in sync. Smoothing is the pure approachExplode
+ *   from explode.ts (tested).
+ *
  * Lazy-loading: each model component is imported eagerly here for
  * simplicity. If the bundle grows past acceptable, switch to
  * React.lazy + Suspense — but with 6 procedural models the total
@@ -21,8 +31,8 @@
  * useFrame triggers re-render, OrbitControls events too. When the
  * overlay isn't open, nothing animates.
  */
-import { Suspense } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Suspense, useEffect, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { Atom } from "./models/Atom";
 import { SolarSystem } from "./models/SolarSystem";
@@ -30,6 +40,7 @@ import { DNA } from "./models/DNA";
 import { Water } from "./models/Water";
 import { AnimalCell } from "./models/AnimalCell";
 import { Heart } from "./models/Heart";
+import { approachExplode, type ViewerHandCursor } from "./explode";
 import type { ModelKey } from "./modelKeys";
 import "./jarvis.css";
 
@@ -45,6 +56,7 @@ export { resolveModelKey, type ModelKey } from "./modelKeys";
  *   - title: human-readable label for the HUD chrome
  *   - subtitle: small tagline shown under the title
  *   - cameraPos: initial camera position [x, y, z]
+ *   - explodeVerb: HUD label for what "exploding" reveals (per model)
  *
  * Adding a new model: add the .tsx under models/, import it, add
  * an entry here. The parser and prompt list pull from these keys.
@@ -55,36 +67,42 @@ export const MODEL_REGISTRY = {
     title: "Atom",
     subtitle: "Carbon · 6 protons, 6 neutrons, 6 electrons",
     cameraPos: [0, 1.5, 7] as [number, number, number],
+    explodeVerb: "separate nucleus & shells",
   },
   "solar-system": {
     component: SolarSystem,
     title: "Solar System",
     subtitle: "Sun and 8 planets (not to scale)",
     cameraPos: [0, 6, 14] as [number, number, number],
+    explodeVerb: "spread the orbits",
   },
   dna: {
     component: DNA,
     title: "DNA",
     subtitle: "Double helix · base-pair connections",
     cameraPos: [0, 0, 8] as [number, number, number],
+    explodeVerb: "unzip the strands",
   },
   water: {
     component: Water,
     title: "Water",
     subtitle: "H₂O · H-O-H bond angle 104.5°",
     cameraPos: [0, 0, 6] as [number, number, number],
+    explodeVerb: "break the bonds",
   },
   "animal-cell": {
     component: AnimalCell,
     title: "Animal Cell",
     subtitle: "Membrane, nucleus, organelles",
     cameraPos: [0, 2, 9] as [number, number, number],
+    explodeVerb: "lift out the organelles",
   },
   heart: {
     component: Heart,
     title: "Human Heart",
     subtitle: "Four chambers, beating at 72 BPM",
     cameraPos: [0, 0, 7] as [number, number, number],
+    explodeVerb: "separate the chambers",
   },
 } as const;
 
@@ -107,11 +125,53 @@ export interface JarvisViewProps {
    *  status label (SPEAKING / LISTENING / READY). Optional; falls
    *  back to a generic "ACTIVE" string when not provided. */
   voiceStatus?: "speaking" | "listening" | "processing" | "ready";
+  /** Parent-owned EXPLODED-VIEW target (0..1). The JARVIS two-hand
+   *  gesture writes here; the slider also writes here. If omitted,
+   *  the viewer manages its own target (slider-only). */
+  explodeTargetRef?: { current: number };
+  /** Hand cursors mirrored from JARVIS camera mode (screen-space px),
+   *  drawn as rings over the 3D scene so the user can see where their
+   *  hands are while exploding. Only provided when the camera is on. */
+  handCursorsRef?: { current: ViewerHandCursor[] };
+  /** True when JARVIS camera mode is active behind this viewer —
+   *  shows the gesture hint + the hand-cursor overlay. */
+  gestureActive?: boolean;
 }
 
-export function JarvisView({ modelKey, onClose, voiceActive, voiceStatus }: JarvisViewProps) {
+export function JarvisView({
+  modelKey,
+  onClose,
+  voiceActive,
+  voiceStatus,
+  explodeTargetRef,
+  handCursorsRef,
+  gestureActive,
+}: JarvisViewProps) {
   const meta = MODEL_REGISTRY[modelKey];
   const ModelComponent = meta.component;
+
+  // Target the rig eases toward. Parent-owned if provided (so gestures
+  // can drive it), otherwise local to this viewer (slider-only).
+  const ownTargetRef = useRef(0);
+  const targetRef = explodeTargetRef ?? ownTargetRef;
+  // The smoothed value the model actually renders — read inside its
+  // useFrame, never React state (weak-MacBook rule).
+  const smoothRef = useRef(0);
+
+  const sliderRef = useRef<HTMLInputElement | null>(null);
+  const readoutRef = useRef<HTMLSpanElement | null>(null);
+  // While the user drags the slider, the rig must not fight them by
+  // writing the smoothed value back into the thumb.
+  const draggingRef = useRef(false);
+
+  // Reset explosion whenever the model changes — a fresh model should
+  // always open assembled.
+  useEffect(() => {
+    targetRef.current = 0;
+    smoothRef.current = 0;
+    if (sliderRef.current) sliderRef.current.value = "0";
+    if (readoutRef.current) readoutRef.current.textContent = "0%";
+  }, [modelKey, targetRef]);
 
   return (
     <div className="jarvis-view" role="dialog" aria-modal="true" aria-label={`3D model: ${meta.title}`}>
@@ -144,7 +204,34 @@ export function JarvisView({ modelKey, onClose, voiceActive, voiceStatus }: Jarv
         </button>
 
         <div className="jarvis-hud-hint">
-          Drag to rotate · Scroll to zoom
+          {gestureActive ? "Pull hands apart to explode · drag to rotate" : "Drag to rotate · Scroll to zoom"}
+        </div>
+
+        {/* EXPLODED VIEW control — slider drives the explode target;
+            the rig keeps it in sync with gesture-driven changes. */}
+        <div className="jarvis-explode-control">
+          <div className="jarvis-explode-label">
+            <span>EXPLODED VIEW</span>
+            <span className="jarvis-explode-readout" ref={readoutRef}>0%</span>
+          </div>
+          <input
+            ref={sliderRef}
+            type="range"
+            min={0}
+            max={100}
+            defaultValue={0}
+            className="jarvis-explode-slider"
+            aria-label={`Exploded view — ${meta.explodeVerb}`}
+            onPointerDown={() => { draggingRef.current = true; }}
+            onPointerUp={() => { draggingRef.current = false; }}
+            onPointerCancel={() => { draggingRef.current = false; }}
+            onInput={(e) => {
+              const v = Number((e.target as HTMLInputElement).value) / 100;
+              targetRef.current = v;
+              if (readoutRef.current) readoutRef.current.textContent = `${Math.round(v * 100)}%`;
+            }}
+          />
+          <div className="jarvis-explode-verb">{meta.explodeVerb}</div>
         </div>
 
         {/* Corner presence — when voice mode is active in the
@@ -169,6 +256,10 @@ export function JarvisView({ modelKey, onClose, voiceActive, voiceStatus }: Jarv
           </div>
         )}
       </div>
+
+      {/* Hand-cursor overlay — only when the camera is driving the
+          scene. Drawn on a 2D canvas above the WebGL scene. */}
+      {gestureActive && handCursorsRef && <HandCursorOverlay cursorsRef={handCursorsRef} />}
 
       {/* The actual 3D scene */}
       <Canvas
@@ -204,8 +295,18 @@ export function JarvisView({ modelKey, onClose, voiceActive, voiceStatus }: Jarv
             speed={0.4}
           />
 
-          {/* The model itself */}
-          <ModelComponent />
+          {/* Eases the rendered explode value toward the target each
+              frame and mirrors it onto the slider. Renders nothing. */}
+          <ExplodeRig
+            targetRef={targetRef}
+            smoothRef={smoothRef}
+            sliderRef={sliderRef}
+            readoutRef={readoutRef}
+            draggingRef={draggingRef}
+          />
+
+          {/* The model itself — reads smoothRef each frame. */}
+          <ModelComponent explodeRef={smoothRef} />
 
           {/* Orbit controls — drag/zoom interaction. enablePan is OFF
               because the model is centered and pan would let the user
@@ -226,4 +327,77 @@ export function JarvisView({ modelKey, onClose, voiceActive, voiceStatus }: Jarv
       </Canvas>
     </div>
   );
+}
+
+/**
+ * ExplodeRig — lives inside the Canvas so it gets r3f's useFrame.
+ * Eases smoothRef toward targetRef every frame (pure approachExplode)
+ * and reflects the value back onto the slider + readout DOM (unless
+ * the user is actively dragging). Renders nothing.
+ */
+function ExplodeRig({
+  targetRef,
+  smoothRef,
+  sliderRef,
+  readoutRef,
+  draggingRef,
+}: {
+  targetRef: { current: number };
+  smoothRef: { current: number };
+  sliderRef: { current: HTMLInputElement | null };
+  readoutRef: { current: HTMLSpanElement | null };
+  draggingRef: { current: boolean };
+}) {
+  useFrame((_, delta) => {
+    const next = approachExplode(smoothRef.current, targetRef.current, delta);
+    if (next === smoothRef.current) return; // settled — no DOM churn
+    smoothRef.current = next;
+    // Mirror onto the slider unless the user is dragging it.
+    if (!draggingRef.current) {
+      const pct = Math.round(next * 100);
+      if (sliderRef.current) sliderRef.current.value = String(pct);
+      if (readoutRef.current) readoutRef.current.textContent = `${pct}%`;
+    }
+  });
+  return null;
+}
+
+/**
+ * HandCursorOverlay — a 2D canvas above the 3D scene that draws the
+ * JARVIS hand cursors (mirrored from JarvisMode via a shared ref) so
+ * the user can see where their hands are while controlling the model.
+ * Runs its own rAF; cheap (two rings).
+ */
+function HandCursorOverlay({ cursorsRef }: { cursorsRef: { current: ViewerHandCursor[] } }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let raf = 0;
+    const draw = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      if (canvas.width !== vw * dpr || canvas.height !== vh * dpr) {
+        canvas.width = vw * dpr;
+        canvas.height = vh * dpr;
+      }
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, vw, vh);
+        for (const c of cursorsRef.current) {
+          ctx.strokeStyle = c.pinching ? "rgba(255, 96, 168, 0.95)" : "rgba(64, 224, 255, 0.9)";
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, c.pinching ? 9 : 13, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [cursorsRef]);
+  return <canvas ref={canvasRef} className="jarvis-hand-overlay" aria-hidden />;
 }

@@ -17,14 +17,23 @@
  */
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group, Mesh } from "three";
+import type { Group, Mesh, Vector3 } from "three";
+import type { ModelExplodeProps } from "../explode";
 
 const BPM = 72;
 const BEAT_PERIOD = 60 / BPM; // seconds per beat
 
-export function Heart() {
+/** EXPLODED VIEW: how far each heart part separates from center at
+ *  t=1, as a multiple of its resting offset. */
+const HEART_EXPLODE_GAIN = 1.0;
+
+export function Heart({ explodeRef }: ModelExplodeProps) {
   const groupRef = useRef<Group>(null);
   const innerRef = useRef<Group>(null);
+  const partsRef = useRef<Group>(null);
+  // Resting offsets of each part, captured once so the explode push
+  // is relative to the assembled layout, not cumulative.
+  const basePosRef = useRef<Vector3[] | null>(null);
 
   useFrame((state, delta) => {
     if (groupRef.current) {
@@ -34,18 +43,32 @@ export function Heart() {
       // Beating pulse — a sharp contraction + slow release per cycle.
       // Wave shape: spike at the start of the cycle, falling back to
       // resting. We use Math.exp on a phase value for the rapid
-      // contract-then-relax curve.
+      // contract-then-relax curve. The beat keeps going while exploded
+      // (each separated chamber pulses in place) — that's the magic.
       const phase = (state.clock.elapsedTime % BEAT_PERIOD) / BEAT_PERIOD;
       // Exponential decay from a peak; gives the "thump" feel
       const beat = Math.exp(-phase * 6) * 0.10;
       const scale = 1 - beat;
       innerRef.current.scale.set(scale, scale, scale);
     }
+    if (partsRef.current) {
+      const kids = partsRef.current.children;
+      if (!basePosRef.current) {
+        basePosRef.current = kids.map((k) => k.position.clone());
+      }
+      const bases = basePosRef.current;
+      const t = explodeRef?.current ?? 0;
+      const f = 1 + t * HEART_EXPLODE_GAIN;
+      for (let i = 0; i < kids.length && i < bases.length; i++) {
+        kids[i].position.copy(bases[i]).multiplyScalar(f);
+      }
+    }
   });
 
   return (
     <group ref={groupRef}>
       <group ref={innerRef}>
+        <group ref={partsRef}>
         {/* Left ventricle — larger lower-left chamber */}
         <ChamberSphere
           position={[-0.55, -0.3, 0]}
@@ -119,8 +142,11 @@ export function Heart() {
             roughness={0.55}
           />
         </mesh>
+        </group>
 
-        {/* Soft red halo for the "heart glow" feel */}
+        {/* Soft red halo for the "heart glow" feel — anchored at
+            center (outside the separating parts) so the glow stays
+            put as the chambers fly apart. */}
         <mesh>
           <sphereGeometry args={[2.4, 16, 16]} />
           <meshBasicMaterial color="#ff4848" transparent opacity={0.06} />

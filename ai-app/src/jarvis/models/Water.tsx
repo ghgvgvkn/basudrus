@@ -12,7 +12,8 @@
  */
 import { useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group } from "three";
+import type { Group, Mesh, MeshStandardMaterial } from "three";
+import type { ModelExplodeProps } from "../explode";
 
 const BOND_LENGTH = 1.6;
 const BOND_ANGLE_DEG = 104.5;
@@ -20,8 +21,14 @@ const O_RADIUS = 0.65;
 const H_RADIUS = 0.38;
 const BOND_R = 0.07;
 
-export function Water() {
+/** EXPLODED VIEW: how far each hydrogen drifts along its own O-H
+ *  bond direction at t=1 (in addition to the bond length). */
+const H_EXPLODE_TRAVEL = 1.5;
+
+export function Water({ explodeRef }: ModelExplodeProps) {
   const groupRef = useRef<Group>(null);
+  const hydrogensRef = useRef<Group>(null);
+  const bondsRef = useRef<Group>(null);
 
   // Hydrogen positions — symmetric around the Y axis, in the XY plane.
   // Half-angle from vertical = (180° - 104.5°) / 2 = 37.75°
@@ -42,9 +49,30 @@ export function Water() {
     return { h1, h2 };
   }, []);
 
+  // EXPLODED VIEW: hydrogens drift outward along their own real bond
+  // directions (dissociation), the covalent bonds fade as they break.
+  // Oxygen anchors the center.
   useFrame((_, delta) => {
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * 0.30;
+    }
+    const t = explodeRef?.current ?? 0;
+    if (hydrogensRef.current) {
+      const stretch = 1 + (t * H_EXPLODE_TRAVEL) / BOND_LENGTH;
+      const kids = hydrogensRef.current.children;
+      const bases = [positions.h1, positions.h2];
+      for (let i = 0; i < kids.length && i < bases.length; i++) {
+        const b = bases[i];
+        kids[i].position.set(b[0] * stretch, b[1] * stretch, b[2] * stretch);
+      }
+    }
+    if (bondsRef.current) {
+      const opacity = Math.max(0, 1 - t * 1.9);
+      for (const child of bondsRef.current.children) {
+        const mat = (child as Mesh).material as MeshStandardMaterial;
+        if (mat.opacity !== opacity) mat.opacity = opacity;
+        child.visible = opacity > 0.01;
+      }
     }
   });
 
@@ -63,22 +91,26 @@ export function Water() {
       </mesh>
 
       {/* Hydrogens — white-ish, smaller */}
-      {[positions.h1, positions.h2].map((p, i) => (
-        <mesh key={`h-${i}`} position={p}>
-          <sphereGeometry args={[H_RADIUS, 24, 24]} />
-          <meshStandardMaterial
-            color="#f0f4ff"
-            emissive="#8ea8d0"
-            emissiveIntensity={0.45}
-            roughness={0.35}
-            metalness={0.30}
-          />
-        </mesh>
-      ))}
+      <group ref={hydrogensRef}>
+        {[positions.h1, positions.h2].map((p, i) => (
+          <mesh key={`h-${i}`} position={p}>
+            <sphereGeometry args={[H_RADIUS, 24, 24]} />
+            <meshStandardMaterial
+              color="#f0f4ff"
+              emissive="#8ea8d0"
+              emissiveIntensity={0.45}
+              roughness={0.35}
+              metalness={0.30}
+            />
+          </mesh>
+        ))}
+      </group>
 
       {/* O-H bonds — cylinders from origin to each hydrogen */}
-      <Bond from={[0, 0, 0]} to={positions.h1} />
-      <Bond from={[0, 0, 0]} to={positions.h2} />
+      <group ref={bondsRef}>
+        <Bond from={[0, 0, 0]} to={positions.h1} />
+        <Bond from={[0, 0, 0]} to={positions.h2} />
+      </group>
     </group>
   );
 }
@@ -138,7 +170,16 @@ function Bond({ from, to }: { from: [number, number, number]; to: [number, numbe
   return (
     <mesh position={pos} rotation={rot}>
       <cylinderGeometry args={[BOND_R, BOND_R, len, 12]} />
-      <meshStandardMaterial color="#a8d1ff" emissive="#4a90e2" emissiveIntensity={0.35} roughness={0.5} />
+      {/* transparent so the exploded view can fade the bond as it
+          breaks (opacity driven per-frame by Water). */}
+      <meshStandardMaterial
+        color="#a8d1ff"
+        emissive="#4a90e2"
+        emissiveIntensity={0.35}
+        roughness={0.5}
+        transparent
+        opacity={1}
+      />
     </mesh>
   );
 }

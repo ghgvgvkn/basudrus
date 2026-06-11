@@ -16,7 +16,8 @@
  */
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import type { Group } from "three";
+import type { Group, Mesh } from "three";
+import type { ModelExplodeProps } from "../explode";
 
 /** Cyan accent that ties the model into Aurora's JARVIS palette. */
 const ACCENT_CYAN = "#4a90e2";
@@ -50,8 +51,14 @@ const NEUTRONS = 6;
 // no visual benefit.
 const NUCLEONS = fibSphere(PROTONS + NEUTRONS).map(([x, y, z], i) => ({
   pos: [x * NUCLEON_PACK, y * NUCLEON_PACK, z * NUCLEON_PACK] as [number, number, number],
+  /** Unit direction from nucleus center — the EXPLODED VIEW scatters
+   *  each nucleon outward along its own ray. */
+  dir: [x, y, z] as [number, number, number],
   isProton: i < PROTONS,
 }));
+
+/** Exploded-view travel: how far a nucleon scatters at t=1. */
+const NUCLEON_EXPLODE_TRAVEL = 1.15;
 
 interface ElectronShell {
   radius: number;
@@ -70,58 +77,94 @@ const SHELLS: ElectronShell[] = [
   { radius: 2.6, tiltX: 1.1, tiltZ: 0.7, electronPhases: [0, 0.25, 0.5, 0.75], speed: 1.0 },
 ];
 
-export function Atom() {
+export function Atom({ explodeRef }: ModelExplodeProps) {
   const groupRef = useRef<Group>(null);
+  const nucleonsRef = useRef<Group>(null);
+  const glowRef = useRef<Mesh>(null);
 
   // Gentle whole-model rotation so even when the user isn't dragging
   // with OrbitControls, the atom doesn't sit perfectly still.
+  // EXPLODED VIEW (t = explodeRef.current, 0..1): nucleons scatter
+  // outward along their own sphere rays; the core glow fades as the
+  // nucleus comes apart. All imperative ref mutation — no React
+  // state at frame rate (weak-MacBook rule).
   useFrame((_, delta) => {
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * 0.12;
+    }
+    const t = explodeRef?.current ?? 0;
+    if (nucleonsRef.current) {
+      const kids = nucleonsRef.current.children;
+      const d = NUCLEON_PACK + t * NUCLEON_EXPLODE_TRAVEL;
+      for (let i = 0; i < kids.length && i < NUCLEONS.length; i++) {
+        const dir = NUCLEONS[i].dir;
+        kids[i].position.set(dir[0] * d, dir[1] * d, dir[2] * d);
+      }
+    }
+    if (glowRef.current) {
+      const s = Math.max(0.001, 1 - t * 0.85);
+      glowRef.current.scale.setScalar(s);
     }
   });
 
   return (
     <group ref={groupRef}>
       {/* Nucleus particles */}
-      {NUCLEONS.map((n, i) => (
-        <mesh key={`nucleon-${i}`} position={n.pos}>
-          <sphereGeometry args={[PARTICLE_R, 18, 18]} />
-          <meshStandardMaterial
-            color={n.isProton ? "#ff6b8a" : "#bcbcc4"}
-            emissive={n.isProton ? "#7a2e3f" : "#3a3a40"}
-            emissiveIntensity={0.45}
-            roughness={0.55}
-            metalness={0.20}
-          />
-        </mesh>
-      ))}
+      <group ref={nucleonsRef}>
+        {NUCLEONS.map((n, i) => (
+          <mesh key={`nucleon-${i}`} position={n.pos}>
+            <sphereGeometry args={[PARTICLE_R, 18, 18]} />
+            <meshStandardMaterial
+              color={n.isProton ? "#ff6b8a" : "#bcbcc4"}
+              emissive={n.isProton ? "#7a2e3f" : "#3a3a40"}
+              emissiveIntensity={0.45}
+              roughness={0.55}
+              metalness={0.20}
+            />
+          </mesh>
+        ))}
+      </group>
 
       {/* Soft inner glow at the nucleus center — gives the cluster
           a "core energy" feel without needing a heavy bloom pass. */}
-      <mesh>
+      <mesh ref={glowRef}>
         <sphereGeometry args={[NUCLEUS_RADIUS * 0.7, 16, 16]} />
         <meshBasicMaterial color={ACCENT_CYAN_HOT} transparent opacity={0.20} />
       </mesh>
 
-      {/* Each shell: a torus ring + the orbiting electron spheres. */}
+      {/* Each shell: a torus ring + the orbiting electron spheres.
+          Exploded: shells push outward in tiers (outer travels more)
+          so the K/L structure reads at a glance. */}
       {SHELLS.map((shell, si) => (
-        <ElectronShellG key={`shell-${si}`} shell={shell} />
+        <ElectronShellG
+          key={`shell-${si}`}
+          shell={shell}
+          explodeRef={explodeRef}
+          explodeGain={0.45 + si * 0.4}
+        />
       ))}
     </group>
   );
 }
 
-function ElectronShellG({ shell }: { shell: ElectronShell }) {
+function ElectronShellG({
+  shell,
+  explodeRef,
+  explodeGain,
+}: { shell: ElectronShell; explodeGain: number } & ModelExplodeProps) {
   const ringRef = useRef<Group>(null);
   const electronsRef = useRef<Group>(null);
 
   // Each shell rotates the entire ring (so the visual "tilt" sweeps)
-  // and orbits its electrons around the ring's center.
+  // and orbits its electrons around the ring's center. Exploded view
+  // scales the whole shell group — ring AND electrons push out
+  // together, so electrons never leave their orbit line.
   useFrame((state, delta) => {
     if (ringRef.current) {
       ringRef.current.rotation.x = shell.tiltX;
       ringRef.current.rotation.z = shell.tiltZ;
+      const t = explodeRef?.current ?? 0;
+      ringRef.current.scale.setScalar(1 + t * explodeGain);
     }
     if (electronsRef.current) {
       electronsRef.current.rotation.y += delta * shell.speed;
