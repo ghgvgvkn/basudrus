@@ -55,6 +55,10 @@ import { renderMarkdown } from "./auroraMarkdown";
 import { resolveModelKey, type ModelKey } from "../jarvis/modelKeys";
 import { explodeTargetFromRatio, type ViewerHandCursor } from "../jarvis/explode";
 const JarvisView = lazy(() => import("../jarvis/JarvisView").then((m) => ({ default: m.JarvisView })));
+// GeneratedView — same lazy treatment. Opens when Tony names a model
+// that ISN'T one of the six built-ins: the name becomes a Meshy
+// text-to-3D prompt and the viewer plays a fabricator sequence.
+const GeneratedView = lazy(() => import("../jarvis/GeneratedView").then((m) => ({ default: m.GeneratedView })));
 // JARVIS MODE — the camera + hand-gesture holodeck layer: an OPTIONAL second
 // way to use voice mode (classic voice mode is untouched). Lazy so the
 // gesture engine + CSS never load unless the user turns it on; MediaPipe
@@ -605,6 +609,10 @@ export function AuroraAIScreen() {
   // dismissed for the current message, it stays dismissed until
   // a NEW model block comes through.
   const [activeJarvisModel, setActiveJarvisModel] = useState<ModelKey | null>(null);
+  // Live-generated model viewer (Meshy text-to-3D). Opens when the
+  // MODEL name does NOT resolve to a built-in — the raw name becomes
+  // the generation prompt. Mutually exclusive with activeJarvisModel.
+  const [activeGeneratedPrompt, setActiveGeneratedPrompt] = useState<string | null>(null);
   // Track which AI-message text we've already "opened" so a single
   // message only auto-opens the viewer once. Re-mount safe via the
   // message text comparison (cleanText fragment is stable per
@@ -616,27 +624,35 @@ export function AuroraAIScreen() {
       return;
     }
     const key = resolveModelKey(presenting.model.name);
-    if (!key) return;
     // Use the cleanText as the "message fingerprint" so each
     // distinct AI reply only auto-opens once. Re-opens cleanly
     // if Tony emits a new model later in the conversation.
-    const fingerprint = `${key}::${presenting.cleanText.slice(0, 60)}`;
+    const fingerprint = `${key ?? presenting.model.name}::${presenting.cleanText.slice(0, 60)}`;
     if (lastAutoOpenedRef.current === fingerprint) return;
     lastAutoOpenedRef.current = fingerprint;
-    setActiveJarvisModel(key);
+    if (key) {
+      setActiveGeneratedPrompt(null);
+      setActiveJarvisModel(key);
+    } else {
+      // Unknown name → live generation. The fabricator view owns the
+      // whole lifecycle (auth nudge, quota copy, retry).
+      setActiveJarvisModel(null);
+      setActiveGeneratedPrompt(presenting.model.name);
+    }
   }, [presenting.model, presenting.cleanText]);
-  // Esc closes the 3D viewer (in addition to its own dismiss button).
+  // Esc closes whichever 3D viewer is open (plus their own buttons).
   useEffect(() => {
-    if (!activeJarvisModel) return;
+    if (!activeJarvisModel && !activeGeneratedPrompt) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         setActiveJarvisModel(null);
+        setActiveGeneratedPrompt(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeJarvisModel]);
+  }, [activeJarvisModel, activeGeneratedPrompt]);
 
   // ── EXPLODED VIEW plumbing ──
   // The target the 3D model eases toward (0..1). Written by the
@@ -656,7 +672,7 @@ export function AuroraAIScreen() {
     modelExplodeTargetRef.current = 0;
     modelExplodeBaseRef.current = 0;
     modelCursorsRef.current = [];
-  }, [activeJarvisModel]);
+  }, [activeJarvisModel, activeGeneratedPrompt]);
 
   /**
    * Monotonic counter bumped every time the user opens (or closes)
@@ -1766,6 +1782,31 @@ export function AuroraAIScreen() {
         </Suspense>
       )}
 
+      {/* Live-generated 3D viewer — same overlay slot, for MODEL
+          names with no built-in. Plays the fabricator sequence while
+          Meshy bakes the mesh, then materializes it. */}
+      {!activeJarvisModel && activeGeneratedPrompt && (
+        <Suspense fallback={null}>
+          <GeneratedView
+            prompt={activeGeneratedPrompt}
+            onClose={() => setActiveGeneratedPrompt(null)}
+            voiceActive={voiceModeActive}
+            voiceStatus={
+              voice.isSpeaking ? "speaking"
+                : voice.isListening ? "listening"
+                : voice.isTranscribing ? "processing"
+                : "ready"
+            }
+            handCursorsRef={modelCursorsRef}
+            gestureActive={jarvisActive}
+            onRequestSignIn={() => {
+              setActiveGeneratedPrompt(null);
+              setSignUpOpen(true);
+            }}
+          />
+        </Suspense>
+      )}
+
       {/* JARVIS CENTER STAGE — voice mode redesign.
           The A4 paper concept is GONE (founder feedback: "delete the
           four paper because I don't find it nice or bring anything").
@@ -1877,7 +1918,7 @@ export function AuroraAIScreen() {
                 onExit={() => setJarvisActive(false)}
                 micMuted={jarvisMicMuted}
                 onToggleMic={() => setJarvisMicMuted((m) => !m)}
-                modelViewerOpen={!!activeJarvisModel}
+                modelViewerOpen={!!activeJarvisModel || !!activeGeneratedPrompt}
                 onModelExplodeStart={() => {
                   // Capture the current explosion so the pull composes
                   // on top of it (matches the holo-tab resize feel).
@@ -1889,7 +1930,10 @@ export function AuroraAIScreen() {
                     ratio,
                   );
                 }}
-                onModelClose={() => setActiveJarvisModel(null)}
+                onModelClose={() => {
+                  setActiveJarvisModel(null);
+                  setActiveGeneratedPrompt(null);
+                }}
                 modelCursorsRef={modelCursorsRef}
               />
             </Suspense>

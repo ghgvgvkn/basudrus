@@ -316,6 +316,180 @@
   }
 }
 
+/* ── Fabricator panel (live text-to-3D generation) ────────────────
+   Center-stage glass panel shown while a Meshy job bakes. Stark FUI
+   rules: transparent blurred backdrop, no solid box, bracketed feel
+   via the existing HUD corners, uppercase tracked mono labels, a
+   scanning line, and a REAL progress bar (Meshy %, never fake). */
+.jarvis-fab-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, 80vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 16px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(6, 12, 24, 0.40);
+  border: 1px solid rgba(64, 224, 255, 0.18);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.45),
+    inset 0 0.5px 0 rgba(180, 225, 255, 0.18);
+  pointer-events: auto;
+  animation: jarvis-view-in 360ms cubic-bezier(.2,.85,.3,1) both;
+}
+.jarvis-fab-panel.is-error {
+  border-color: rgba(255, 130, 150, 0.30);
+}
+
+/* Thin scanning line sweeping the panel top→bottom on loop. */
+.jarvis-fab-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, rgba(64, 224, 255, 0.75), transparent);
+  filter: drop-shadow(0 0 6px rgba(64, 224, 255, 0.6));
+  animation: jarvis-fab-scan 2.6s linear infinite;
+  pointer-events: none;
+}
+@keyframes jarvis-fab-scan {
+  from { transform: translateY(0); opacity: 0.2; }
+  15%  { opacity: 0.9; }
+  85%  { opacity: 0.9; }
+  to   { transform: translateY(110px); opacity: 0.2; }
+}
+
+.jarvis-fab-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.jarvis-fab-label {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: rgba(180, 220, 255, 0.80);
+  text-shadow: 0 0 8px rgba(140, 200, 255, 0.35);
+}
+.jarvis-fab-panel.is-error .jarvis-fab-label {
+  color: rgba(255, 170, 185, 0.90);
+  text-shadow: 0 0 8px rgba(255, 130, 150, 0.35);
+}
+.jarvis-fab-readout {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #5fe0ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.jarvis-fab-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(64, 224, 255, 0.12);
+  overflow: hidden;
+}
+.jarvis-fab-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(64, 224, 255, 0.45), #5fe0ff);
+  box-shadow: 0 0 8px rgba(64, 224, 255, 0.55);
+  transition: width 600ms cubic-bezier(.2,.85,.3,1);
+}
+/* Queue/upload/download phases have no upstream % — show a sliding
+   pulse instead of pretending. */
+.jarvis-fab-bar.is-indeterminate {
+  width: 32%;
+  animation: jarvis-fab-slide 1.6s ease-in-out infinite;
+}
+@keyframes jarvis-fab-slide {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(330%); }
+}
+
+.jarvis-fab-meta {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(150, 195, 235, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+.jarvis-fab-message {
+  margin: 0;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 1.55;
+  color: rgba(220, 240, 255, 0.80);
+}
+.jarvis-fab-action {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 9px 18px;
+  background: rgba(10, 20, 40, 0.65);
+  border: 1px solid rgba(140, 200, 255, 0.55);
+  border-radius: 999px;
+  color: rgba(220, 240, 255, 1);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 160ms, border-color 160ms, box-shadow 160ms;
+  box-shadow: 0 0 16px rgba(140, 200, 255, 0.25);
+}
+.jarvis-fab-action:hover {
+  background: rgba(20, 45, 85, 0.85);
+  border-color: rgba(190, 230, 255, 0.95);
+  box-shadow: 0 0 24px rgba(140, 200, 255, 0.45);
+}
+
+/* Telemetry chip — bottom-left, real parsed geometry counts. */
+.jarvis-fab-telemetry {
+  position: absolute;
+  bottom: 76px;
+  left: 28px;
+  display: flex;
+  gap: 16px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: rgba(6, 12, 24, 0.40);
+  border: 1px solid rgba(64, 224, 255, 0.16);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: rgba(180, 220, 255, 0.65);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: jarvis-view-in 360ms 200ms cubic-bezier(.2,.85,.3,1) both;
+}
+
+@media (max-width: 720px) {
+  .jarvis-fab-telemetry {
+    bottom: 60px;
+    left: 16px;
+    gap: 10px;
+    font-size: 8px;
+  }
+}
+
 /* ── Corner presence (voice-mode active during 3D view) ──────────
    Small TONY STARRK arc-reactor in the bottom-right of the 3D
    viewer. Reuses the visual language of the main aurora-lock-ring
@@ -426,7 +600,11 @@
   .jarvis-hud-close,
   .jarvis-hud-hint,
   .jarvis-corner-presence,
-  .jarvis-corner-ring-inner {
+  .jarvis-corner-ring-inner,
+  .jarvis-fab-panel,
+  .jarvis-fab-scanline,
+  .jarvis-fab-bar.is-indeterminate,
+  .jarvis-fab-telemetry {
     animation: none !important;
   }
 }

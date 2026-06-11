@@ -325,20 +325,30 @@ export function JarvisMode({
     let raf = 0;
     let lastT = -1;
 
-    /** Map normalized mirrored video coords → viewport px under
-     *  object-fit: cover (the video overflows the short axis). */
-    const toScreen = (nx: number, ny: number): { x: number; y: number } => {
+    /** Video→viewport mapping under object-fit: cover (the video
+     *  overflows the short axis). Constant for a whole frame, so it's
+     *  computed once into this scratch object — the 60Hz paths below
+     *  read it without allocating. */
+    const view = { dispW: 0, dispH: 0, offX: 0, offY: 0 };
+    const updateView = () => {
       const video = videoRef.current;
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const srcW = video?.videoWidth || 640;
       const srcH = video?.videoHeight || 480;
       const scale = Math.max(vw / srcW, vh / srcH);
-      const dispW = srcW * scale;
-      const dispH = srcH * scale;
-      const offX = (vw - dispW) / 2;
-      const offY = (vh - dispH) / 2;
-      return { x: offX + nx * dispW, y: offY + ny * dispH };
+      view.dispW = srcW * scale;
+      view.dispH = srcH * scale;
+      view.offX = (vw - view.dispW) / 2;
+      view.offY = (vh - view.dispH) / 2;
+    };
+
+    /** Map normalized mirrored video coords → viewport px. Allocates a
+     *  point, so it's reserved for discrete gesture events; the
+     *  per-frame draw/sink paths inline the math against `view`. */
+    const toScreen = (nx: number, ny: number): { x: number; y: number } => {
+      updateView();
+      return { x: view.offX + nx * view.dispW, y: view.offY + ny * view.dispH };
     };
 
     const topWindowAt = (px: number, py: number): number | null => {
@@ -501,6 +511,16 @@ export function JarvisMode({
 
     let lastCursors: CursorState[] = [];
 
+    // Scratch buffers reused every frame. The skeleton/cursor passes
+    // were the app's biggest steady-state GC allocator (~44 short-lived
+    // objects × 60fps with two hands) — real heat on a fanless machine.
+    const skelPts = [0, 1].map(() => Array.from({ length: 21 }, () => ({ x: 0, y: 0 })));
+    const sinkBuf: ViewerHandCursor[] = [];
+    const sinkPts: ViewerHandCursor[] = [
+      { x: 0, y: 0, pinching: false },
+      { x: 0, y: 0, pinching: false },
+    ];
+
     const draw = (cursors: CursorState[]) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -516,10 +536,19 @@ export function JarvisMode({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, vw, vh);
 
-      // Hand skeletons — thin cyan bones + landmark dots.
+      // Hand skeletons — thin cyan bones + landmark dots. Landmark
+      // coords are written in place into skelPts (no per-frame objects).
+      updateView();
       const frame = landmarksRef.current;
-      for (const hand of frame.hands) {
-        const pts = hand.landmarks.map((p) => toScreen(p.x, p.y));
+      for (let h = 0; h < frame.hands.length && h < skelPts.length; h++) {
+        const hand = frame.hands[h];
+        const pts = skelPts[h];
+        const n = Math.min(hand.landmarks.length, pts.length);
+        for (let i = 0; i < n; i++) {
+          const p = hand.landmarks[i];
+          pts[i].x = view.offX + p.x * view.dispW;
+          pts[i].y = view.offY + p.y * view.dispH;
+        }
         ctx.strokeStyle = "rgba(64, 224, 255, 0.55)";
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -529,16 +558,17 @@ export function JarvisMode({
         }
         ctx.stroke();
         ctx.fillStyle = "rgba(170, 244, 255, 0.9)";
-        for (const p of pts) {
+        for (let i = 0; i < n; i++) {
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+          ctx.arc(pts[i].x, pts[i].y, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
       }
 
       // Cursors — ring at the grab point; pink when pinching.
       for (const c of cursors) {
-        const { x, y } = toScreen(c.x, c.y);
+        const x = view.offX + c.x * view.dispW;
+        const y = view.offY + c.y * view.dispH;
         ctx.strokeStyle = c.pinching ? "rgba(255, 96, 168, 0.95)" : "rgba(64, 224, 255, 0.95)";
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -546,10 +576,14 @@ export function JarvisMode({
         ctx.stroke();
       }
 
-      // Pinch/clap sparks — expanding fading rings, pruned after 360ms.
+      // Pinch/clap sparks — expanding fading rings, pruned in place
+      // after 360ms (filter() would allocate an array every frame).
       const now = performance.now();
-      sparksRef.current = sparksRef.current.filter((s) => now - s.t0 < 360);
-      for (const s of sparksRef.current) {
+      const sparks = sparksRef.current;
+      let keep = 0;
+      for (const s of sparks) if (now - s.t0 < 360) sparks[keep++] = s;
+      sparks.length = keep;
+      for (const s of sparks) {
         const k = (now - s.t0) / 360;
         ctx.strokeStyle =
           s.hue === "gold" ? `rgba(255, 208, 96, ${1 - k})` : `rgba(64, 224, 255, ${1 - k})`;
@@ -574,13 +608,23 @@ export function JarvisMode({
         // the 3D model viewer can draw the hands over its scene — the
         // camera's own cursor canvas sits behind the viewer (z 50). Only
         // while the viewer is open: nothing reads the sink otherwise, so
-        // skip the per-frame allocation + coord mapping when it's closed.
+        // skip the coord mapping when it's closed. Written in place into
+        // reusable cursors (the overlay re-reads the ref every frame and
+        // never retains them, so mutation is safe).
         const sink = modelCursorsSinkRef.current;
         if (sink && modelViewerOpenRef.current) {
-          sink.current = cursors.map((c) => {
-            const { x, y } = toScreen(c.x, c.y);
-            return { x, y, pinching: c.pinching };
-          });
+          updateView();
+          const n = Math.min(cursors.length, sinkPts.length);
+          sinkBuf.length = n;
+          for (let i = 0; i < n; i++) {
+            const c = cursors[i];
+            const s = sinkPts[i];
+            s.x = view.offX + c.x * view.dispW;
+            s.y = view.offY + c.y * view.dispH;
+            s.pinching = c.pinching;
+            sinkBuf[i] = s;
+          }
+          sink.current = sinkBuf;
         }
       } else {
         // Frames stalled (tab hidden, camera track ended, tracking
