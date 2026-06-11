@@ -78,6 +78,14 @@ export interface HandTracking {
   status: JarvisCamStatus;
   /** Re-request the camera after a denial (must be user-gesture-driven). */
   retry: () => void;
+  /** How many cameras the device exposes (0 until permission granted). */
+  cameraCount: number;
+  /** Index of the camera currently in use (into the device list). */
+  cameraIndex: number;
+  /** Human label of the active camera ("FaceTime HD Camera", …). */
+  cameraLabel: string;
+  /** Switch to the next camera — restarts the stream on the new device. */
+  cycleCamera: () => void;
 }
 
 export function useHandTracking(active: boolean): HandTracking {
@@ -86,6 +94,17 @@ export function useHandTracking(active: boolean): HandTracking {
   const [status, setStatus] = useState<JarvisCamStatus>("idle");
   // Bump to force the effect to re-run after a permission denial.
   const [attempt, setAttempt] = useState(0);
+  // Camera picker — the founder wants to choose WHICH camera drives
+  // JARVIS (laptops with iPhone Continuity / external webcams expose
+  // several). Device list fills in after the first permission grant
+  // (labels are empty before that, per spec). Cycling restarts the
+  // stream on the chosen deviceId.
+  const [devices, setDevices] = useState<Array<{ id: string; label: string }>>([]);
+  const [camIdx, setCamIdx] = useState(0);
+  // Read inside the effect via a ref so refreshing the device LIST never
+  // restarts a healthy stream — only camIdx/attempt changes do.
+  const devicesRef = useRef(devices);
+  devicesRef.current = devices;
 
   useEffect(() => {
     if (!active) {
@@ -122,18 +141,43 @@ export function useHandTracking(active: boolean): HandTracking {
       }
 
       // 1 ── camera permission first (fast feedback for the user)
+      const chosenId = devicesRef.current[camIdx]?.id;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            // Specific device once the user picked one; selfie cam otherwise.
+            ...(chosenId ? { deviceId: { exact: chosenId } } : { facingMode: "user" }),
+          },
           audio: false,
         });
       } catch (e) {
         if (cancelled) return;
         const name = (e as DOMException)?.name ?? "";
+        if (chosenId && (name === "OverconstrainedError" || name === "NotFoundError")) {
+          // The picked camera unplugged — fall back to the default.
+          setDevices([]);
+          setCamIdx(0);
+          setAttempt((n) => n + 1);
+          return;
+        }
         setStatus(name === "NotAllowedError" || name === "SecurityError" ? "denied" : "error");
         return;
       }
       if (cancelled) return cleanup();
+
+      // Permission granted → labels are now readable. Refresh the picker
+      // list (fire-and-forget; the UI only needs it for the CAM button).
+      void navigator.mediaDevices.enumerateDevices().then((all) => {
+        if (cancelled) return;
+        const cams = all
+          .filter((d) => d.kind === "videoinput")
+          .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+        setDevices((prev) =>
+          prev.length === cams.length && prev.every((p, i) => p.id === cams[i].id) ? prev : cams,
+        );
+      }).catch(() => {});
 
       const video = videoRef.current;
       if (!video) {
@@ -246,12 +290,19 @@ export function useHandTracking(active: boolean): HandTracking {
       cancelled = true;
       cleanup();
     };
-  }, [active, attempt]);
+  }, [active, attempt, camIdx]);
 
   return {
     videoRef,
     landmarksRef,
     status,
     retry: () => setAttempt((n) => n + 1),
+    cameraCount: devices.length,
+    cameraIndex: camIdx,
+    cameraLabel: devices[camIdx]?.label ?? "",
+    cycleCamera: () => {
+      const n = devicesRef.current.length;
+      if (n > 1) setCamIdx((i) => (i + 1) % n);
+    },
   };
 }

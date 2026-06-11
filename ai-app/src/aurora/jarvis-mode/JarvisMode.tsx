@@ -32,7 +32,7 @@
  *   - MediaPipe runs at ~30fps on the GPU delegate (see useHandTracking).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ParsedMessage } from "../auroraVisuals";
+import { fetchMapboxFlyImages, type MapboxFlyImages, type ParsedMessage } from "../auroraVisuals";
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
 import type { ViewerHandCursor } from "../../jarvis/explode";
@@ -54,7 +54,11 @@ type HoloPayload =
   | { kind: "show"; query: string; snippet: string }
   | { kind: "note"; text: string }
   | { kind: "orb" }
-  | { kind: "welcome" };
+  | { kind: "welcome" }
+  // Spawned from the hand-tap "+" menu:
+  | { kind: "map"; query: string }
+  | { kind: "pdf"; name: string; url: string }
+  | { kind: "ask"; mode: "tony" | "model3d" };
 
 interface HoloWindow {
   id: number;
@@ -70,6 +74,10 @@ interface HoloWindow {
 const MAX_WINDOWS = 8;
 const SCALE_MIN = 0.45;
 const SCALE_MAX = 1.8;
+/** DR STRANGE portal: a pinch that starts in EMPTY space and sweeps at
+ *  least this far (normalized units) conjures a new tab where it ends —
+ *  "bring two fingers together, move them, a tab opens". */
+const PORTAL_MIN_TRAVEL = 0.12;
 
 /** Spawn slots hug the LEFT edge (and a little top-right), deliberately
  *  avoiding the center ~0.32–0.72 x band where the user sits in frame —
@@ -115,6 +123,11 @@ interface JarvisModeProps {
   /** Shared sink for hand cursors (screen-space px) so the viewer can
    *  draw them over the 3D scene — the camera canvas sits behind it. */
   modelCursorsRef?: { current: ViewerHandCursor[] };
+  /** "+ ASK TONY" tab — sends the typed question through the screen's
+   *  normal send pipeline (Tony's answer lands back in the tab). */
+  onAsk?: (text: string) => void;
+  /** "+ 3D MODEL" tab — opens the live text-to-3D fabricator. */
+  onGenerate3D?: (prompt: string) => void;
 }
 
 export function JarvisMode({
@@ -128,8 +141,11 @@ export function JarvisMode({
   onModelExplode,
   onModelClose,
   modelCursorsRef,
+  onAsk,
+  onGenerate3D,
 }: JarvisModeProps) {
-  const { videoRef, landmarksRef, status, retry } = useHandTracking(true);
+  const { videoRef, landmarksRef, status, retry, cameraCount, cameraIndex, cameraLabel, cycleCamera } =
+    useHandTracking(true);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerRef = useRef<HTMLDivElement | null>(null);
   // Telemetry strip — written via textContent from the rAF (real hand
@@ -146,6 +162,14 @@ export function JarvisMode({
   const [pageId, setPageId] = useState<number | null>(null);
   const pageIdRef = useRef<number | null>(null);
   pageIdRef.current = pageId;
+  // "+" MENU — a hand-tap on empty space drops a plus sign there;
+  // tapping the plus reveals add-options (map / 3D / ask / PDF / note).
+  // Founder: "when you do a click it's gonna give you a plus sign".
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number; open: boolean } | null>(null);
+  // PDF upload — the "+" menu clicks this hidden input; the picked file
+  // becomes a draggable holo-tab at the spot the menu was opened.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pdfSpawnAtRef = useRef<{ x: number; y: number } | null>(null);
 
   // Live transform mirror — mutated at 60fps during gestures, committed to
   // React state on gesture end. Map<windowId, {x,y,scale,z}>.
@@ -159,6 +183,9 @@ export function JarvisMode({
   const grabsRef = useRef(new Map<string, { id: number; offX: number; offY: number }>());
   // Two-hand resize target + its scale when the gesture started.
   const scalingRef = useRef<{ id: number; baseScale: number } | null>(null);
+  // DR STRANGE portal draw: pinches that started in EMPTY space, per
+  // hand — sweeping far enough conjures a new tab at the release point.
+  const portalsRef = useRef(new Map<string, { lastSparkT: number }>());
   // Pinch sparks (decorative): spawn on pinch-start, fade ~360ms.
   const sparksRef = useRef<Array<{ x: number; y: number; t0: number; hue: "cyan" | "gold" }>>([]);
 
@@ -228,6 +255,48 @@ export function JarvisMode({
     setWindows((ws) => ws.map((w) => (w.id === id ? { ...w, x: tr.x, y: tr.y, scale: tr.scale, z: tr.z } : w)));
   }, []);
 
+  // Current windows, readable outside render (prompt router below).
+  const windowsRef = useRef<HoloWindow[]>([]);
+  windowsRef.current = windows;
+
+  /** Prompt-tab submit router — MAP tabs take a place name, ASK tabs
+   *  send to Tony (the tab becomes an empty note so his answer lands
+   *  right back in it), 3D tabs hand the prompt to the fabricator. */
+  const handlePrompt = useCallback(
+    (id: number, text: string) => {
+      const w = windowsRef.current.find((x) => x.id === id);
+      if (!w) return;
+      if (w.payload.kind === "map") {
+        setWindows((ws) =>
+          ws.map((x) => (x.id === id ? { ...x, payload: { kind: "map", query: text } } : x)),
+        );
+      } else if (w.payload.kind === "ask") {
+        if (w.payload.mode === "tony") {
+          onAsk?.(text);
+          setWindows((ws) =>
+            ws.map((x) => (x.id === id ? { ...x, payload: { kind: "note", text: "" } } : x)),
+          );
+        } else {
+          onGenerate3D?.(text);
+          closeWindow(id);
+        }
+      }
+    },
+    [onAsk, onGenerate3D, closeWindow],
+  );
+
+  const onPdfPicked = useCallback(
+    (ev: React.ChangeEvent<HTMLInputElement>) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      spawnWindow({ kind: "pdf", name: f.name, url }, pdfSpawnAtRef.current ?? undefined);
+      pdfSpawnAtRef.current = null;
+    },
+    [spawnWindow],
+  );
+
   // When the 3D model viewer opens on top, drop any in-flight holo-tab
   // grab/scale so a half-finished window gesture can't keep mutating a
   // hidden tab while the user is now driving the model.
@@ -235,6 +304,8 @@ export function JarvisMode({
     if (modelViewerOpen) {
       grabsRef.current.clear();
       scalingRef.current = null;
+      portalsRef.current.clear();
+      setPlusMenu(null);
     }
   }, [modelViewerOpen]);
 
@@ -405,27 +476,61 @@ export function JarvisMode({
               const el = elsRef.current.get(hit);
               el?.classList.add("is-grabbed");
             }
+          } else if (hit == null) {
+            // Pinch in EMPTY space — candidate Dr Strange portal sweep.
+            portalsRef.current.set(e.hand, { lastSparkT: performance.now() });
           }
           break;
         }
         case "pinch-move": {
           const grab = grabsRef.current.get(e.hand);
-          if (!grab) return;
-          const { x, y } = toScreen(e.x, e.y);
-          const tr = liveRef.current.get(grab.id);
-          if (!tr) return;
-          tr.x = x + grab.offX;
-          tr.y = y + grab.offY;
-          applyTransform(grab.id);
+          if (grab) {
+            const { x, y } = toScreen(e.x, e.y);
+            const tr = liveRef.current.get(grab.id);
+            if (!tr) return;
+            tr.x = x + grab.offX;
+            tr.y = y + grab.offY;
+            applyTransform(grab.id);
+            return;
+          }
+          // Portal sweep — golden ember trail behind the moving pinch.
+          const portal = portalsRef.current.get(e.hand);
+          if (portal) {
+            const now = performance.now();
+            if (now - portal.lastSparkT > 70) {
+              portal.lastSparkT = now;
+              const { x, y } = toScreen(e.x, e.y);
+              sparksRef.current.push({ x, y, t0: now, hue: "gold" });
+            }
+          }
           break;
         }
         case "pinch-end": {
+          const portal = portalsRef.current.get(e.hand);
+          portalsRef.current.delete(e.hand);
           const grab = grabsRef.current.get(e.hand);
           grabsRef.current.delete(e.hand);
+          const { x, y } = toScreen(e.x, e.y);
+
+          // HAND-TAP = CLICK. Any button under the tap point gets a real
+          // DOM click — close ✕, the "+" menu, CAM/EXIT/mic, overlay
+          // buttons — so NOTHING in this mode ever needs the mouse.
+          if (isTap(e)) {
+            const at = document.elementFromPoint(x, y);
+            const btn = at instanceof Element ? at.closest("button") : null;
+            if (btn instanceof HTMLButtonElement && !btn.disabled) {
+              if (grab) {
+                elsRef.current.get(grab.id)?.classList.remove("is-grabbed");
+                commitWindow(grab.id);
+              }
+              btn.click();
+              break;
+            }
+          }
+
           if (grab) {
             const el = elsRef.current.get(grab.id);
             el?.classList.remove("is-grabbed");
-            const { x } = toScreen(e.x, e.y);
             // Founder spec: dragging a tab off the LEFT edge dismisses it.
             if (x < window.innerWidth * 0.04) closeWindow(grab.id);
             else commitWindow(grab.id);
@@ -436,6 +541,17 @@ export function JarvisMode({
               setPageId(grab.id);
               setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: true } : w)));
             }
+          } else if (isTap(e)) {
+            // Tap on EMPTY space → drop the "+" sign there (tap again to
+            // dismiss). Suppressed while a page is open or in focus mode.
+            if (!focusModeRef.current && pageIdRef.current == null) {
+              setPlusMenu((m) => (m ? null : { x, y, open: false }));
+            }
+          } else if (portal && e.moved >= PORTAL_MIN_TRAVEL && !focusModeRef.current) {
+            // DR STRANGE: the sweep traveled far enough — open the portal.
+            const now = performance.now();
+            sparksRef.current.push({ x, y, t0: now, hue: "gold" }, { x, y, t0: now + 120, hue: "gold" });
+            spawnWindow({ kind: "note", text: "" }, { x, y });
           }
           break;
         }
@@ -696,6 +812,8 @@ export function JarvisMode({
       ["FIST→OPEN", "close page"],
       ["TWO HANDS", "resize"],
       ["DOUBLE PINCH", "new tab"],
+      ["TAP SPACE", "+ add menu"],
+      ["PINCH SWEEP", "portal tab"],
       ["CLAP", "new orb"],
       ["SWIPE ←", "focus Tony"],
       ["SWIPE →", "tabs back"],
@@ -743,10 +861,12 @@ export function JarvisMode({
             <div
               className="jarvis-win-body"
               onClick={
-                // Notes are editable — clicking must NOT hijack focus from
-                // the textarea. Other kinds: mouse-click opens the big page
-                // view, same as a gesture tap.
-                w.payload.kind === "note"
+                // Notes/ask/empty-map are editable — clicking must NOT
+                // hijack focus from their inputs. Other kinds: mouse-click
+                // opens the big page view, same as a gesture tap.
+                w.payload.kind === "note" ||
+                w.payload.kind === "ask" ||
+                (w.payload.kind === "map" && !w.payload.query)
                   ? undefined
                   : () => {
                       setPageId(w.id);
@@ -763,6 +883,7 @@ export function JarvisMode({
                     ws.map((x) => (x.id === w.id && x.payload.kind === "note" ? { ...x, payload: { kind: "note", text } } : x)),
                   )
                 }
+                onPrompt={(text) => handlePrompt(w.id, text)}
               />
             </div>
           </div>
@@ -771,6 +892,59 @@ export function JarvisMode({
 
       {/* Layer 3 — hand skeleton + cursors + sparks */}
       <canvas ref={canvasRef} className="jarvis-cursor-canvas" aria-hidden />
+
+      {/* "+" MENU — tap empty space to summon it, tap the plus for the
+          add-options. Every button here is hand-tappable (tap-bridge). */}
+      {plusMenu && (
+        <div className="jarvis-plus" style={{ left: plusMenu.x, top: plusMenu.y }}>
+          {!plusMenu.open ? (
+            <button
+              type="button"
+              className="jarvis-plus-btn"
+              aria-label="Add to the scene"
+              onClick={() => setPlusMenu((m) => (m ? { ...m, open: true } : m))}
+            >
+              +
+            </button>
+          ) : (
+            <div className="jarvis-plus-menu">
+              {([
+                ["MAP", () => spawnWindow({ kind: "map", query: "" }, plusMenu)],
+                ["3D MODEL", () => spawnWindow({ kind: "ask", mode: "model3d" }, plusMenu)],
+                ["ASK TONY", () => spawnWindow({ kind: "ask", mode: "tony" }, plusMenu)],
+                [
+                  "UPLOAD PDF",
+                  () => {
+                    pdfSpawnAtRef.current = { x: plusMenu.x, y: plusMenu.y };
+                    fileInputRef.current?.click();
+                  },
+                ],
+                ["NOTE", () => spawnWindow({ kind: "note", text: "" }, plusMenu)],
+              ] as Array<[string, () => void]>).map(([label, act]) => (
+                <button
+                  key={label}
+                  type="button"
+                  className="jarvis-plus-item"
+                  onClick={() => {
+                    act();
+                    setPlusMenu(null);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        hidden
+        onChange={onPdfPicked}
+        aria-hidden
+      />
 
       {/* Focus-mode hint (windows are parked off-screen left) */}
       {focusMode && windows.length > 0 && (
@@ -798,6 +972,19 @@ export function JarvisMode({
       <button type="button" className="jarvis-exit" onClick={onExit}>
         EXIT JARVIS
       </button>
+      {/* Camera picker — founder: "I should choose the camera that I
+          want to use." Cycles through every video input; only shows
+          when there's actually a choice. */}
+      {status === "running" && cameraCount > 1 && (
+        <button
+          type="button"
+          className="jarvis-cam-toggle"
+          onClick={cycleCamera}
+          title={`Switch camera — now: ${cameraLabel}`}
+        >
+          CAM {cameraIndex + 1}/{cameraCount}
+        </button>
+      )}
       {/* Camera-only toggle — "a mute if I only want to use the video
           without AI." Mic is physically released while muted. */}
       {onToggleMic && (
@@ -886,7 +1073,83 @@ function windowTitle(p: HoloPayload): string {
       return "ORB";
     case "welcome":
       return "JARVIS MODE";
+    case "map":
+      return p.query ? p.query.slice(0, 26).toUpperCase() : "MAP";
+    case "pdf":
+      return p.name.slice(0, 26);
+    case "ask":
+      return p.mode === "tony" ? "ASK TONY" : "FABRICATE 3D";
   }
+}
+
+/** One-line prompt input used by MAP / ASK TONY / FABRICATE 3D tabs.
+ *  Borderless with the glowing bottom accent (same family as notes). */
+function PromptInput({
+  placeholder,
+  onSubmit,
+}: {
+  placeholder: string;
+  onSubmit: (text: string) => void;
+}) {
+  const [v, setV] = useState("");
+  return (
+    <form
+      className="jarvis-prompt-form"
+      onSubmit={(ev) => {
+        ev.preventDefault();
+        const t = v.trim();
+        if (t) onSubmit(t);
+      }}
+    >
+      <input
+        className="jarvis-note-input jarvis-prompt-input"
+        value={v}
+        placeholder={placeholder}
+        onChange={(ev) => setV(ev.target.value)}
+        onPointerDown={(ev) => ev.stopPropagation()}
+        autoFocus
+      />
+      <button type="submit" className="jarvis-prompt-go" aria-label="Go">
+        ▸
+      </button>
+    </form>
+  );
+}
+
+/** MAP tab — type a place, get the Mapbox "fly-in" pair (world → city
+ *  crossfade). Static images on purpose: zero WebGL, weak-MacBook safe. */
+function MapTabContent({
+  query,
+  onSetQuery,
+}: {
+  query: string;
+  onSetQuery: (q: string) => void;
+}) {
+  const [imgs, setImgs] = useState<MapboxFlyImages | null>(null);
+  useEffect(() => {
+    if (!query) return;
+    let cancelled = false;
+    const ctl = new AbortController();
+    setImgs(null);
+    void fetchMapboxFlyImages(query, ctl.signal).then((r) => {
+      if (!cancelled) setImgs(r);
+    });
+    return () => {
+      cancelled = true;
+      ctl.abort();
+    };
+  }, [query]);
+
+  if (!query) return <PromptInput placeholder="Where? Type a place, hit enter…" onSubmit={onSetQuery} />;
+  if (!imgs) return <div className="jarvis-map-status">LOCATING “{query.toUpperCase()}”…</div>;
+  if (!imgs.city && !imgs.world)
+    return <div className="jarvis-map-status">NO MAP SIGNAL FOR “{query.toUpperCase()}”</div>;
+  return (
+    <div className="jarvis-map">
+      {imgs.world && <img className="jarvis-map-world" src={imgs.world} alt="" draggable={false} />}
+      {imgs.city && <img className="jarvis-map-city" src={imgs.city} alt={query} draggable={false} />}
+    </div>
+  );
 }
 
 function HoloContent({
@@ -894,11 +1157,13 @@ function HoloContent({
   expanded,
   image,
   onEditNote,
+  onPrompt,
 }: {
   payload: HoloPayload;
   expanded: boolean;
   image: string | null;
   onEditNote?: (text: string) => void;
+  onPrompt?: (text: string) => void;
 }) {
   switch (payload.kind) {
     case "stat":
@@ -909,18 +1174,21 @@ function HoloContent({
         </div>
       );
     case "data":
+      // List cards (top-10 universities etc.) — numbered ranks, more
+      // rows visible by default, the rest one tap away.
       return (
-        <table className="jarvis-table">
+        <table className="jarvis-table jarvis-ranked">
           <tbody>
-            {(expanded ? payload.rows : payload.rows.slice(0, 4)).map((r) => (
+            {(expanded ? payload.rows : payload.rows.slice(0, 6)).map((r, i) => (
               <tr key={r.key}>
+                <td className="jarvis-rank">{String(i + 1).padStart(2, "0")}</td>
                 <td>{r.key}</td>
                 <td>{r.value}</td>
               </tr>
             ))}
-            {!expanded && payload.rows.length > 4 && (
+            {!expanded && payload.rows.length > 6 && (
               <tr className="jarvis-table-more">
-                <td colSpan={2}>pinch-tap for {payload.rows.length - 4} more…</td>
+                <td colSpan={3}>tap for {payload.rows.length - 6} more…</td>
               </tr>
             )}
           </tbody>
@@ -989,6 +1257,26 @@ function HoloContent({
           <span />
         </div>
       );
+    case "map":
+      return <MapTabContent query={payload.query} onSetQuery={(q) => onPrompt?.(q)} />;
+    case "pdf":
+      return (
+        <div className="jarvis-pdf">
+          <embed className="jarvis-pdf-embed" src={payload.url} type="application/pdf" />
+          <span className="jarvis-pdf-name">{payload.name}</span>
+        </div>
+      );
+    case "ask":
+      return (
+        <PromptInput
+          placeholder={
+            payload.mode === "tony"
+              ? "Ask Tony anything — his answer lands here…"
+              : "Describe the 3D model to fabricate…"
+          }
+          onSubmit={(t) => onPrompt?.(t)}
+        />
+      );
     case "welcome":
       return (
         <div className="jarvis-welcome">
@@ -997,6 +1285,8 @@ function HoloContent({
             <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
             <li>⚡ <b>Pinch twice fast</b> in empty space — new tab (type in it, or talk)</li>
+            <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
+            <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
             <li>👆 <b>Tap a tab</b> — opens as a big page · 🤛✋ <b>fist → open hand</b> closes it</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>
             <li>👈 <b>Swipe left</b> — just Tony · <b>swipe right</b> — tabs return</li>

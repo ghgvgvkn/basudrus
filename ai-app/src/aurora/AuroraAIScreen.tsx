@@ -1028,12 +1028,22 @@ export function AuroraAIScreen() {
     const result = await voice.transcribe(blob, "en");
     if (!stillMine()) return;
     if (!result.ok) {
+      // Translate raw failure strings into something a human can act
+      // on. "Load failed" / "Failed to fetch" are the browser's words
+      // for a dropped network request (already retried inside
+      // transcribe()); 4xx text from the server is passed through.
+      const raw = result.error ?? "unknown error";
+      const friendly = /load failed|failed to fetch|network/i.test(raw)
+        ? "connection blipped — say that again?"
+        : /empty audio|too short/i.test(raw)
+          ? "I didn't catch that — try speaking a little longer"
+          : raw;
       setMessages((prev) => [
         ...prev,
         {
           id: nextId(),
           role: "ai",
-          text: `(transcription failed: ${result.error ?? "unknown error"})`,
+          text: `(transcription failed: ${friendly})`,
         },
       ]);
       if (stillMine()) void beginListening();
@@ -1935,6 +1945,13 @@ export function AuroraAIScreen() {
                   setActiveGeneratedPrompt(null);
                 }}
                 modelCursorsRef={modelCursorsRef}
+                onAsk={(text) => {
+                  void runSendForText(text);
+                }}
+                onGenerate3D={(prompt) => {
+                  setActiveJarvisModel(null);
+                  setActiveGeneratedPrompt(prompt);
+                }}
               />
             </Suspense>
           )}

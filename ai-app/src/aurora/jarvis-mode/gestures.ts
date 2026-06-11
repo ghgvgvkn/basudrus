@@ -73,9 +73,9 @@ export type GestureEvent =
 //    exact same numbers; tune here, re-run the suite) ────────────────────────
 
 /** Pinch latches ON when thumb-tip↔index-tip distance drops below this. */
-export const PINCH_ON = 0.05;
+export const PINCH_ON = 0.055;
 /** ...and releases only when it grows past this (hysteresis gap). */
-export const PINCH_OFF = 0.082;
+export const PINCH_OFF = 0.09;
 /** Two pinch-starts on the same hand within this window = double-pinch. */
 export const DOUBLE_PINCH_MS = 480;
 /** ...provided the hand moved less than this between them. */
@@ -94,8 +94,17 @@ export const SWIPE_MAX_CROSS = 0.9;
 export const SWIPE_FRAMES = 3;
 /** Min ms between swipes per hand. */
 export const SWIPE_COOLDOWN_MS = 900;
-/** EMA smoothing factor for cursors (higher = snappier, lower = smoother). */
-export const CURSOR_ALPHA = 0.45;
+/** Cursor smoothing is SPEED-ADAPTIVE (1€-filter style): a slow hand
+ *  gets heavy smoothing (steady, no jitter) while a fast hand gets
+ *  almost none — so a grabbed tab keeps up with a fast throw instead
+ *  of trailing ~100ms behind it (founder: "when I move fast it should
+ *  move with me fast"). */
+/** EMA floor — smoothing applied when the hand is (near) still. */
+export const CURSOR_ALPHA = 0.35;
+/** EMA ceiling — smoothing when the hand is moving at full speed. */
+export const CURSOR_ALPHA_MAX = 0.95;
+/** Raw cursor speed (normalized units/sec) at which alpha hits the ceiling. */
+export const CURSOR_SPEED_FULL = 0.8;
 /** A pinch shorter than this with less travel than TAP_MAX_MOVE is a "tap". */
 export const TAP_MAX_MS = 280;
 export const TAP_MAX_MOVE = 0.035;
@@ -165,6 +174,11 @@ interface PerHand {
   px: number; // previous palm center
   py: number;
   pt: number; // previous frame time
+  /** Previous RAW cursor sample (pre-smoothing) — drives the adaptive
+   *  smoothing alpha. -1 = no sample yet. */
+  rx: number;
+  ry: number;
+  rt: number;
   swipeFramesLeft: number; // consecutive frames qualifying leftward
   swipeFramesRight: number;
   lastSwipeT: number;
@@ -198,6 +212,9 @@ function freshHand(): PerHand {
     px: -1,
     py: -1,
     pt: -1,
+    rx: -1,
+    ry: -1,
+    rt: -1,
     swipeFramesLeft: 0,
     swipeFramesRight: 0,
     lastSwipeT: -1e9,
@@ -272,12 +289,24 @@ export class GestureEngine {
       //    point"; while open, the index tip alone feels more precise) ──
       const rawX = s.pinching ? (thumb.x + index.x) / 2 : index.x;
       const rawY = s.pinching ? (thumb.y + index.y) / 2 : index.y;
+      // Speed-adaptive alpha: still hand → CURSOR_ALPHA (smooth), fast
+      // hand → CURSOR_ALPHA_MAX (nearly raw, no perceptible lag).
+      let alpha = CURSOR_ALPHA;
+      if (s.rt >= 0 && t > s.rt) {
+        const rdt = (t - s.rt) / 1000;
+        const speed = Math.hypot(rawX - s.rx, rawY - s.ry) / rdt;
+        const k = Math.min(1, speed / CURSOR_SPEED_FULL);
+        alpha = CURSOR_ALPHA + (CURSOR_ALPHA_MAX - CURSOR_ALPHA) * k;
+      }
+      s.rx = rawX;
+      s.ry = rawY;
+      s.rt = t;
       if (s.cx < 0) {
         s.cx = rawX;
         s.cy = rawY;
       } else {
-        s.cx += CURSOR_ALPHA * (rawX - s.cx);
-        s.cy += CURSOR_ALPHA * (rawY - s.cy);
+        s.cx += alpha * (rawX - s.cx);
+        s.cy += alpha * (rawY - s.cy);
       }
 
       // ── Palm velocity EMA (for swipes + clap approach) ──
@@ -422,6 +451,7 @@ export class GestureEngine {
         s.pt = -1; // velocity restarts cleanly when the hand returns
         s.vx = 0;
         s.vy = 0;
+        s.rt = -1; // adaptive-smoothing speed sample restarts too
         s.fistSince = -1;
         s.fistArmed = false;
         s.firstSeenT = -1; // re-acquisition restarts the warm-up window

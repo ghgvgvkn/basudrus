@@ -647,3 +647,195 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
 .jarvis-mic-toggle.is-muted:hover {
   background: rgba(245, 158, 11, 0.14);
 }
+
+/* ── Camera picker ── */
+.jarvis-cam-toggle {
+  position: absolute;
+  top: 98px;
+  right: 18px;
+  padding: 8px 14px;
+  border: 1px solid rgba(64, 224, 255, 0.4);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
+  color: #9be8ff;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  cursor: pointer;
+}
+.jarvis-cam-toggle:hover {
+  background: rgba(64, 224, 255, 0.14);
+}
+
+/* ── Plus menu (tap empty space) ── */
+.jarvis-plus {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+}
+.jarvis-plus-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(64, 224, 255, 0.6);
+  background: rgba(5, 11, 20, 0.55);
+  color: #c8f3ff;
+  font-size: 26px;
+  line-height: 1;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  cursor: pointer;
+  box-shadow: 0 0 18px rgba(64, 224, 255, 0.35), inset 0 0 10px rgba(64, 224, 255, 0.12);
+  animation: jarvis-plus-pop 180ms ease-out;
+}
+.jarvis-plus-btn:hover {
+  background: rgba(64, 224, 255, 0.16);
+  box-shadow: 0 0 26px rgba(64, 224, 255, 0.55), inset 0 0 12px rgba(64, 224, 255, 0.2);
+}
+@keyframes jarvis-plus-pop {
+  from { opacity: 0; scale: 0.6; }
+  to { opacity: 1; scale: 1; }
+}
+.jarvis-plus-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(64, 224, 255, 0.45);
+  border-radius: 3px;
+  background: rgba(5, 11, 20, 0.78);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 24px rgba(64, 224, 255, 0.25);
+  animation: jarvis-plus-pop 160ms ease-out;
+}
+.jarvis-plus-item {
+  padding: 9px 18px;
+  min-width: 150px;
+  border: 1px solid rgba(64, 224, 255, 0.25);
+  border-radius: 2px;
+  background: rgba(11, 22, 36, 0.6);
+  color: #9be8ff;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-align: left;
+  cursor: pointer;
+}
+.jarvis-plus-item:hover {
+  background: rgba(64, 224, 255, 0.16);
+  border-color: rgba(64, 224, 255, 0.6);
+  color: #e6fbff;
+}
+
+/* ── Prompt input (map / ask / 3D tabs) ── */
+.jarvis-prompt-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 230px;
+}
+.jarvis-prompt-form .jarvis-prompt-input {
+  flex: 1;
+}
+.jarvis-prompt-go {
+  width: 34px;
+  height: 30px;
+  border: 1px solid rgba(64, 224, 255, 0.45);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
+  color: #40e0ff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.jarvis-prompt-go:hover {
+  background: rgba(64, 224, 255, 0.18);
+}
+
+/* ── Map holo-tab ── */
+.jarvis-map {
+  position: relative;
+  width: 300px;
+  height: 200px;
+  overflow: hidden;
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 2px;
+}
+.jarvis-map img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.jarvis-map-world {
+  animation: jarvis-map-out 2.6s ease-in-out forwards;
+}
+.jarvis-map-city {
+  opacity: 0;
+  animation: jarvis-map-in 2.6s ease-in-out forwards;
+}
+@keyframes jarvis-map-out {
+  0% { opacity: 1; scale: 1; }
+  45% { opacity: 1; }
+  70%, 100% { opacity: 0; scale: 1.18; }
+}
+@keyframes jarvis-map-in {
+  0%, 40% { opacity: 0; scale: 1.12; }
+  75%, 100% { opacity: 1; scale: 1; }
+}
+.jarvis-map-status {
+  padding: 14px 6px;
+  color: #7fd4e8;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  animation: jarvis-blink 1.4s ease-in-out infinite;
+}
+@keyframes jarvis-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ── PDF holo-tab ── */
+.jarvis-pdf {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.jarvis-pdf-embed {
+  width: min(440px, 44vw);
+  height: min(380px, 46vh);
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 2px;
+  background: rgba(11, 22, 36, 0.6);
+}
+.jarvis-pdf-name {
+  color: #7fd4e8;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(440px, 44vw);
+}
+
+/* ── Ranked view cards ── */
+.jarvis-ranked .jarvis-rank {
+  color: #40e0ff;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 8px rgba(64, 224, 255, 0.6);
+  width: 28px;
+}
+
+/* ── Window spawn entrance — opacity/filter only; applyTransform owns
+   el.style.transform so keyframes must never touch transform/scale. ── */
+.jarvis-win {
+  animation: jarvis-win-spawn 240ms ease-out;
+}
+@keyframes jarvis-win-spawn {
+  from { opacity: 0; filter: brightness(2.2) blur(3px); }
+  to { opacity: 1; filter: none; }
+}

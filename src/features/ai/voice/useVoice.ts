@@ -507,9 +507,14 @@ export function useVoice(): UseVoiceResult {
     const mimeType = pickMimeType();
     let recorder: MediaRecorder;
     try {
+      // 32 kbps opus — speech-transcription quality, ~4-8× smaller blobs
+      // than the browser default. Smaller base64 POSTs are dramatically
+      // less likely to die with Safari's "Load failed" while JARVIS mode
+      // saturates the main thread, and a long ramble can no longer brush
+      // the server's body-size cap.
       recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32_000 })
+        : new MediaRecorder(stream, { audioBitsPerSecond: 32_000 });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "MediaRecorder unavailable";
       setError(msg);
@@ -650,6 +655,14 @@ export function useVoice(): UseVoiceResult {
     setError(null);
     setIsTranscribing(true);
     try {
+      // A sub-kilobyte blob is a fraction of a second of audio — the
+      // server would 400 it as "Empty audio". Skip the round-trip and
+      // surface the human-readable version directly.
+      if (blob.size < 1024) {
+        const msg = "too short";
+        setError(msg);
+        return { ok: false, transcript: "", error: msg };
+      }
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) {
@@ -670,8 +683,8 @@ export function useVoice(): UseVoiceResult {
       // "Network error") when the connection blips or the main thread is
       // saturated — e.g. JARVIS mode running the camera + MediaPipe while
       // this fires. A transcribe is a one-shot the user can't easily
-      // retry by re-speaking, so we retry the fetch ONCE on a thrown
-      // (network) error with a short backoff. HTTP errors (4xx/5xx) are
+      // retry by re-speaking, so we retry the fetch TWICE on a thrown
+      // (network) error with growing backoff. HTTP errors (4xx/5xx) are
       // NOT retried here — those come back as a normal response and are
       // surfaced below; only a failed-to-connect throw triggers the retry.
       const doFetch = () =>
@@ -684,18 +697,17 @@ export function useVoice(): UseVoiceResult {
           body,
         });
 
-      let res: Response;
-      try {
-        res = await doFetch();
-      } catch (netErr) {
-        // One retry after 600ms — covers a transient drop / main-thread stall.
-        await new Promise((r) => setTimeout(r, 600));
+      let res: Response | null = null;
+      let lastNetErr: unknown = null;
+      for (let i = 0; i < 3 && !res; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, 600 * i));
         try {
           res = await doFetch();
-        } catch {
-          throw netErr; // both attempts failed → fall to the outer catch
+        } catch (netErr) {
+          lastNetErr = netErr;
         }
       }
+      if (!res) throw lastNetErr; // all attempts failed → outer catch
 
       const json = await res.json().catch(() => null) as
         | { ok?: boolean; transcript?: string; detectedLanguage?: string; error?: string }
