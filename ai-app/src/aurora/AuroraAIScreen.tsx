@@ -321,6 +321,13 @@ export function AuroraAIScreen() {
     // the layer's unmount cleanup).
     if (!voiceModeActive && jarvisActive) setJarvisActive(false);
   }, [voiceModeActive, jarvisActive]);
+
+  // One-tap JARVIS entry from the ALWAYS-VISIBLE composer camera button.
+  // Without this, JARVIS could only be reached via a pill that appears
+  // *after* you're already inside voice mode — so a first-time user saw
+  // no "camera" anywhere (the bug the founder hit). This handler enters
+  // voice mode first if needed (Safari-critical: the tap is the user
+  // gesture that unlocks the mic), then flips JARVIS on.
   useEffect(() => {
     if (jarvisActive) document.body.classList.add("aurora-jarvis-mode");
     else document.body.classList.remove("aurora-jarvis-mode");
@@ -1120,6 +1127,21 @@ export function AuroraAIScreen() {
       voice.primeAudio();
     });
   }, [voice, isAuthed, beginListening]);
+
+  // One-tap entry into JARVIS (camera + hands) from the composer button.
+  // If voice mode isn't open yet, open it first (this same click is the
+  // user gesture that lets Safari grant the mic), then turn JARVIS on.
+  // If already in voice mode, just flip JARVIS on.
+  const enterJarvis = useCallback(async () => {
+    if (!isAuthed) {
+      setSignUpOpen(true);
+      return;
+    }
+    if (!voiceModeActiveRef.current) {
+      await toggleVoiceMode();
+    }
+    setJarvisActive(true);
+  }, [isAuthed, toggleVoiceMode]);
 
   // Belt-and-braces cleanup: if Aurora unmounts mid-conversation,
   // tear down voice mode so the mic releases and TTS stops. useVoice
@@ -2293,6 +2315,22 @@ export function AuroraAIScreen() {
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12l16-8-6 16-2-6-8-2z" />
+              </svg>
+            </button>
+            {/* JARVIS camera button — ALWAYS visible in the composer so the
+                hand-gesture mode is discoverable without first digging into
+                voice mode. One tap opens voice mode (if needed) + JARVIS. */}
+            <button
+              className={`aurora-cam-btn${jarvisActive ? " is-active" : ""}`}
+              title="JARVIS mode — control Tony with your hands"
+              aria-label="Start JARVIS camera mode"
+              type="button"
+              aria-pressed={jarvisActive}
+              onClick={() => { void enterJarvis(); }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 7l-7 5 7 5V7z" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
               </svg>
             </button>
             <button

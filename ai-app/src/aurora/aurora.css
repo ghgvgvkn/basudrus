@@ -1658,6 +1658,53 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   filter: drop-shadow(0 0 5px rgba(140,200,255,0.75));
 }
 
+/* JARVIS camera button — composer twin of the mic, cyan-tinted, kept a
+   touch simpler (no orbiting coil) so the mic stays the primary control.
+   Always visible so hand-gesture mode is discoverable. */
+.aurora-app .aurora-cam-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(64,224,255,0.55);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(64,224,255,0.18) 0%, transparent 55%),
+    radial-gradient(circle at 50% 50%, rgba(8,40,52,0.92) 0%, rgba(6,16,28,0.95) 70%);
+  color: rgba(214,248,255,0.95);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  transition: transform 180ms, box-shadow 180ms, border-color 180ms;
+  box-shadow:
+    inset 0 0 14px rgba(64,224,255,0.20),
+    inset 0 0.5px 0 rgba(170,240,255,0.30),
+    0 0 16px rgba(64,224,255,0.30),
+    0 6px 18px rgba(0,0,0,0.55);
+}
+.aurora-app .aurora-cam-btn svg {
+  width: 17px;
+  height: 17px;
+  filter: drop-shadow(0 0 5px rgba(64,224,255,0.75));
+}
+.aurora-app .aurora-cam-btn:hover {
+  transform: scale(1.06);
+  border-color: rgba(140,240,255,0.9);
+  box-shadow:
+    inset 0 0 18px rgba(64,224,255,0.40),
+    inset 0 0.5px 0 rgba(170,240,255,0.45),
+    0 0 24px rgba(64,224,255,0.55),
+    0 6px 18px rgba(0,0,0,0.55);
+}
+.aurora-app .aurora-cam-btn.is-active {
+  border-color: rgba(140,240,255,0.95);
+  box-shadow:
+    inset 0 0 18px rgba(64,224,255,0.5),
+    0 0 26px rgba(64,224,255,0.6),
+    0 6px 18px rgba(0,0,0,0.55);
+}
+
 /* Listening state — the button "arms": brighter core, brighter
    border, faster coil, and a pulsing cyan halo. Visible signal that
    the mic is actively capturing. */
