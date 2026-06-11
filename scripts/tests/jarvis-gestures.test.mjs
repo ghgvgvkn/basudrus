@@ -412,6 +412,44 @@ function mkSizedPinchHand(id, x, y, scale) {
   all = t(`still tap → travel ≈ 0 (got ${end ? end.moved.toFixed(4) : "none"})`, !!end && end.moved < 0.005) && all;
 }
 
+// 8k ── NATURAL pinch: thumb+index touching while middle/ring/pinky CURL
+//       toward the palm (how humans actually grab). v1's gate demanded
+//       extended fingers + a fist embargo and killed every real pinch —
+//       regression test for the founder's "nothing works at all" report.
+{
+  const naturalPinch = (id, x, y) => {
+    const h = mkShapedHand(id, x, y, "open");
+    // index reaches OUT to meet the thumb (ratio ≈ 0.8 of hand size)
+    h.landmarks[8] = { x, y: y + 0.03 - 0.12 };
+    h.landmarks[4] = { ...h.landmarks[8] }; // thumb ON index tip → pinch
+    // other three fingers curled in (ratio ≈ 0.33 — well under FIST_RATIO)
+    h.landmarks[12] = { x: x + 0.01, y: y + 0.03 - 0.05 };
+    h.landmarks[16] = { x: x + 0.02, y: y + 0.03 - 0.05 };
+    h.landmarks[20] = { x: x + 0.03, y: y + 0.03 - 0.05 };
+    return h;
+  };
+  const eng = new GestureEngine();
+  eng.update({ t: 0, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  let started = false;
+  for (let i = 1; i <= 4; i++) {
+    const r = eng.update({ t: 700 + i * 33, hands: [naturalPinch("Right", 0.5, 0.5)] });
+    if (r.events.some((e) => e.type === "pinch-start")) started = true;
+  }
+  all = t("natural pinch (other fingers curled) → pinch-start fires", started) && all;
+
+  // …and a strict clenched fist (8h shape) must STILL not pinch.
+  const eng2 = new GestureEngine();
+  eng2.update({ t: 0, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  const fist = mkShapedHand("Right", 0.5, 0.5, "fist");
+  fist.landmarks[4] = { ...fist.landmarks[8] };
+  let fistPinched = false;
+  for (let i = 1; i <= 4; i++) {
+    const r = eng2.update({ t: 700 + i * 33, hands: [fist] });
+    if (r.events.some((e) => e.type === "pinch-start")) fistPinched = true;
+  }
+  all = t("clenched fist still NOT a pinch after the relax", !fistPinched) && all;
+}
+
 // 9 ── garbage in → never throws
 {
   const eng = new GestureEngine();

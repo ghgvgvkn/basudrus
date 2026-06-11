@@ -131,9 +131,14 @@ export const TAP_MAX_MOVE = 0.035;
 export const POINT_INDEX_MIN = 1.0;
 /** Avg middle/ring/pinky tip↔palm / hand-size must stay under this. */
 export const POINT_CURL_MAX = 0.75;
-/** No pinch-start within this window of a fist pose (the thumb brushes
- *  the index while a fist forms/opens — that contact is not a pinch). */
-export const PINCH_FIST_GUARD_MS = 300;
+/** Pinch-start is blocked only while the hand is a STRICT clenched fist
+ *  (openAvg AND indexRatio both under this). Deliberately tighter than
+ *  FIST_RATIO: a natural pinch curls the middle/ring/pinky and a relaxed
+ *  half-open hand sits near 0.6 — both must still pinch. Only a true
+ *  fist (thumb pressed against fully-curled index, ≈0.3–0.45) is not a
+ *  pinch. v1 of this guard required EXTENDED fingers + a 300ms embargo
+ *  after any fist-ish pose — that blocked nearly every real pinch. */
+export const PINCH_BLOCK_FIST = 0.5;
 /** ...and shorter than this is a tracking flicker, not a human tap. A
  *  1-frame phantom pinch at 30fps is ~33ms; humans can't pinch+release
  *  under ~70ms. Filters the founder-reported bug where a page opened
@@ -427,10 +432,11 @@ export class GestureEngine {
       } else if (
         !s.pinching &&
         pinchDist < PINCH_ON &&
-        // A forming/opening FIST brushes thumb against index — only read a
-        // pinch when middle/ring/pinky are extended (a deliberate pinch
-        // keeps them out) and no fist pose was seen in the last beat.
-        (!poseValid || (curlAvg > FIST_RATIO && t - s.fistLastSeenT > PINCH_FIST_GUARD_MS))
+        // A clenching FIST presses thumb against index — that contact is
+        // not a pinch. But ONLY a strict instantaneous fist blocks here:
+        // real pinches curl the other fingers, so demanding they stay
+        // extended killed almost every pinch on camera.
+        (!poseValid || !(openAvg < PINCH_BLOCK_FIST && indexRatio < PINCH_BLOCK_FIST))
       ) {
         s.pinching = true;
         // SNAP the cursor to the thumb/index midpoint — the raw source
