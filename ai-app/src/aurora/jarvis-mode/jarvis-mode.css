@@ -75,6 +75,30 @@
   user-select: none;
   cursor: grab;
 }
+/* PAGE VIEW — a tab opened big ("after hitting your tab you could open
+   it"). Pinned center via !important so gesture drags can't fight it;
+   the giant spread shadow doubles as a cheap dimmed backdrop. Close it
+   with fist→open, its ✕, or by closing the window. */
+.jarvis-win.is-page {
+  transform: translate3d(50vw, 46vh, 0) translate(-50%, -50%) !important;
+  width: min(64vw, 760px);
+  z-index: 2000 !important;
+  box-shadow:
+    0 0 0 100vmax rgba(3, 8, 14, 0.5),
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    0 0 44px rgba(64, 224, 255, 0.28);
+}
+.jarvis-win.is-page .jarvis-win-body {
+  max-height: 62vh;
+  overflow-y: auto;
+}
+.jarvis-win.is-page .jarvis-note-input {
+  min-height: 38vh;
+}
+.jarvis-win.is-page .jarvis-show-img {
+  max-height: 38vh;
+}
+
 .jarvis-win.is-grabbed {
   border-color: rgba(255, 96, 168, 0.65);
   box-shadow:

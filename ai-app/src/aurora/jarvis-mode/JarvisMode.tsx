@@ -108,6 +108,12 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
   const [focusMode, setFocusMode] = useState(false);
   const focusModeRef = useRef(false);
   focusModeRef.current = focusMode;
+  // PAGE VIEW — founder: "after hitting your tab you could open it".
+  // Tap a tab → it zooms into a big centered page (full content, big
+  // editable area for notes). Fist→open ("crush and release") closes it.
+  const [pageId, setPageId] = useState<number | null>(null);
+  const pageIdRef = useRef<number | null>(null);
+  pageIdRef.current = pageId;
 
   // Live transform mirror — mutated at 60fps during gestures, committed to
   // React state on gesture end. Map<windowId, {x,y,scale,z}>.
@@ -170,6 +176,8 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
     liveRef.current.delete(id);
     elsRef.current.delete(id);
     setWindows((ws) => ws.filter((w) => w.id !== id));
+    // Closing the window that's open as the page also closes the page.
+    setPageId((p) => (p === id ? null : p));
   }, []);
 
   const commitWindow = useCallback((id: number) => {
@@ -301,7 +309,9 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
           sparksRef.current.push({ x, y, t0: performance.now(), hue: "cyan" });
           if (focusModeRef.current) return; // windows are away — nothing to grab
           const hit = topWindowAt(x, y);
-          if (hit != null) {
+          // The opened page is pinned center — it can't be grabbed/dragged
+          // (close it with fist→open or its ✕). Other tabs grab as usual.
+          if (hit != null && hit !== pageIdRef.current) {
             const tr = liveRef.current.get(hit);
             if (tr) {
               zRef.current += 1;
@@ -335,9 +345,12 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
             // Founder spec: dragging a tab off the LEFT edge dismisses it.
             if (x < window.innerWidth * 0.04) closeWindow(grab.id);
             else commitWindow(grab.id);
-            // A quick, still pinch on a tab = "click" → expand resources.
+            // A quick, still pinch on a tab = "click" → open it as the big
+            // centered PAGE (founder: "after hitting your tab you could
+            // open it"). Fist→open or ✕ closes it back to a small tab.
             if (isTap(e)) {
-              setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: !w.expanded } : w)));
+              setPageId(grab.id);
+              setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: true } : w)));
             }
           }
           break;
@@ -359,7 +372,7 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
           // Resize target: a currently-grabbed window wins; otherwise the
           // topmost window under either cursor; otherwise nothing.
           const grabbed = [...grabsRef.current.values()][0]?.id ?? null;
-          let target = grabbed;
+          let target: number | null = grabbed;
           if (target == null) {
             for (const c of lastCursors) {
               const { x, y } = toScreen(c.x, c.y);
@@ -370,6 +383,9 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
               }
             }
           }
+          // The page view is pinned by CSS — scaling it would fight the
+          // !important transform and look broken. Skip it.
+          if (target === pageIdRef.current) target = null;
           if (target != null) {
             const tr = liveRef.current.get(target);
             if (tr) scalingRef.current = { id: target, baseScale: tr.scale };
@@ -401,6 +417,13 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
           break;
         case "swipe-right":
           setFocusMode(false);
+          break;
+        case "fist-open":
+          // Crush-and-release (fist → five fingers) closes the open page
+          // view — founder: "when I do this thing the page should be
+          // closed". Does nothing when no page is open, so a natural
+          // fist can never nuke anything by accident.
+          if (pageIdRef.current != null) setPageId(null);
           break;
       }
     };
@@ -521,6 +544,8 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
   const gestureChips = useMemo(
     () => [
       ["PINCH", "grab a tab"],
+      ["TAP", "open page"],
+      ["FIST→OPEN", "close page"],
       ["TWO HANDS", "resize"],
       ["DOUBLE PINCH", "new tab"],
       ["CLAP", "new orb"],
@@ -551,8 +576,8 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
                 elsRef.current.delete(w.id);
               }
             }}
-            className={`jarvis-win jarvis-win-${w.payload.kind}${w.expanded ? " is-expanded" : ""}`}
-            onPointerDown={onWindowPointerDown(w.id)}
+            className={`jarvis-win jarvis-win-${w.payload.kind}${w.expanded ? " is-expanded" : ""}${pageId === w.id ? " is-page" : ""}`}
+            onPointerDown={pageId === w.id ? undefined : onWindowPointerDown(w.id)}
           >
             <div className="jarvis-win-chrome">
               <span className="jarvis-win-dot" aria-hidden />
@@ -570,12 +595,15 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
             <div
               className="jarvis-win-body"
               onClick={
-                // Notes are editable — clicking must NOT toggle expand (it
-                // would steal focus from the textarea). Other kinds toggle
-                // their details on click.
+                // Notes are editable — clicking must NOT hijack focus from
+                // the textarea. Other kinds: mouse-click opens the big page
+                // view, same as a gesture tap.
                 w.payload.kind === "note"
                   ? undefined
-                  : () => setWindows((ws) => ws.map((x) => (x.id === w.id ? { ...x, expanded: !x.expanded } : x)))
+                  : () => {
+                      setPageId(w.id);
+                      setWindows((ws) => ws.map((x) => (x.id === w.id ? { ...x, expanded: true } : x)));
+                    }
               }
             >
               <HoloContent
@@ -674,8 +702,12 @@ function windowTitle(p: HoloPayload): string {
       return p.title || "COMPARE";
     case "show":
       return p.query || "BRIEFING";
-    case "note":
-      return "NEW TAB";
+    case "note": {
+      // Once filled (typed or by Tony's answer), the first words become
+      // the title so a wall of "NEW TAB"s never piles up.
+      const t = p.text.trim();
+      return t ? `${t.slice(0, 26)}${t.length > 26 ? "…" : ""}` : "NEW TAB";
+    }
     case "orb":
       return "ORB";
     case "welcome":
@@ -790,7 +822,8 @@ function HoloContent({
           <ul>
             <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
-            <li>⚡ <b>Pinch twice fast</b> in empty space — new tab</li>
+            <li>⚡ <b>Pinch twice fast</b> in empty space — new tab (type in it, or talk)</li>
+            <li>👆 <b>Tap a tab</b> — opens as a big page · 🤛✋ <b>fist → open hand</b> closes it</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>
             <li>👈 <b>Swipe left</b> — just Tony · <b>swipe right</b> — tabs return</li>
           </ul>

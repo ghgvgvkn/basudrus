@@ -66,7 +66,8 @@ export type GestureEvent =
   | { type: "two-hand-scale-end" }
   | { type: "clap"; x: number; y: number }
   | { type: "swipe-left"; hand: HandId }
-  | { type: "swipe-right"; hand: HandId };
+  | { type: "swipe-right"; hand: HandId }
+  | { type: "fist-open"; hand: HandId };
 
 // ── Tuning constants (exported so the mirror test can assert against the
 //    exact same numbers; tune here, re-run the suite) ────────────────────────
@@ -98,6 +99,22 @@ export const CURSOR_ALPHA = 0.45;
 /** A pinch shorter than this with less travel than TAP_MAX_MOVE is a "tap". */
 export const TAP_MAX_MS = 280;
 export const TAP_MAX_MOVE = 0.035;
+
+// ── Fist → open ("crush and release" — founder: "close your hand as a
+//    fist… then open it for five fingers → the page should be closed").
+//    Ratios are fingertip-to-palm distance normalized by hand size
+//    (wrist→middle-MCP), so the gesture works at any distance from the
+//    camera. Hold the fist briefly (deliberate), then open wide.
+/** avg fingertip/palm ratio below this = fist. */
+export const FIST_RATIO = 0.7;
+/** avg fingertip/palm ratio above this = open hand (five fingers). */
+export const OPEN_RATIO = 1.15;
+/** Fist must be held this long to arm (prevents accidental flickers). */
+export const FIST_HOLD_MS = 450;
+/** After leaving the fist, the open hand must appear within this window. */
+export const FIST_OPEN_WINDOW_MS = 700;
+/** Min ms between fist-open firings per hand. */
+export const FIST_COOLDOWN_MS = 1100;
 
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.hypot(a.x - b.x, a.y - b.y);
@@ -139,6 +156,13 @@ interface PerHand {
   swipeFramesLeft: number; // consecutive frames qualifying leftward
   swipeFramesRight: number;
   lastSwipeT: number;
+  /** Fist→open tracking: when the current fist started (-1 = not in
+   *  fist), whether it was held long enough to arm, the last moment the
+   *  hand was still a fist, and the last firing time (cooldown). */
+  fistSince: number;
+  fistArmed: boolean;
+  fistLastSeenT: number;
+  lastFistOpenT: number;
   seen: boolean; // present in the latest frame
 }
 
@@ -162,6 +186,10 @@ function freshHand(): PerHand {
     swipeFramesLeft: 0,
     swipeFramesRight: 0,
     lastSwipeT: -1e9,
+    fistSince: -1,
+    fistArmed: false,
+    fistLastSeenT: -1e9,
+    lastFistOpenT: -1e9,
     seen: false,
   };
 }
@@ -290,6 +318,47 @@ export class GestureEngine {
         s.swipeFramesRight = 0;
       }
 
+      // ── Fist → open: crush-and-release closes the open page view ──
+      // Ratio = avg(non-thumb fingertip ↔ palm-center) / hand size, so it
+      // works at any distance from the camera. The thumb is excluded (it
+      // curls differently). Skipped while pinching (a pinch half-curls the
+      // index) and for degenerate frames (handSize ≈ 0 — also keeps the
+      // synthetic single-point test hands from tripping it).
+      const handSize = dist(hand.landmarks[0], hand.landmarks[9]);
+      if (s.pinching || handSize < 0.02) {
+        s.fistSince = -1;
+        s.fistArmed = false;
+      } else {
+        const tips = [8, 12, 16, 20];
+        let avg = 0;
+        for (const i of tips) avg += dist(hand.landmarks[i], palm);
+        avg = avg / tips.length / handSize;
+
+        if (avg < FIST_RATIO) {
+          if (s.fistSince < 0) s.fistSince = t;
+          if (t - s.fistSince >= FIST_HOLD_MS) s.fistArmed = true;
+          s.fistLastSeenT = t;
+        } else {
+          if (
+            avg > OPEN_RATIO &&
+            s.fistArmed &&
+            t - s.fistLastSeenT <= FIST_OPEN_WINDOW_MS &&
+            t - s.lastFistOpenT > FIST_COOLDOWN_MS
+          ) {
+            events.push({ type: "fist-open", hand: hand.id });
+            s.lastFistOpenT = t;
+            s.fistArmed = false;
+            s.fistSince = -1;
+          } else if (s.fistArmed && t - s.fistLastSeenT > FIST_OPEN_WINDOW_MS) {
+            // Fist released but never opened wide in time — disarm.
+            s.fistArmed = false;
+            s.fistSince = -1;
+          } else if (!s.fistArmed) {
+            s.fistSince = -1;
+          }
+        }
+      }
+
       cursors.push({ hand: hand.id, x: s.cx, y: s.cy, pinching: s.pinching });
     }
 
@@ -314,6 +383,8 @@ export class GestureEngine {
         s.pt = -1; // velocity restarts cleanly when the hand returns
         s.vx = 0;
         s.vy = 0;
+        s.fistSince = -1;
+        s.fistArmed = false;
       }
     }
 

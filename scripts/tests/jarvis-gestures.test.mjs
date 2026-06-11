@@ -10,6 +10,8 @@ import {
   DOUBLE_PINCH_MS,
   CLAP_COOLDOWN_MS,
   SWIPE_FRAMES,
+  FIST_HOLD_MS,
+  FIST_COOLDOWN_MS,
 } from "../../ai-app/src/aurora/jarvis-mode/gestures.ts";
 
 // ── synthetic-hand helpers ───────────────────────────────────────────────
@@ -153,6 +155,64 @@ let all = true;
   eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
   const r = eng.update({ t: 33, hands: [] });
   all = t("hand vanishes mid-pinch → pinch-end", r.events.some((e) => e.type === "pinch-end")) && all;
+}
+
+// 8b ── fist → open ("crush and release") fires; quick fist doesn't;
+//       cooldown blocks an immediate repeat. Uses anatomically-shaped
+//       hands (real palm size) because the flat single-point helper is
+//       deliberately ignored by the fist logic (handSize ≈ 0 guard).
+function mkShapedHand(id, x, y, pose /* 'fist' | 'open' */) {
+  const lm = Array.from({ length: 21 }, () => ({ x, y }));
+  lm[0] = { x, y: y + 0.15 };          // wrist below palm
+  lm[5] = { x: x - 0.05, y };          // index MCP
+  lm[9] = { x: x - 0.015, y };         // middle MCP (handSize anchor)
+  lm[13] = { x: x + 0.015, y };        // ring MCP
+  lm[17] = { x: x + 0.05, y };         // pinky MCP
+  // palmCenter ≈ mean of those 5 ≈ (x, y+0.03); handSize ≈ 0.15
+  const tipDist = pose === "fist" ? 0.01 : 0.2; // ratio ≈ 0.07 vs ≈ 1.3
+  lm[8] = { x, y: y + 0.03 - tipDist };
+  lm[12] = { x: x + 0.01, y: y + 0.03 - tipDist };
+  lm[16] = { x: x + 0.02, y: y + 0.03 - tipDist };
+  lm[20] = { x: x + 0.03, y: y + 0.03 - tipDist };
+  // Thumb tip far from index tip so a fist never reads as a pinch.
+  lm[4] = { x: x - 0.12, y: y + 0.1 };
+  return { id, landmarks: lm };
+}
+{
+  const eng = new GestureEngine();
+  // Hold a fist past FIST_HOLD_MS, then snap open.
+  eng.update({ t: 0, hands: [mkShapedHand("Right", 0.5, 0.5, "fist")] });
+  eng.update({ t: FIST_HOLD_MS + 60, hands: [mkShapedHand("Right", 0.5, 0.5, "fist")] });
+  const r = eng.update({ t: FIST_HOLD_MS + 220, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  all = t("fist held → open → fist-open fires", r.events.some((e) => e.type === "fist-open")) && all;
+
+  // Cooldown: immediate second crush-and-release is blocked.
+  const t2 = FIST_HOLD_MS + 300;
+  eng.update({ t: t2, hands: [mkShapedHand("Right", 0.5, 0.5, "fist")] });
+  eng.update({ t: t2 + FIST_HOLD_MS + 60, hands: [mkShapedHand("Right", 0.5, 0.5, "fist")] });
+  const r2 = eng.update({ t: t2 + FIST_HOLD_MS + 200, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  const inCooldown = t2 + FIST_HOLD_MS + 200 - (FIST_HOLD_MS + 220) < FIST_COOLDOWN_MS;
+  all = t(
+    `second crush inside cooldown → blocked (cooldown=${FIST_COOLDOWN_MS}ms)`,
+    inCooldown ? !r2.events.some((e) => e.type === "fist-open") : true,
+  ) && all;
+}
+{
+  // Quick fist (released before FIST_HOLD_MS) → no event.
+  const eng = new GestureEngine();
+  eng.update({ t: 0, hands: [mkShapedHand("Right", 0.5, 0.5, "fist")] });
+  const r = eng.update({ t: FIST_HOLD_MS - 200, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+  all = t("quick fist → open → NO fist-open (not armed)", !r.events.some((e) => e.type === "fist-open")) && all;
+}
+{
+  // Open hand held alone (no prior fist) → never fires.
+  const eng = new GestureEngine();
+  let fired = false;
+  for (let i = 0; i < 10; i++) {
+    const r = eng.update({ t: i * 100, hands: [mkShapedHand("Left", 0.4, 0.5, "open")] });
+    if (r.events.some((e) => e.type === "fist-open")) fired = true;
+  }
+  all = t("open hand alone → never fires fist-open", !fired) && all;
 }
 
 // 9 ── garbage in → never throws

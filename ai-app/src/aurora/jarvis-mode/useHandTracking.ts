@@ -147,9 +147,23 @@ export function useHandTracking(active: boolean): HandTracking {
 
       // 3 ── detection loop (throttled; writes to the ref only)
       let lastDetect = 0;
+      // Watchdog: the founder saw tracking silently die mid-session
+      // ("it just stopped showing these icons"). Two defenses:
+      //   a) If the <video> gets paused by the browser (audio-session
+      //      changes during TTS, tab visibility flaps), nudge it back
+      //      to playing — a paused video feeds MediaPipe frozen frames.
+      //   b) If detectForVideo throws persistently (detector wedged),
+      //      stop pretending: flip to the error overlay, whose Try-again
+      //      rebuilds the whole pipeline.
+      let consecutiveFailures = 0;
       const loop = () => {
         if (cancelled) return;
         const now = performance.now();
+        if (video.paused) {
+          // Fire-and-forget resume; if it fails we keep looping (the
+          // detector simply sees no fresh frames until it recovers).
+          void video.play().catch(() => {});
+        }
         if (landmarker && video.readyState >= 2 && now - lastDetect >= DETECT_INTERVAL_MS) {
           lastDetect = now;
           try {
@@ -174,8 +188,18 @@ export function useHandTracking(active: boolean): HandTracking {
               });
             }
             landmarksRef.current = { hands, t: now };
+            consecutiveFailures = 0;
           } catch {
-            /* transient detector hiccup — keep last good frame */
+            // Transient hiccup → keep the last good frame. But ~3s of
+            // nonstop failures (90 ticks @30fps) means the detector is
+            // wedged — surface the error overlay so Try-again can
+            // rebuild the camera + landmarker instead of a dead UI.
+            consecutiveFailures += 1;
+            if (consecutiveFailures > 90) {
+              if (!cancelled) setStatus("error");
+              cleanup();
+              return;
+            }
           }
         }
         raf = requestAnimationFrame(loop);
