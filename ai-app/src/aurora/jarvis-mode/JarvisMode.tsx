@@ -85,6 +85,13 @@ const FLICK_MIN_SPEED = 650;
  *  screen and the tab closes — Tony's "toss it over the shoulder".
  *  Slower impacts bounce. */
 const FLICK_TOSS_SPEED = 850;
+/** STRETCH-TO-CREATE (the AR-reel move): two pinches that BEGIN closer
+ *  than this (normalized hand distance) are "hands together" — pulling
+ *  them apart stretches a new tab into existence instead of zooming. */
+const CREATE_START_MAX = 0.18;
+/** Spread the pinches past this distance and the ghost frame arms —
+ *  release spawns the tab. Release before reaching it cancels. */
+const CREATE_MIN_DIST = 0.3;
 /** Exponential friction (per second) while gliding. */
 const FLICK_DECAY = 4;
 /** Glide ends (and commits to React) below this speed. */
@@ -712,8 +719,22 @@ export function JarvisMode({
             const tr = liveRef.current.get(target);
             if (tr) scalingRef.current = { id: target, baseScale: tr.scale };
           } else if (pageIdRef.current == null && lastCursors.length === 2) {
-            // Both pinches in EMPTY space → zoom the whole workspace
-            // around the hands' midpoint (Vision-Pro pinch-zoom).
+            if (e.distance < CREATE_START_MAX) {
+              // Hands TOGETHER, both pinching → stretch a new tab into
+              // existence (the AR-reel move). Pull apart to size the
+              // ghost frame; release past the threshold to spawn it.
+              creating = {
+                ax: lastCursors[0].x,
+                ay: lastCursors[0].y,
+                bx: lastCursors[1].x,
+                by: lastCursors[1].y,
+                armed: false,
+              };
+              blip(520, 70, 0.04);
+              break;
+            }
+            // Both pinches in EMPTY space, hands apart → zoom the whole
+            // workspace around the hands' midpoint (Vision-Pro pinch-zoom).
             const a = toScreen(lastCursors[0].x, lastCursors[0].y);
             const b = toScreen(lastCursors[1].x, lastCursors[1].y);
             const w = wsRef.current;
@@ -728,6 +749,21 @@ export function JarvisMode({
           break;
         }
         case "two-hand-scale": {
+          if (creating) {
+            const ps = lastCursors.filter((c) => c.pinching);
+            if (ps.length === 2) {
+              creating.ax = ps[0].x;
+              creating.ay = ps[0].y;
+              creating.bx = ps[1].x;
+              creating.by = ps[1].y;
+              const d = Math.hypot(creating.ax - creating.bx, creating.ay - creating.by);
+              if (!creating.armed && d >= CREATE_MIN_DIST) {
+                creating.armed = true;
+                blip(660, 80, 0.045);
+              }
+            }
+            return;
+          }
           const sc = scalingRef.current;
           if (sc) {
             const tr = liveRef.current.get(sc.id);
@@ -763,6 +799,26 @@ export function JarvisMode({
           break;
         }
         case "two-hand-scale-end": {
+          if (creating) {
+            if (creating.armed) {
+              const { x, y } = toScreen(
+                (creating.ax + creating.bx) / 2,
+                (creating.ay + creating.by) / 2,
+              );
+              const now = performance.now();
+              const pa = toScreen(creating.ax, creating.ay);
+              const pb = toScreen(creating.bx, creating.by);
+              sparksRef.current.push(
+                { x: pa.x, y: pa.y, t0: now, hue: "gold" },
+                { x: pb.x, y: pb.y, t0: now, hue: "gold" },
+              );
+              blip(740, 90, 0.05);
+              setTimeout(() => blip(1480, 140, 0.05), 70);
+              spawnWindow({ kind: "note", text: "" }, { x, y });
+            }
+            creating = null;
+            break;
+          }
           if (scalingRef.current) commitWindow(scalingRef.current.id);
           scalingRef.current = null;
           wsZoomRef.current = null;
@@ -806,6 +862,17 @@ export function JarvisMode({
     };
 
     let lastCursors: CursorState[] = [];
+
+    /** Stretch-to-create in flight: hands-together double pinch, pulling
+     *  apart. Tracks the two pinch points (normalized) for the ghost
+     *  frame and the spawn point at release. */
+    let creating: {
+      ax: number;
+      ay: number;
+      bx: number;
+      by: number;
+      armed: boolean;
+    } | null = null;
 
     // ── Proximity glow: the tab under each cursor lights up, brightness
     //    tracking pinch closeness (Ultraleap-style approach feedback).
@@ -976,6 +1043,47 @@ export function JarvisMode({
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(s.x, s.y, 10 + k * 42, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Stretch-to-create ghost frame — a dashed holo-rectangle pinned to
+      // the two pinch points. Cyan while forming, gold once armed
+      // (spread far enough that release will spawn the tab).
+      if (creating) {
+        const x1 = view.offX + Math.min(creating.ax, creating.bx) * view.dispW;
+        const x2 = view.offX + Math.max(creating.ax, creating.bx) * view.dispW;
+        const y1 = view.offY + Math.min(creating.ay, creating.by) * view.dispH;
+        const y2 = view.offY + Math.max(creating.ay, creating.by) * view.dispH;
+        const armed = creating.armed;
+        ctx.strokeStyle = armed ? "rgba(255, 208, 96, 0.9)" : "rgba(64, 224, 255, 0.7)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.setLineDash([]);
+        // Corner brackets.
+        const L = Math.min(18, (x2 - x1) / 3, (y2 - y1) / 3);
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (const [cx2, cy2, dx, dy] of [
+          [x1, y1, 1, 1],
+          [x2, y1, -1, 1],
+          [x1, y2, 1, -1],
+          [x2, y2, -1, -1],
+        ] as const) {
+          ctx.moveTo(cx2 + dx * L, cy2);
+          ctx.lineTo(cx2, cy2);
+          ctx.lineTo(cx2, cy2 + dy * L);
+        }
+        ctx.stroke();
+        // Center "+" — armed gold means release will create.
+        const mx = (x1 + x2) / 2;
+        const my = (y1 + y2) / 2;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(mx - 10, my);
+        ctx.lineTo(mx + 10, my);
+        ctx.moveTo(mx, my - 10);
+        ctx.lineTo(mx, my + 10);
         ctx.stroke();
       }
 
@@ -1157,6 +1265,7 @@ export function JarvisMode({
       ["TWO HANDS", "resize"],
       ["SPREAD WIDE", "blow up to page"],
       ["TWO HANDS (AIR)", "zoom space"],
+      ["PINCH TOGETHER + STRETCH", "create tab"],
       ["DOUBLE PINCH", "new tab"],
       ["TAP SPACE", "+ add menu"],
       ["PALM HOLD", "menu on hand"],
@@ -1644,6 +1753,7 @@ function HoloContent({
             <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
             <li>⚡ <b>Pinch twice fast</b> in empty space — new tab (type in it, or talk)</li>
+            <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create the tab</li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
             <li>👉 <b>Point at a tab and hold</b> — the gold ring fills and it opens</li>

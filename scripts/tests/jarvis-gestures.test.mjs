@@ -115,6 +115,26 @@ let all = true;
   all = t("release one hand → scale-end", rEnd.events.some((e) => e.type === "two-hand-scale-end")) && all;
 }
 
+// 5b ── scale-start reports the true start distance (drives the app's
+//       hands-together-create vs hands-apart-zoom decision)
+{
+  const near = new GestureEngine();
+  const rNear = near.update({
+    t: 0,
+    hands: [mkHand("Left", 0.45, 0.5, CLOSED), mkHand("Right", 0.55, 0.5, CLOSED)],
+  });
+  const evNear = rNear.events.find((e) => e.type === "two-hand-scale-start");
+  all = t(`hands together → scale-start distance ~0.1 (got ${evNear ? evNear.distance.toFixed(3) : "none"})`, !!evNear && evNear.distance < 0.18) && all;
+
+  const far = new GestureEngine();
+  const rFar = far.update({
+    t: 0,
+    hands: [mkHand("Left", 0.25, 0.5, CLOSED), mkHand("Right", 0.75, 0.5, CLOSED)],
+  });
+  const evFar = rFar.events.find((e) => e.type === "two-hand-scale-start");
+  all = t(`hands apart → scale-start distance ~0.5 (got ${evFar ? evFar.distance.toFixed(3) : "none"})`, !!evFar && evFar.distance > 0.3) && all;
+}
+
 // 6 ── clap fires once, then the cooldown blocks an immediate repeat
 {
   const eng = new GestureEngine();
