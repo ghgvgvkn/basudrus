@@ -207,6 +207,14 @@ export function useHandTracking(active: boolean): HandTracking {
             baseOptions: { modelAssetPath: modelUrl, delegate: "GPU" },
             runningMode: "VIDEO",
             numHands: 2,
+            // Defaults (0.5) hallucinate "hands" in busy textures — the
+            // founder's shirt print got tracked as a hand while his real
+            // hand went ignored. Demand a much more confident detection
+            // before a hand enters the scene; once locked, tracking stays
+            // forgiving so real hands don't drop mid-gesture.
+            minHandDetectionConfidence: 0.75,
+            minHandPresenceConfidence: 0.6,
+            minTrackingConfidence: 0.55,
           });
         };
         try {
