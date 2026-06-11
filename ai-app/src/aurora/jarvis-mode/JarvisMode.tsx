@@ -33,7 +33,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMapboxFlyImages, type MapboxFlyImages, type ParsedMessage } from "../auroraVisuals";
-import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
+import { DEPTH_PUSH_RATIO, GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
 import type { ViewerHandCursor } from "../../jarvis/explode";
 import "./jarvis-mode.css";
@@ -78,6 +78,16 @@ const SCALE_MAX = 1.8;
  *  least this far (normalized units) conjures a new tab where it ends —
  *  "bring two fingers together, move them, a tab opens". */
 const PORTAL_MIN_TRAVEL = 0.12;
+/** Flick momentum: release a drag faster than this (workspace px/s) and
+ *  the tab keeps gliding with friction instead of stopping dead. */
+const FLICK_MIN_SPEED = 900;
+/** Exponential friction (per second) while gliding. */
+const FLICK_DECAY = 4;
+/** Glide ends (and commits to React) below this speed. */
+const FLICK_STOP_SPEED = 40;
+/** Velocity older than this at release is stale — the hand stopped,
+ *  hovered, THEN let go. No glide. */
+const FLICK_STALE_MS = 120;
 
 /** Spawn slots hug the LEFT edge (and a little top-right), deliberately
  *  avoiding the center ~0.32–0.72 x band where the user sits in frame —
@@ -91,6 +101,32 @@ const SPAWN_SLOTS: Array<[number, number]> = [
   [0.84, 0.48],
   [0.30, 0.22],
 ];
+
+// ── audio feedback ───────────────────────────────────────────────────────────
+// Tiny synthesized ticks (no audio files): pinch = tick, grab = tock,
+// hand-tap on a button = click, portal = two-tone chime. Quiet by design —
+// feedback, not music. AudioContext is created lazily on the first gesture
+// (JARVIS mode itself starts from a user click, so autoplay rules pass).
+let audioCtx: AudioContext | null = null;
+function blip(freq: number, durMs: number, gain = 0.045, type: OscillatorType = "sine"): void {
+  try {
+    audioCtx ??= new AudioContext();
+    const ctx = audioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + durMs / 1000);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + durMs / 1000 + 0.02);
+  } catch {
+    /* audio is decorative — never let it break gestures */
+  }
+}
 
 // MediaPipe hand skeleton bone pairs (21-landmark topology).
 const BONES: Array<[number, number]> = [
@@ -179,8 +215,16 @@ export function JarvisMode({
   const zRef = useRef(10);
   const spawnRef = useRef(0);
   const seenSigsRef = useRef(new Set<string>());
-  // Per-hand grab state: which window + cursor offset from its center.
-  const grabsRef = useRef(new Map<string, { id: number; offX: number; offY: number }>());
+  // Per-hand grab state: which window + cursor offset from its center,
+  // plus a velocity EMA (workspace px/s) so a fast release can flick.
+  const grabsRef = useRef(
+    new Map<
+      string,
+      { id: number; offX: number; offY: number; vx: number; vy: number; lx: number; ly: number; lt: number }
+    >(),
+  );
+  // Windows currently gliding from a flick — stepped every rAF tick.
+  const glidesRef = useRef(new Map<number, { vx: number; vy: number; lt: number }>());
   // Two-hand resize target + its scale when the gesture started.
   const scalingRef = useRef<{ id: number; baseScale: number } | null>(null);
   // DR STRANGE portal draw: pinches that started in EMPTY space, per
@@ -199,6 +243,29 @@ export function JarvisMode({
   const modelCursorsSinkRef = useRef(modelCursorsRef);
   modelCursorsSinkRef.current = modelCursorsRef;
 
+  // ── WORKSPACE ZOOM (Vision-Pro style): both hands pinch in EMPTY space
+  //    and pull apart/together to zoom the whole tab layer around the
+  //    hands' midpoint. Transform lives on the windows container; window
+  //    coords stay in "workspace space" and screen px convert via toWs.
+  const wsRef = useRef({ tx: 0, ty: 0, z: 1 });
+  const wsApply = useCallback(() => {
+    const el = layerRef.current;
+    if (!el) return;
+    const w = wsRef.current;
+    el.style.transformOrigin = "0 0";
+    el.style.transform = `translate3d(${w.tx}px, ${w.ty}px, 0) scale(${w.z})`;
+  }, []);
+  const wsReset = useCallback(() => {
+    wsRef.current = { tx: 0, ty: 0, z: 1 };
+    wsApply();
+  }, [wsApply]);
+  /** Viewport px → workspace coords (what window x/y are stored in). */
+  const toWs = useCallback((x: number, y: number) => {
+    const w = wsRef.current;
+    return { x: (x - w.tx) / w.z, y: (y - w.ty) / w.z };
+  }, []);
+  const wsZoomRef = useRef<{ baseZ: number; baseTx: number; baseTy: number; midX: number; midY: number } | null>(null);
+
   const applyTransform = useCallback((id: number) => {
     const el = elsRef.current.get(id);
     const tr = liveRef.current.get(id);
@@ -215,11 +282,14 @@ export function JarvisMode({
       spawnRef.current += 1;
       const id = idRef.current++;
       zRef.current += 1;
+      // `at` arrives in viewport px — convert to workspace coords so the
+      // tab lands under the hand even when the workspace is zoomed.
+      const p = toWs(at ? at.x : slot[0] * vw, at ? at.y : slot[1] * vh);
       const win: HoloWindow = {
         id,
         payload,
-        x: at ? at.x : slot[0] * vw,
-        y: at ? at.y : slot[1] * vh,
+        x: p.x,
+        y: p.y,
         scale: 1,
         z: zRef.current,
         expanded: false,
@@ -238,12 +308,13 @@ export function JarvisMode({
         return next;
       });
     },
-    [],
+    [toWs],
   );
 
   const closeWindow = useCallback((id: number) => {
     liveRef.current.delete(id);
     elsRef.current.delete(id);
+    glidesRef.current.delete(id);
     setWindows((ws) => ws.filter((w) => w.id !== id));
     // Closing the window that's open as the page also closes the page.
     setPageId((p) => (p === id ? null : p));
@@ -308,6 +379,13 @@ export function JarvisMode({
       setPlusMenu(null);
     }
   }, [modelViewerOpen]);
+
+  // The page view is CSS-pinned in VIEWPORT terms — a zoomed workspace
+  // underneath would drag it off-center, so opening a page snaps the
+  // workspace back to 1:1 first.
+  useEffect(() => {
+    if (pageId != null) wsReset();
+  }, [pageId, wsReset]);
 
   // ── Welcome card on first successful camera start ──
   const welcomedRef = useRef(false);
@@ -471,14 +549,27 @@ export function JarvisMode({
             if (tr) {
               zRef.current += 1;
               tr.z = zRef.current;
-              grabsRef.current.set(e.hand, { id: hit, offX: tr.x - x, offY: tr.y - y });
+              const wp = toWs(x, y);
+              grabsRef.current.set(e.hand, {
+                id: hit,
+                offX: tr.x - wp.x,
+                offY: tr.y - wp.y,
+                vx: 0,
+                vy: 0,
+                lx: wp.x,
+                ly: wp.y,
+                lt: performance.now(),
+              });
+              glidesRef.current.delete(hit); // catching a gliding tab stops it
               applyTransform(hit);
               const el = elsRef.current.get(hit);
               el?.classList.add("is-grabbed");
+              blip(520, 70, 0.055); // tock — you grabbed something
             }
           } else if (hit == null) {
             // Pinch in EMPTY space — candidate Dr Strange portal sweep.
             portalsRef.current.set(e.hand, { lastSparkT: performance.now() });
+            blip(1250, 40, 0.03); // soft tick — pinch in air
           }
           break;
         }
@@ -486,10 +577,34 @@ export function JarvisMode({
           const grab = grabsRef.current.get(e.hand);
           if (grab) {
             const { x, y } = toScreen(e.x, e.y);
+            // Z-DEPTH PUSH: shove the grabbed hand TOWARD the camera (hand
+            // grows past the ratio) → the tab you're holding opens as the
+            // big page. The grab is consumed so release does nothing extra.
+            if (e.depth >= DEPTH_PUSH_RATIO && pageIdRef.current == null) {
+              grabsRef.current.delete(e.hand);
+              elsRef.current.get(grab.id)?.classList.remove("is-grabbed");
+              commitWindow(grab.id);
+              blip(740, 90, 0.05);
+              setTimeout(() => blip(1480, 140, 0.05), 70); // rising — page surfaces
+              setPageId(grab.id);
+              setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: true } : w)));
+              return;
+            }
+            const wp = toWs(x, y);
             const tr = liveRef.current.get(grab.id);
             if (!tr) return;
-            tr.x = x + grab.offX;
-            tr.y = y + grab.offY;
+            tr.x = wp.x + grab.offX;
+            tr.y = wp.y + grab.offY;
+            // Velocity EMA (ws px/s) — read at release to decide a flick.
+            const nowMs = performance.now();
+            const gdt = (nowMs - grab.lt) / 1000;
+            if (gdt > 0.001) {
+              grab.vx += 0.4 * ((wp.x - grab.lx) / gdt - grab.vx);
+              grab.vy += 0.4 * ((wp.y - grab.ly) / gdt - grab.vy);
+              grab.lx = wp.x;
+              grab.ly = wp.y;
+              grab.lt = nowMs;
+            }
             applyTransform(grab.id);
             return;
           }
@@ -523,6 +638,7 @@ export function JarvisMode({
                 elsRef.current.get(grab.id)?.classList.remove("is-grabbed");
                 commitWindow(grab.id);
               }
+              blip(1650, 55, 0.055); // click — a button fired
               btn.click();
               break;
             }
@@ -532,8 +648,14 @@ export function JarvisMode({
             const el = elsRef.current.get(grab.id);
             el?.classList.remove("is-grabbed");
             // Founder spec: dragging a tab off the LEFT edge dismisses it.
+            const flickSpeed =
+              performance.now() - grab.lt > FLICK_STALE_MS ? 0 : Math.hypot(grab.vx, grab.vy);
             if (x < window.innerWidth * 0.04) closeWindow(grab.id);
-            else commitWindow(grab.id);
+            else if (!isTap(e) && flickSpeed > FLICK_MIN_SPEED) {
+              // FLICK: released at speed — let it glide (stepped in the
+              // rAF loop; commits to React when it stops).
+              glidesRef.current.set(grab.id, { vx: grab.vx, vy: grab.vy, lt: performance.now() });
+            } else commitWindow(grab.id);
             // A quick, still pinch on a tab = "click" → open it as the big
             // centered PAGE (founder: "after hitting your tab you could
             // open it"). Fist→open or ✕ closes it back to a small tab.
@@ -551,6 +673,8 @@ export function JarvisMode({
             // DR STRANGE: the sweep traveled far enough — open the portal.
             const now = performance.now();
             sparksRef.current.push({ x, y, t0: now, hue: "gold" }, { x, y, t0: now + 120, hue: "gold" });
+            blip(880, 90, 0.05);
+            setTimeout(() => blip(1320, 130, 0.05), 80); // rising two-tone — portal open
             spawnWindow({ kind: "note", text: "" }, { x, y });
           }
           break;
@@ -569,6 +693,9 @@ export function JarvisMode({
         }
         case "two-hand-scale-start": {
           if (focusModeRef.current) return;
+          // A two-hand gesture is never a portal sweep — drop candidates
+          // so releasing the zoom doesn't conjure phantom tabs.
+          portalsRef.current.clear();
           // Resize target: a currently-grabbed window wins; otherwise the
           // topmost window under either cursor; otherwise nothing.
           const grabbed = [...grabsRef.current.values()][0]?.id ?? null;
@@ -589,21 +716,47 @@ export function JarvisMode({
           if (target != null) {
             const tr = liveRef.current.get(target);
             if (tr) scalingRef.current = { id: target, baseScale: tr.scale };
+          } else if (pageIdRef.current == null && lastCursors.length === 2) {
+            // Both pinches in EMPTY space → zoom the whole workspace
+            // around the hands' midpoint (Vision-Pro pinch-zoom).
+            const a = toScreen(lastCursors[0].x, lastCursors[0].y);
+            const b = toScreen(lastCursors[1].x, lastCursors[1].y);
+            const w = wsRef.current;
+            wsZoomRef.current = {
+              baseZ: w.z,
+              baseTx: w.tx,
+              baseTy: w.ty,
+              midX: (a.x + b.x) / 2,
+              midY: (a.y + b.y) / 2,
+            };
           }
           break;
         }
         case "two-hand-scale": {
           const sc = scalingRef.current;
-          if (!sc) return;
-          const tr = liveRef.current.get(sc.id);
-          if (!tr) return;
-          tr.scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, sc.baseScale * e.ratio));
-          applyTransform(sc.id);
+          if (sc) {
+            const tr = liveRef.current.get(sc.id);
+            if (!tr) return;
+            tr.scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, sc.baseScale * e.ratio));
+            applyTransform(sc.id);
+            return;
+          }
+          const wz = wsZoomRef.current;
+          if (wz) {
+            const z = Math.min(2.2, Math.max(0.55, wz.baseZ * e.ratio));
+            // Keep the hands' midpoint fixed on screen while scaling.
+            const k = z / wz.baseZ;
+            wsRef.current.z = z;
+            wsRef.current.tx = wz.midX - (wz.midX - wz.baseTx) * k;
+            wsRef.current.ty = wz.midY - (wz.midY - wz.baseTy) * k;
+            wsApply();
+          }
           break;
         }
         case "two-hand-scale-end": {
           if (scalingRef.current) commitWindow(scalingRef.current.id);
           scalingRef.current = null;
+          wsZoomRef.current = null;
           break;
         }
         case "clap": {
@@ -621,14 +774,69 @@ export function JarvisMode({
         case "fist-open":
           // Crush-and-release (fist → five fingers) closes the open page
           // view — founder: "when I do this thing the page should be
-          // closed". Does nothing when no page is open, so a natural
-          // fist can never nuke anything by accident.
+          // closed". With no page open it resets a zoomed workspace back
+          // to 1:1 (the hand-only escape hatch). A natural fist with
+          // nothing open still does nothing.
           if (pageIdRef.current != null) setPageId(null);
+          else if (wsRef.current.z !== 1) wsReset();
           break;
+        case "palm-menu": {
+          // Flip your open palm to the camera and hold — the "+" menu
+          // appears right on your hand. Palm again dismisses it.
+          if (focusModeRef.current || pageIdRef.current != null) return;
+          const { x, y } = toScreen(e.x, e.y);
+          blip(980, 80, 0.05);
+          setPlusMenu((m) => (m ? null : { x, y, open: true }));
+          break;
+        }
       }
     };
 
     let lastCursors: CursorState[] = [];
+
+    // ── Proximity glow: the tab under each cursor lights up, brightness
+    //    tracking pinch closeness (Ultraleap-style approach feedback).
+    //    Direct class/CSS-var writes, every other fresh frame — no React.
+    const hovered = new Map<string, number>(); // hand → hovered window id
+    let hoverTick = 0;
+    const unhover = (id: number, exceptHand?: string) => {
+      for (const [h, wid] of hovered) if (h !== exceptHand && wid === id) return; // other hand still on it
+      const el = elsRef.current.get(id);
+      if (el) {
+        el.classList.remove("is-hover");
+        el.style.removeProperty("--jpinch");
+      }
+    };
+    const updateHover = (cursors: CursorState[]) => {
+      hoverTick++;
+      if (hoverTick % 2 || modelViewerOpenRef.current || focusModeRef.current) return;
+      updateView();
+      for (const c of cursors) {
+        const px = view.offX + c.x * view.dispW;
+        const py = view.offY + c.y * view.dispH;
+        const grab = grabsRef.current.get(c.hand);
+        const id = grab ? grab.id : topWindowAt(px, py);
+        const prev = hovered.get(c.hand);
+        if (prev != null && prev !== id) unhover(prev, c.hand);
+        if (id != null && id !== pageIdRef.current) {
+          hovered.set(c.hand, id);
+          const el = elsRef.current.get(id);
+          if (el) {
+            el.classList.add("is-hover");
+            el.style.setProperty("--jpinch", (c.pinching ? 1 : c.pinchStrength).toFixed(2));
+          }
+        } else {
+          hovered.delete(c.hand);
+        }
+      }
+      // Hands that left the frame release their glow.
+      for (const [h, wid] of hovered) {
+        if (!cursors.some((c) => c.hand === h)) {
+          hovered.delete(h);
+          unhover(wid);
+        }
+      }
+    };
 
     // Scratch buffers reused every frame. The skeleton/cursor passes
     // were the app's biggest steady-state GC allocator (~44 short-lived
@@ -730,6 +938,7 @@ export function JarvisMode({
         const { events, cursors } = engine.update(frame);
         lastCursors = cursors;
         for (const e of events) handleEvent(e);
+        updateHover(cursors);
         // Mirror cursors (screen-space px) to the viewer overlay sink so
         // the 3D model viewer can draw the hands over its scene — the
         // camera's own cursor canvas sits behind the viewer (z 50). Only
@@ -761,12 +970,50 @@ export function JarvisMode({
           sink.current = [];
         }
       }
+      // FLICK MOMENTUM: glide released-at-speed tabs with friction. Runs
+      // every rAF tick (even when camera frames stall) so a glide never
+      // freezes mid-air.
+      const glides = glidesRef.current;
+      if (glides.size) {
+        for (const [id, g] of glides) {
+          const tr = liveRef.current.get(id);
+          if (!tr || id === pageIdRef.current) {
+            glides.delete(id);
+            continue;
+          }
+          const gdt = Math.min(0.05, (now - g.lt) / 1000);
+          g.lt = now;
+          if (gdt <= 0) continue;
+          tr.x += g.vx * gdt;
+          tr.y += g.vy * gdt;
+          const tl = toWs(0, 0);
+          const br = toWs(window.innerWidth, window.innerHeight);
+          // Gliding off the LEFT edge = throw-away dismiss (same rule as
+          // dragging off the left edge).
+          if (g.vx < 0 && tr.x < tl.x + (br.x - tl.x) * 0.02) {
+            closeWindow(id);
+            continue;
+          }
+          // Soft bounce off the other edges (lose 30% on impact).
+          if (g.vx > 0 && tr.x > br.x) { tr.x = br.x; g.vx *= -0.7; }
+          if (g.vy < 0 && tr.y < tl.y) { tr.y = tl.y; g.vy *= -0.7; }
+          if (g.vy > 0 && tr.y > br.y) { tr.y = br.y; g.vy *= -0.7; }
+          const friction = Math.exp(-FLICK_DECAY * gdt);
+          g.vx *= friction;
+          g.vy *= friction;
+          applyTransform(id);
+          if (Math.hypot(g.vx, g.vy) < FLICK_STOP_SPEED) {
+            glides.delete(id);
+            commitWindow(id);
+          }
+        }
+      }
       draw(lastCursors);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [status, applyTransform, closeWindow, commitWindow, spawnWindow, landmarksRef, videoRef]);
+  }, [status, applyTransform, closeWindow, commitWindow, spawnWindow, landmarksRef, videoRef, toWs, wsApply, wsReset]);
 
   // ── Mouse/trackpad fallback so tabs are usable while hands are busy
   //    (or in demos where the camera angle is awkward) ──
@@ -777,11 +1024,13 @@ export function JarvisMode({
       if (!tr) return;
       zRef.current += 1;
       tr.z = zRef.current;
-      pointerDrag.current = { id, offX: tr.x - ev.clientX, offY: tr.y - ev.clientY };
+      const wp = toWs(ev.clientX, ev.clientY);
+      pointerDrag.current = { id, offX: tr.x - wp.x, offY: tr.y - wp.y };
+      glidesRef.current.delete(id); // mouse-catch stops a gliding tab too
       applyTransform(id);
       (ev.target as HTMLElement).setPointerCapture?.(ev.pointerId);
     },
-    [applyTransform],
+    [applyTransform, toWs],
   );
   useEffect(() => {
     const move = (ev: PointerEvent) => {
@@ -789,8 +1038,9 @@ export function JarvisMode({
       if (!d) return;
       const tr = liveRef.current.get(d.id);
       if (!tr) return;
-      tr.x = ev.clientX + d.offX;
-      tr.y = ev.clientY + d.offY;
+      const wp = toWs(ev.clientX, ev.clientY);
+      tr.x = wp.x + d.offX;
+      tr.y = wp.y + d.offY;
       applyTransform(d.id);
     };
     const up = () => {
@@ -808,11 +1058,15 @@ export function JarvisMode({
   const gestureChips = useMemo(
     () => [
       ["PINCH", "grab a tab"],
+      ["FLICK", "throw a tab"],
       ["TAP", "open page"],
+      ["PUSH", "open page"],
       ["FIST→OPEN", "close page"],
       ["TWO HANDS", "resize"],
+      ["TWO HANDS (AIR)", "zoom space"],
       ["DOUBLE PINCH", "new tab"],
       ["TAP SPACE", "+ add menu"],
+      ["PALM HOLD", "menu on hand"],
       ["PINCH SWEEP", "portal tab"],
       ["CLAP", "new orb"],
       ["SWIPE ←", "focus Tony"],
@@ -1286,6 +1540,8 @@ function HoloContent({
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
             <li>⚡ <b>Pinch twice fast</b> in empty space — new tab (type in it, or talk)</li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
+            <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
+            <li>👊 <b>Push a grabbed tab</b> toward the camera — it opens as the page</li>
             <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
             <li>👆 <b>Tap a tab</b> — opens as a big page · 🤛✋ <b>fist → open hand</b> closes it</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>

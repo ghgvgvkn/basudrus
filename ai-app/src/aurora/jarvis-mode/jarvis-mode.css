@@ -839,3 +839,15 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   from { opacity: 0; filter: brightness(2.2) blur(3px); }
   to { opacity: 1; filter: none; }
 }
+
+/* ── Proximity glow — --jpinch (0..1, written from the rAF) tracks how
+   close the hovering hand is to a pinch; the tab brightens as the grab
+   approaches. Border + brackets + outer glow scale together. ── */
+.jarvis-win.is-hover {
+  --jbracket: rgba(140, 240, 255, 1);
+  border-color: rgba(64, 224, 255, calc(0.16 + 0.5 * var(--jpinch, 0)));
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    0 0 calc(6px + 28px * var(--jpinch, 0)) rgba(64, 224, 255, calc(0.1 + 0.45 * var(--jpinch, 0))),
+    inset 0 0 24px rgba(64, 224, 255, calc(0.04 + 0.1 * var(--jpinch, 0)));
+}

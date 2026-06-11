@@ -54,11 +54,15 @@ export interface CursorState {
   x: number;
   y: number;
   pinching: boolean;
+  /** How close the thumb+index are to a pinch, 0 (open) → 1 (latched).
+   *  Drives proximity feedback: tabs glow brighter as the grab nears
+   *  (Ultraleap-style "light up on approach"). */
+  pinchStrength: number;
 }
 
 export type GestureEvent =
   | { type: "pinch-start"; hand: HandId; x: number; y: number }
-  | { type: "pinch-move"; hand: HandId; x: number; y: number; dx: number; dy: number }
+  | { type: "pinch-move"; hand: HandId; x: number; y: number; dx: number; dy: number; depth: number }
   | { type: "pinch-end"; hand: HandId; x: number; y: number; durationMs: number; moved: number }
   | { type: "double-pinch"; hand: HandId; x: number; y: number }
   | { type: "two-hand-scale-start"; distance: number }
@@ -67,7 +71,10 @@ export type GestureEvent =
   | { type: "clap"; x: number; y: number }
   | { type: "swipe-left"; hand: HandId }
   | { type: "swipe-right"; hand: HandId }
-  | { type: "fist-open"; hand: HandId };
+  | { type: "fist-open"; hand: HandId }
+  /** Open palm held STILL facing the camera → quick menu at the palm
+   *  (North Star "virtual wearables" style). */
+  | { type: "palm-menu"; hand: HandId; x: number; y: number };
 
 // ── Tuning constants (exported so the mirror test can assert against the
 //    exact same numbers; tune here, re-run the suite) ────────────────────────
@@ -137,6 +144,27 @@ export const FIST_OPEN_WINDOW_MS = 700;
 /** Min ms between fist-open firings per hand. */
 export const FIST_COOLDOWN_MS = 1100;
 
+// ── Palm-up quick menu ("flip your palm to the camera, hold it still").
+//    Facing is read from the 2D winding of wrist→indexMCP × wrist→pinkyMCP:
+//    in mirrored screen space the cross product flips sign between palm
+//    and back-of-hand, with opposite signs per anatomical hand.
+/** Open palm must be held facing + still this long to summon the menu. */
+export const PALM_HOLD_MS = 500;
+/** Min ms between palm-menu firings per hand. */
+export const PALM_COOLDOWN_MS = 2000;
+/** Palm speed (units/sec) must stay under this — a moving palm is a
+ *  swipe or just travel, never a menu summon. */
+export const PALM_MAX_SPEED = 0.35;
+
+// ── Z-depth push: while pinch-dragging, pushing the hand TOWARD the
+//    camera grows its apparent size. pinch-move carries `depth` = smoothed
+//    handSize / handSize-at-pinch-start (1 = unchanged, >1 = closer).
+/** depth at/above this during a grab = "push" — open the grabbed tab. */
+export const DEPTH_PUSH_RATIO = 1.35;
+/** A push only counts after the pinch has lived this long (a fresh pinch
+ *  has noisy size samples while the fingers settle). */
+export const DEPTH_MIN_PINCH_MS = 250;
+
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -189,6 +217,14 @@ interface PerHand {
   fistArmed: boolean;
   fistLastSeenT: number;
   lastFistOpenT: number;
+  /** Palm-menu hold tracking: when the qualifying palm-up pose started
+   *  (-1 = not posing) and the last firing time (cooldown). */
+  palmSince: number;
+  lastPalmT: number;
+  /** Z-depth tracking: hand size captured at pinch-start (-1 = no valid
+   *  baseline) and the smoothed size ratio relative to it. */
+  grabSize: number;
+  sizeEma: number;
   /** When this hand FIRST appeared in the current visibility streak —
    *  events are suppressed until warmupMs elapse (acquisition jitter). */
   firstSeenT: number;
@@ -222,6 +258,10 @@ function freshHand(): PerHand {
     fistArmed: false,
     fistLastSeenT: -1e9,
     lastFistOpenT: -1e9,
+    palmSince: -1,
+    lastPalmT: -1e9,
+    grabSize: -1,
+    sizeEma: 1,
     firstSeenT: -1,
     seen: false,
   };
@@ -284,6 +324,9 @@ export class GestureEngine {
       const index = hand.landmarks[8];
       const palm = palmCenter(hand.landmarks);
       const pinchDist = dist(thumb, index);
+      // Wrist↔middle-MCP — scale-invariant hand size; doubles as the
+      // z-depth proxy (a hand pushed toward the camera grows).
+      const handSize = dist(hand.landmarks[0], hand.landmarks[9]);
 
       // ── Cursor smoothing (midpoint of thumb+index reads as "the grab
       //    point"; while open, the index tip alone feels more precise) ──
@@ -332,6 +375,8 @@ export class GestureEngine {
         s.startY = s.cy;
         s.pinchStartT = t;
         s.travel = 0;
+        s.grabSize = handSize >= 0.02 ? handSize : -1;
+        s.sizeEma = 1;
 
         // Double-pinch: a second start close (time AND space) to the last.
         // A re-pinch under DOUBLE_PINCH_MIN_GAP_MS is tracking flicker —
@@ -365,7 +410,13 @@ export class GestureEngine {
         const dx = s.cx - s.startX;
         const dy = s.cy - s.startY;
         s.travel = Math.max(s.travel, Math.hypot(dx, dy));
-        events.push({ type: "pinch-move", hand: hand.id, x: s.cx, y: s.cy, dx, dy });
+        // Z-depth: EMA of size-ratio vs pinch-start. Depth stays 1 until
+        // the pinch has settled (DEPTH_MIN_PINCH_MS) — early frames are
+        // noisy while the fingers close.
+        if (s.grabSize > 0 && handSize >= 0.02 && t - s.pinchStartT >= DEPTH_MIN_PINCH_MS) {
+          s.sizeEma += 0.25 * (handSize / s.grabSize - s.sizeEma);
+        }
+        events.push({ type: "pinch-move", hand: hand.id, x: s.cx, y: s.cy, dx, dy, depth: s.sizeEma });
       }
 
       // ── Swipes: open palm only (pinching = dragging, never a swipe) ──
@@ -392,10 +443,10 @@ export class GestureEngine {
       // curls differently). Skipped while pinching (a pinch half-curls the
       // index) and for degenerate frames (handSize ≈ 0 — also keeps the
       // synthetic single-point test hands from tripping it).
-      const handSize = dist(hand.landmarks[0], hand.landmarks[9]);
       if (!warm || s.pinching || handSize < 0.02) {
         s.fistSince = -1;
         s.fistArmed = false;
+        s.palmSince = -1;
       } else {
         const tips = [8, 12, 16, 20];
         let avg = 0;
@@ -417,6 +468,9 @@ export class GestureEngine {
             s.lastFistOpenT = t;
             s.fistArmed = false;
             s.fistSince = -1;
+            // The open hand lingering after a fist-open must not read as
+            // a palm-menu summon — push the palm cooldown out too.
+            s.lastPalmT = t;
           } else if (s.fistArmed && t - s.fistLastSeenT > FIST_OPEN_WINDOW_MS) {
             // Fist released but never opened wide in time — disarm.
             s.fistArmed = false;
@@ -425,9 +479,36 @@ export class GestureEngine {
             s.fistSince = -1;
           }
         }
+
+        // ── Palm-up quick menu: hand open wide, palm toward the camera,
+        //    held still. Facing comes from 2D landmark winding (the cross
+        //    product mirrors when the hand flips over, with opposite
+        //    signs per anatomical hand in mirrored screen space).
+        const v1x = hand.landmarks[5].x - hand.landmarks[0].x;
+        const v1y = hand.landmarks[5].y - hand.landmarks[0].y;
+        const v2x = hand.landmarks[17].x - hand.landmarks[0].x;
+        const v2y = hand.landmarks[17].y - hand.landmarks[0].y;
+        const cross = v1x * v2y - v1y * v2x;
+        const palmFacing = hand.id === "Right" ? cross > 0 : cross < 0;
+        const palmStill = Math.hypot(s.vx, s.vy) < PALM_MAX_SPEED;
+        if (avg > OPEN_RATIO && palmFacing && palmStill) {
+          if (s.palmSince < 0) s.palmSince = t;
+          if (t - s.palmSince >= PALM_HOLD_MS && t - s.lastPalmT > PALM_COOLDOWN_MS) {
+            events.push({ type: "palm-menu", hand: hand.id, x: s.px, y: s.py });
+            s.lastPalmT = t;
+            s.palmSince = -1;
+          }
+        } else {
+          s.palmSince = -1;
+        }
       }
 
-      cursors.push({ hand: hand.id, x: s.cx, y: s.cy, pinching: s.pinching });
+      // Pinch proximity 0..1 — 0 at the release threshold, 1 at latch.
+      const pinchStrength = Math.min(
+        1,
+        Math.max(0, (PINCH_OFF - pinchDist) / (PINCH_OFF - PINCH_ON)),
+      );
+      cursors.push({ hand: hand.id, x: s.cx, y: s.cy, pinching: s.pinching, pinchStrength });
     }
 
     // ── Hands that vanished mid-pinch: emit a clean pinch-end so a grabbed
@@ -454,6 +535,7 @@ export class GestureEngine {
         s.rt = -1; // adaptive-smoothing speed sample restarts too
         s.fistSince = -1;
         s.fistArmed = false;
+        s.palmSince = -1;
         s.firstSeenT = -1; // re-acquisition restarts the warm-up window
       }
     }

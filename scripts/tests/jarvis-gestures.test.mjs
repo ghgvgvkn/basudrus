@@ -14,6 +14,8 @@ import {
   FIST_COOLDOWN_MS,
   HAND_WARMUP_MS,
   DOUBLE_PINCH_MIN_GAP_MS,
+  DEPTH_PUSH_RATIO,
+  DEPTH_MIN_PINCH_MS,
 } from "../../ai-app/src/aurora/jarvis-mode/gestures.ts";
 
 // ── synthetic-hand helpers ───────────────────────────────────────────────
@@ -262,6 +264,75 @@ function mkShapedHand(id, x, y, pose /* 'fist' | 'open' */) {
   const r = eng.update({ t: 33, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // 33ms pinch
   const end = r.events.find((e) => e.type === "pinch-end");
   all = t("33ms phantom pinch → pinch-end but NOT a tap", !!end && !isTap(end)) && all;
+}
+
+// 8f ── palm-up menu: an open palm FACING the camera, held still past
+//       PALM_HOLD_MS, fires palm-menu once (cooldown blocks repeats).
+//       The same pose on the other anatomical hand has the same 2D
+//       winding = back of hand → never fires.
+{
+  const eng = new GestureEngine();
+  let fired = 0;
+  for (let i = 0; i <= 8; i++) {
+    const r = eng.update({ t: i * 100, hands: [mkShapedHand("Right", 0.5, 0.5, "open")] });
+    for (const e of r.events) if (e.type === "palm-menu") fired++;
+  }
+  all = t("open palm (facing) held still → palm-menu fires", fired >= 1) && all;
+  all = t(`palm-menu cooldown caps repeats (got ${fired})`, fired === 1) && all;
+
+  const eng2 = new GestureEngine();
+  let firedBack = 0;
+  for (let i = 0; i <= 8; i++) {
+    const r = eng2.update({ t: i * 100, hands: [mkShapedHand("Left", 0.5, 0.5, "open")] });
+    for (const e of r.events) if (e.type === "palm-menu") firedBack++;
+  }
+  all = t("back of hand (wrong winding) → no palm-menu", firedBack === 0) && all;
+}
+
+// 8g ── z-depth push: a pinching hand whose size GROWS (pushed toward the
+//       camera) carries depth on pinch-move, crossing DEPTH_PUSH_RATIO.
+//       A steady-size pinch stays at depth ≈ 1, and depth never moves
+//       before DEPTH_MIN_PINCH_MS (settle window).
+function mkSizedPinchHand(id, x, y, scale) {
+  const lm = Array.from({ length: 21 }, () => ({ x, y }));
+  lm[0] = { x, y: y + 0.1 * scale }; // wrist — handSize = 0.1·scale
+  lm[4] = { x: x - CLOSED / 2, y };
+  lm[8] = { x: x + CLOSED / 2, y };
+  return { id, landmarks: lm };
+}
+{
+  const eng = new GestureEngine();
+  eng.update({ t: 0, hands: [mkSizedPinchHand("Right", 0.5, 0.5, 1)] }); // pinch-start
+  // Inside the settle window: even a grown hand reports depth = 1.
+  const rEarly = eng.update({ t: DEPTH_MIN_PINCH_MS - 100, hands: [mkSizedPinchHand("Right", 0.5, 0.5, 1.6)] });
+  const mvEarly = rEarly.events.find((e) => e.type === "pinch-move");
+  all = t("depth frozen at 1 inside settle window", !!mvEarly && mvEarly.depth === 1) && all;
+  // Hold the push past the window: EMA climbs over the threshold.
+  let maxDepth = 0;
+  for (let i = 0; i < 20; i++) {
+    const r = eng.update({
+      t: DEPTH_MIN_PINCH_MS + (i + 1) * 50,
+      hands: [mkSizedPinchHand("Right", 0.5, 0.5, 1.6)],
+    });
+    for (const e of r.events) if (e.type === "pinch-move") maxDepth = Math.max(maxDepth, e.depth);
+  }
+  all = t(
+    `sustained push → depth crosses ${DEPTH_PUSH_RATIO} (got ${maxDepth.toFixed(2)})`,
+    maxDepth >= DEPTH_PUSH_RATIO,
+  ) && all;
+
+  // Steady-size pinch drag → depth stays ≈ 1 (no false page-open).
+  const eng2 = new GestureEngine();
+  eng2.update({ t: 0, hands: [mkSizedPinchHand("Right", 0.3, 0.5, 1)] });
+  let maxSteady = 0;
+  for (let i = 0; i < 20; i++) {
+    const r = eng2.update({
+      t: DEPTH_MIN_PINCH_MS + (i + 1) * 50,
+      hands: [mkSizedPinchHand("Right", 0.3 + i * 0.01, 0.5, 1)],
+    });
+    for (const e of r.events) if (e.type === "pinch-move") maxSteady = Math.max(maxSteady, e.depth);
+  }
+  all = t(`steady drag → depth stays ~1 (got ${maxSteady.toFixed(2)})`, maxSteady < 1.1) && all;
 }
 
 // 9 ── garbage in → never throws
