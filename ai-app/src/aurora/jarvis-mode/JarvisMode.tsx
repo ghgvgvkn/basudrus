@@ -649,11 +649,19 @@ export function JarvisMode({
           if (grab) {
             const el = elsRef.current.get(grab.id);
             el?.classList.remove("is-grabbed");
-            // Founder spec: dragging a tab off the LEFT edge dismisses it.
+            // FAST DELETE (founder: "there should be a really fast
+            // shortcut"): drag a tab to ANY screen edge and let go — gone.
             const flickSpeed =
               performance.now() - grab.lt > FLICK_STALE_MS ? 0 : Math.hypot(grab.vx, grab.vy);
-            if (x < window.innerWidth * 0.04) closeWindow(grab.id);
-            else if (!isTap(e) && flickSpeed > FLICK_MIN_SPEED) {
+            const mX = window.innerWidth * 0.04;
+            const mY = window.innerHeight * 0.05;
+            const atEdge =
+              x < mX || x > window.innerWidth - mX || y < mY || y > window.innerHeight - mY;
+            if (!isTap(e) && atEdge) {
+              sparksRef.current.push({ x, y, t0: performance.now(), hue: "gold" });
+              blip(300, 110, 0.05); // low thunk — deleted
+              closeWindow(grab.id);
+            } else if (!isTap(e) && flickSpeed > FLICK_MIN_SPEED) {
               // FLICK: released at speed — let it glide (stepped in the
               // rAF loop; commits to React when it stops).
               glidesRef.current.set(grab.id, { vx: grab.vx, vy: grab.vy, lt: performance.now() });
@@ -666,9 +674,18 @@ export function JarvisMode({
               setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: true } : w)));
             }
           } else if (isTap(e)) {
-            // Tap on EMPTY space → drop the "+" sign there (tap again to
-            // dismiss). Suppressed while a page is open or in focus mode.
-            if (!focusModeRef.current && pageIdRef.current == null) {
+            if (pageIdRef.current != null) {
+              // Tap anywhere OUTSIDE the open page closes it — the page
+              // must never trap you behind a keyboard (founder: "it should
+              // be only moving by hands").
+              if (topWindowAt(x, y) !== pageIdRef.current) {
+                sparksRef.current.push({ x, y, t0: performance.now(), hue: "cyan" });
+                blip(700, 70, 0.05);
+                setPageId(null);
+              }
+            } else if (!focusModeRef.current) {
+              // Tap on EMPTY space → drop the "+" sign there (tap again
+              // to dismiss).
               setPlusMenu((m) => (m ? null : { x, y, open: false }));
             }
           } else if (portal && e.moved >= PORTAL_MIN_TRAVEL && !focusModeRef.current) {
@@ -918,52 +935,6 @@ export function JarvisMode({
       }
     };
 
-    // ── POINT + DWELL (Tony points at a hologram): hold an index-point
-    //    over a tab and it opens as the page. No pinch involved — built
-    //    on the most reliable primitive we have (cursor position). A
-    //    gold progress ring draws around the fingertip while it charges.
-    const DWELL_MS = 700;
-    const DWELL_MAX_DRIFT = 48; // px of fingertip wander allowed
-    let dwell: { hand: string; id: number; x: number; y: number; since: number } | null = null;
-    const updateDwell = (cursors: CursorState[]) => {
-      if (modelViewerOpenRef.current || focusModeRef.current || pageIdRef.current != null) {
-        dwell = null;
-        return;
-      }
-      updateView();
-      let found: { hand: string; id: number; x: number; y: number } | null = null;
-      for (const c of cursors) {
-        if (!c.pointing || c.pinching) continue;
-        const px = view.offX + c.x * view.dispW;
-        const py = view.offY + c.y * view.dispH;
-        const id = topWindowAt(px, py);
-        if (id == null) continue;
-        found = { hand: c.hand, id, x: px, y: py };
-        break;
-      }
-      if (!found) {
-        dwell = null;
-        return;
-      }
-      if (
-        !dwell ||
-        dwell.hand !== found.hand ||
-        dwell.id !== found.id ||
-        Math.hypot(found.x - dwell.x, found.y - dwell.y) > DWELL_MAX_DRIFT
-      ) {
-        dwell = { ...found, since: performance.now() };
-        return;
-      }
-      if (performance.now() - dwell.since >= DWELL_MS) {
-        const id = dwell.id;
-        dwell = null;
-        blip(880, 90, 0.05);
-        setTimeout(() => blip(1320, 130, 0.05), 80);
-        setPageId(id);
-        setWindows((ws) => ws.map((w) => (w.id === id ? { ...w, expanded: true } : w)));
-      }
-    };
-
     // Scratch buffers reused every frame. The skeleton/cursor passes
     // were the app's biggest steady-state GC allocator (~44 short-lived
     // objects × 60fps with two hands) — real heat on a fanless machine.
@@ -1087,15 +1058,6 @@ export function JarvisMode({
         ctx.stroke();
       }
 
-      // Dwell charge ring — gold arc filling clockwise at the fingertip.
-      if (dwell) {
-        const k = Math.min(1, (now - dwell.since) / DWELL_MS);
-        ctx.strokeStyle = "rgba(255, 208, 96, 0.9)";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(dwell.x, dwell.y, 20, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
-        ctx.stroke();
-      }
     };
 
     let lastFreshAt = performance.now();
@@ -1117,7 +1079,6 @@ export function JarvisMode({
         lastCursors = cursors;
         for (const e of events) handleEvent(e);
         updateHover(cursors);
-        updateDwell(cursors);
         // LAB: live pose readout in the telemetry strip (~10Hz).
         if (labRef.current && telemetryRef.current) {
           labTick++;
@@ -1258,9 +1219,9 @@ export function JarvisMode({
     () => [
       ["PINCH", "grab a tab"],
       ["FLICK", "throw a tab"],
-      ["TOSS OFF EDGE", "close tab"],
-      ["POINT + HOLD", "open page"],
+      ["DRAG TO ANY EDGE", "delete tab"],
       ["TAP", "open page"],
+      ["TAP OUTSIDE", "close page"],
       ["SWIPE / FIST→OPEN", "close page"],
       ["TWO HANDS", "resize"],
       ["SPREAD WIDE", "blow up to page"],
@@ -1756,11 +1717,10 @@ function HoloContent({
             <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create the tab</li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
-            <li>👉 <b>Point at a tab and hold</b> — the gold ring fills and it opens</li>
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab blows up into the page</li>
-            <li>🌪️ <b>Throw a tab at any edge</b> — it flies off and closes</li>
+            <li>🗑️ <b>Drag a tab to any screen edge</b> and let go — deleted, instantly</li>
             <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
-            <li>👆 <b>Tap a tab</b> — opens as a big page · 🤛✋ <b>fist → open hand</b> closes it</li>
+            <li>👆 <b>Tap a tab</b> — opens as a big page · <b>tap anywhere outside</b> closes it</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>
             <li>👈 <b>Swipe left</b> — just Tony · <b>swipe right</b> — tabs return</li>
           </ul>
