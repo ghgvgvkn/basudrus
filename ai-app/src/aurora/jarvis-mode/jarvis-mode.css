@@ -1,0 +1,458 @@
+/* ═══════════════════════════════════════════════════════════════════
+   JARVIS MODE — camera holodeck layer
+
+   MOUNTING CONTRACT: .jarvis-root renders as a CHILD of .aurora-stage
+   (position:fixed, z-index:4, pointer-events:none — a stacking context).
+   So inside that context:
+     - z-index:-1 paints the whole camera layer BENEATH the stage chrome
+       (docked ring, Tony's words, Back-to-chat) while the stage's own
+       z:4 keeps it ABOVE everything else in the app.
+     - pointer-events:auto re-enables interaction for the layer's subtree
+       (the stage's `none` would otherwise swallow every click/pinch).
+   Layer order inside .jarvis-root:
+     video → dim → holo-windows → cursor canvas → HUD/overlays
+   Perf rules: GPU-composited transforms only; no per-frame box-shadow
+   animation; backdrop-filter used sparingly (window chrome only).
+   ═══════════════════════════════════════════════════════════════════ */
+
+.jarvis-root {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: auto;
+}
+
+/* Layer 1 — mirrored selfie feed */
+.jarvis-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* selfie mirror — matches the flipped landmarks */
+  background: #03070c;
+}
+.jarvis-dim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(2, 8, 14, 0.18) 0%, rgba(2, 8, 14, 0.55) 100%),
+    linear-gradient(to top, rgba(2, 8, 14, 0.6) 0%, transparent 26%);
+  pointer-events: none;
+}
+
+/* Layer 2 — holo windows */
+.jarvis-windows {
+  position: absolute;
+  inset: 0;
+}
+.jarvis-windows.is-focus .jarvis-win {
+  /* Founder: "hand to the left → only the AI speaking." Tabs park
+     off-screen left; swipe-right (or the hint button) brings them home. */
+  transform: translate3d(-120vw, 0, 0) !important;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 480ms cubic-bezier(0.4, 0, 0.2, 1), opacity 360ms ease;
+}
+
+.jarvis-win {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: clamp(220px, 24vw, 340px);
+  border: 1px solid rgba(64, 224, 255, 0.38);
+  border-radius: 12px;
+  background: rgba(4, 14, 22, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 0 0 1px rgba(64, 224, 255, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    inset 0 0 24px rgba(64, 224, 255, 0.05);
+  color: #d9f6ff;
+  will-change: transform;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.jarvis-win.is-grabbed {
+  border-color: rgba(255, 96, 168, 0.65);
+  box-shadow:
+    0 0 0 1px rgba(255, 96, 168, 0.18),
+    0 16px 48px rgba(0, 0, 0, 0.55),
+    inset 0 0 28px rgba(255, 96, 168, 0.07);
+  cursor: grabbing;
+}
+
+/* faint scanline texture for the holo feel — static, zero animation cost */
+.jarvis-win::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 3px,
+    rgba(64, 224, 255, 0.025) 3px 4px
+  );
+}
+
+.jarvis-win-chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(64, 224, 255, 0.18);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(151, 222, 255, 0.85);
+}
+.jarvis-win-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #40e0ff;
+  box-shadow: 0 0 8px rgba(64, 224, 255, 0.9);
+  flex: none;
+}
+.jarvis-win-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jarvis-win-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(151, 222, 255, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(151, 222, 255, 0.85);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.jarvis-win-close:hover {
+  border-color: rgba(255, 96, 168, 0.8);
+  color: #ff60a8;
+}
+
+.jarvis-win-body {
+  padding: 12px 14px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* content renderers */
+.jarvis-stat-big {
+  font-size: clamp(34px, 4.5vw, 52px);
+  font-weight: 200;
+  letter-spacing: 0.02em;
+  color: #eafcff;
+  text-shadow: 0 0 18px rgba(64, 224, 255, 0.35);
+}
+.jarvis-stat-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(151, 222, 255, 0.75);
+}
+
+.jarvis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.jarvis-table td,
+.jarvis-table th {
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(64, 224, 255, 0.14);
+  text-align: left;
+  vertical-align: top;
+}
+.jarvis-table td:first-child {
+  color: rgba(151, 222, 255, 0.7);
+  white-space: nowrap;
+}
+.jarvis-table th {
+  color: #9be9ff;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.jarvis-table-more td {
+  color: rgba(151, 222, 255, 0.55);
+  font-style: italic;
+  border-bottom: none;
+}
+
+.jarvis-quote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid rgba(64, 224, 255, 0.6);
+  font-style: italic;
+  font-size: 14.5px;
+  color: #eafcff;
+}
+.jarvis-quote cite {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-style: normal;
+  color: rgba(151, 222, 255, 0.75);
+}
+
+.jarvis-show-img {
+  width: 100%;
+  max-height: 150px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(64, 224, 255, 0.25);
+}
+.jarvis-show-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 84px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(64, 224, 255, 0.16), rgba(120, 90, 255, 0.16));
+  font-size: 40px;
+  font-weight: 200;
+  color: rgba(214, 246, 255, 0.85);
+}
+.jarvis-show-snippet {
+  margin: 8px 0 0;
+  color: rgba(214, 246, 255, 0.92);
+}
+.jarvis-source-chip {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 8px;
+  border: 1px solid rgba(64, 224, 255, 0.35);
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(151, 222, 255, 0.8);
+}
+
+.jarvis-note {
+  margin: 0;
+  color: rgba(214, 246, 255, 0.9);
+}
+
+.jarvis-win-orb {
+  width: 120px;
+}
+.jarvis-mini-orb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+.jarvis-mini-orb span {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(190, 245, 255, 0.95), rgba(64, 224, 255, 0.55) 45%, rgba(20, 60, 90, 0.4) 80%);
+  box-shadow: 0 0 24px rgba(64, 224, 255, 0.5);
+  animation: jarvis-orb-pulse 2.4s ease-in-out infinite;
+}
+@keyframes jarvis-orb-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+.jarvis-welcome p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #eafcff;
+}
+.jarvis-welcome ul {
+  margin: 0;
+  padding-left: 4px;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+  font-size: 12.5px;
+  color: rgba(214, 246, 255, 0.88);
+}
+
+/* Layer 3 — cursor canvas */
+.jarvis-cursor-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* HUD */
+.jarvis-hud {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 46vw;
+  pointer-events: none;
+}
+.jarvis-chip {
+  padding: 4px 9px;
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(4, 14, 22, 0.6);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(173, 230, 255, 0.85);
+  white-space: nowrap;
+}
+.jarvis-chip b {
+  color: #40e0ff;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.jarvis-privacy {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: rgba(151, 222, 255, 0.6);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.jarvis-exit {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 96, 168, 0.5);
+  border-radius: 999px;
+  background: rgba(4, 14, 22, 0.6);
+  color: #ff9cc7;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+}
+.jarvis-exit:hover {
+  background: rgba(255, 96, 168, 0.14);
+}
+
+.jarvis-focus-hint {
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 10px 14px;
+  border: 1px dashed rgba(64, 224, 255, 0.45);
+  border-radius: 10px;
+  background: rgba(4, 14, 22, 0.65);
+  color: #9be9ff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Status overlays */
+.jarvis-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 8, 14, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.jarvis-overlay-card {
+  max-width: 420px;
+  padding: 26px 28px;
+  border: 1px solid rgba(64, 224, 255, 0.35);
+  border-radius: 14px;
+  background: rgba(4, 14, 22, 0.92);
+  text-align: center;
+  color: #d9f6ff;
+}
+.jarvis-overlay-card h3 {
+  margin: 14px 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #eafcff;
+}
+.jarvis-overlay-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(214, 246, 255, 0.8);
+}
+.jarvis-overlay-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+.jarvis-btn {
+  padding: 9px 16px;
+  border: 1px solid rgba(151, 222, 255, 0.4);
+  border-radius: 999px;
+  background: transparent;
+  color: #d9f6ff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.jarvis-btn-primary {
+  border-color: rgba(64, 224, 255, 0.8);
+  background: rgba(64, 224, 255, 0.14);
+  color: #aef3ff;
+}
+.jarvis-spinner {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto;
+  border: 2px solid rgba(64, 224, 255, 0.25);
+  border-top-color: #40e0ff;
+  border-radius: 50%;
+  animation: jarvis-spin 0.9s linear infinite;
+}
+@keyframes jarvis-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Aurora chrome adjustments while JARVIS mode is active ──
+   (body class added by AuroraAIScreen; content-mode is forced on so the
+   ring uses its proven corner-dock animation — orb on the right, as the
+   founder asked.) */
+body.aurora-jarvis-mode .aurora-app .aurora-infocard {
+  display: none !important; /* holo-tabs replace the centered InfoCard */
+}
+body.aurora-jarvis-mode .aurora-app .aurora-vignette {
+  opacity: 0; /* camera supplies its own depth */
+}
+body.aurora-jarvis-mode .aurora-app .aurora-matrix {
+  opacity: 0 !important; /* dot canvas off — the ring alone marks Tony */
+}
+/* Tony's words dock right, above the corner ring, instead of bottom-center */
+body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
+  position: fixed !important;
+  right: 28px !important;
+  left: auto !important;
+  bottom: calc(32px + clamp(120px, 14vmin, 160px) + 18px) !important;
+  max-width: min(340px, 34vw) !important;
+  text-align: right !important;
+}
+
+/* Accessibility: honor reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-mini-orb span {
+    animation: none;
+  }
+  .jarvis-windows.is-focus .jarvis-win {
+    transition: none;
+  }
+}
