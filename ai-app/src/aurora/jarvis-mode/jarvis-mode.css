@@ -243,6 +243,27 @@
   color: rgba(214, 246, 255, 0.9);
 }
 
+/* Editable note panel — a real fillable container. Transparent so it
+   sits in the holo-glass, cyan caret, no resize handle (the tab itself
+   resizes via two-hand pinch). */
+.jarvis-note-input {
+  width: 100%;
+  min-height: 84px;
+  max-height: 40vh;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: rgba(224, 250, 255, 0.95);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  caret-color: rgba(64, 224, 255, 0.95);
+}
+.jarvis-note-input::placeholder {
+  color: rgba(150, 210, 235, 0.45);
+}
+
 .jarvis-win-orb {
   width: 120px;
 }

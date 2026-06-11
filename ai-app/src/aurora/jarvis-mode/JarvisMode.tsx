@@ -70,15 +70,17 @@ const MAX_WINDOWS = 8;
 const SCALE_MIN = 0.45;
 const SCALE_MAX = 1.8;
 
-/** Spawn slots cycle through the left ~2/3 of the screen (orb owns the
- *  right edge). Fractions of viewport size. */
+/** Spawn slots hug the LEFT edge (and a little top-right), deliberately
+ *  avoiding the center ~0.32–0.72 x band where the user sits in frame —
+ *  the founder's tabs were landing on their face. Orb owns the bottom-
+ *  right corner, so we keep clear of that too. Fractions of viewport. */
 const SPAWN_SLOTS: Array<[number, number]> = [
-  [0.3, 0.34],
-  [0.56, 0.3],
-  [0.28, 0.66],
-  [0.55, 0.64],
-  [0.42, 0.48],
-  [0.22, 0.5],
+  [0.16, 0.30],
+  [0.16, 0.52],
+  [0.16, 0.74],
+  [0.84, 0.26],
+  [0.84, 0.48],
+  [0.30, 0.22],
 ];
 
 // MediaPipe hand skeleton bone pairs (21-landmark topology).
@@ -181,7 +183,8 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
   useEffect(() => {
     if (status === "running" && !welcomedRef.current) {
       welcomedRef.current = true;
-      spawnWindow({ kind: "welcome" }, { x: window.innerWidth * 0.42, y: window.innerHeight * 0.42 });
+      // Top-left, clear of the user's face in frame (not centered).
+      spawnWindow({ kind: "welcome" }, { x: window.innerWidth * 0.18, y: window.innerHeight * 0.32 });
     }
   }, [status, spawnWindow]);
 
@@ -222,6 +225,37 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
         query: q,
         snippet: presenting.cleanText.trim().slice(0, 220),
       });
+    }
+
+    // Tony's prose answer fills the newest EMPTY note tab (the founder's
+    // "create a tab, then talk to fill it" flow). Only when there's no
+    // richer artifact for this turn — a STAT/DATA/etc. already became its
+    // own tab. Deduped per answer text so it lands once.
+    const hasArtifact =
+      !!(presenting.stat || presenting.data || presenting.quote || presenting.compare || presenting.show);
+    const answer = presenting.cleanText.trim();
+    if (!hasArtifact && answer.length > 0) {
+      const sig = `answer:${answer.slice(0, 60)}`;
+      if (!sigs.has(sig)) {
+        sigs.add(sig);
+        setWindows((ws) => {
+          // Find the most-recently-created empty note (no user text yet).
+          let targetId = -1;
+          let bestZ = -1;
+          for (const w of ws) {
+            if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
+              bestZ = w.z;
+              targetId = w.id;
+            }
+          }
+          if (targetId === -1) return ws; // no empty note open → leave as-is
+          return ws.map((w) =>
+            w.id === targetId && w.payload.kind === "note"
+              ? { ...w, payload: { kind: "note", text: answer } }
+              : w,
+          );
+        });
+      }
     }
   }, [presenting, spawnWindow]);
 
@@ -313,11 +347,10 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
           const { x, y } = toScreen(e.x, e.y);
           // Only spawn over empty space — double-pinch on a tab is just a
           // fast double-click, not "bury the tab under a new one".
+          // Creates a REAL empty note: type into it, or just talk to Tony
+          // and his next answer drops into the newest empty note.
           if (topWindowAt(x, y) == null) {
-            spawnWindow(
-              { kind: "note", text: "New panel — ask Tony something and his data lands in tabs like this." },
-              { x, y },
-            );
+            spawnWindow({ kind: "note", text: "" }, { x, y });
           }
           break;
         }
@@ -536,11 +569,25 @@ export function JarvisMode({ presenting, presentingImage, onExit }: JarvisModePr
             </div>
             <div
               className="jarvis-win-body"
-              onClick={() =>
-                setWindows((ws) => ws.map((x) => (x.id === w.id ? { ...x, expanded: !x.expanded } : x)))
+              onClick={
+                // Notes are editable — clicking must NOT toggle expand (it
+                // would steal focus from the textarea). Other kinds toggle
+                // their details on click.
+                w.payload.kind === "note"
+                  ? undefined
+                  : () => setWindows((ws) => ws.map((x) => (x.id === w.id ? { ...x, expanded: !x.expanded } : x)))
               }
             >
-              <HoloContent payload={w.payload} expanded={w.expanded} image={w.payload.kind === "show" ? presentingImage : null} />
+              <HoloContent
+                payload={w.payload}
+                expanded={w.expanded}
+                image={w.payload.kind === "show" ? presentingImage : null}
+                onEditNote={(text) =>
+                  setWindows((ws) =>
+                    ws.map((x) => (x.id === w.id && x.payload.kind === "note" ? { ...x, payload: { kind: "note", text } } : x)),
+                  )
+                }
+              />
             </div>
           </div>
         ))}
@@ -640,10 +687,12 @@ function HoloContent({
   payload,
   expanded,
   image,
+  onEditNote,
 }: {
   payload: HoloPayload;
   expanded: boolean;
   image: string | null;
+  onEditNote?: (text: string) => void;
 }) {
   switch (payload.kind) {
     case "stat":
@@ -715,7 +764,19 @@ function HoloContent({
         </div>
       );
     case "note":
-      return <p className="jarvis-note">{payload.text}</p>;
+      // A real, editable panel. Type into it, or leave it empty and Tony's
+      // next answer drops in. onPointerDown stopPropagation so dragging the
+      // CHROME moves the tab but interacting with the text doesn't.
+      return (
+        <textarea
+          className="jarvis-note-input"
+          value={payload.text}
+          placeholder="Type here, or just talk to Tony — his answer lands in this tab…"
+          onChange={(ev) => onEditNote?.(ev.target.value)}
+          onPointerDown={(ev) => ev.stopPropagation()}
+          rows={4}
+        />
+      );
     case "orb":
       return (
         <div className="jarvis-mini-orb" aria-hidden>
