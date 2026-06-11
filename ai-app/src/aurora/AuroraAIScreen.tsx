@@ -53,6 +53,13 @@ import { renderMarkdown } from "./auroraMarkdown";
 // dependency, so it's imported eagerly from its own module.
 import { resolveModelKey, type ModelKey } from "../jarvis/modelKeys";
 const JarvisView = lazy(() => import("../jarvis/JarvisView").then((m) => ({ default: m.JarvisView })));
+// JARVIS MODE — the camera + hand-gesture holodeck layer: an OPTIONAL second
+// way to use voice mode (classic voice mode is untouched). Lazy so the
+// gesture engine + CSS never load unless the user turns it on; MediaPipe
+// itself loads even later, inside the layer's own hook.
+const JarvisMode = lazy(() =>
+  import("./jarvis-mode/JarvisMode").then((m) => ({ default: m.JarvisMode })),
+);
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -302,6 +309,24 @@ export function AuroraAIScreen() {
   const voiceModeActiveRef = useRef(false);
   const [voiceModeActive, setVoiceModeActive] = useState(false);
 
+  // ── JARVIS MODE (camera + hand gestures) ──
+  // Founder spec: an ADDITIVE option inside voice mode — "we're not gonna
+  // leave the old option, we're just gonna add a new option." When on, the
+  // selfie camera fills the stage, Tony's artifacts float as grabbable
+  // holo-tabs, and the orb docks right (via the proven content-mode corner
+  // dock). Voice keeps running untouched underneath.
+  const [jarvisActive, setJarvisActive] = useState(false);
+  useEffect(() => {
+    // Leaving voice mode always exits JARVIS mode too (camera released by
+    // the layer's unmount cleanup).
+    if (!voiceModeActive && jarvisActive) setJarvisActive(false);
+  }, [voiceModeActive, jarvisActive]);
+  useEffect(() => {
+    if (jarvisActive) document.body.classList.add("aurora-jarvis-mode");
+    else document.body.classList.remove("aurora-jarvis-mode");
+    return () => document.body.classList.remove("aurora-jarvis-mode");
+  }, [jarvisActive]);
+
   // ── Presentation mode (JARVIS-style HUD: A4 paper + corner orb) ─
   //
   // Founder's spec: while voice MODE is open (not just while Tony
@@ -392,10 +417,13 @@ export function AuroraAIScreen() {
     || presenting.compare
   );
   useEffect(() => {
-    if (hasHeroContent) document.body.classList.add("aurora-content-mode");
+    // JARVIS mode rides the same proven corner-dock: while the camera layer
+    // is up, the ring stays parked bottom-right even with no artifact on
+    // screen (the holo-tabs own the center; founder wants the orb right).
+    if (hasHeroContent || jarvisActive) document.body.classList.add("aurora-content-mode");
     else document.body.classList.remove("aurora-content-mode");
     return () => document.body.classList.remove("aurora-content-mode");
-  }, [hasHeroContent]);
+  }, [hasHeroContent, jarvisActive]);
 
   // True when the user is in voice mode and Tony is mid-reply — i.e.
   // the last message in the thread is still from the USER, or the
@@ -1682,6 +1710,40 @@ export function AuroraAIScreen() {
             </svg>
             <span>Back to chat</span>
           </button>
+
+          {/* JARVIS MODE toggle — top-right twin of Back-to-chat. Turns on
+              the camera + hand-gesture holodeck layer. Hidden while the
+              layer is up (its own EXIT JARVIS button takes the same spot,
+              so there's exactly one control there at a time). */}
+          {!jarvisActive && (
+            <button
+              type="button"
+              className="aurora-jarvis-toggle"
+              onClick={() => setJarvisActive(true)}
+              aria-label="Activate JARVIS camera mode"
+              title="JARVIS mode — control Tony with your hands"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M23 7l-7 5 7 5V7z" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+              <span>JARVIS MODE</span>
+            </button>
+          )}
+
+          {/* JARVIS MODE layer — camera feed + holo-tabs + hand cursors.
+              Sits at z-index 3, under this stage's chrome (z 4), so the
+              ring, Tony's words and both pill buttons stay visible above
+              the camera. Unmounting releases the camera + MediaPipe. */}
+          {jarvisActive && (
+            <Suspense fallback={null}>
+              <JarvisMode
+                presenting={presenting}
+                presentingImage={presentingImage}
+                onExit={() => setJarvisActive(false)}
+              />
+            </Suspense>
+          )}
 
           {/* TONY'S WORDS — floating glowing typography below the
               orb. No paper. No card. Just the words breathing in
