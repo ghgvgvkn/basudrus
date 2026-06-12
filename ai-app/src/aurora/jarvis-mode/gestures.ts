@@ -61,6 +61,9 @@ export interface CursorState {
   /** Index extended, other fingers curled — the "Tony points at a
    *  hologram" pose. Drives dwell-to-open. */
   pointing: boolean;
+  /** Index+middle extended, ring+pinky curled — the two-finger flick
+   *  pose. Surfaced so the HUD can show "pose recognized" feedback. */
+  twoFinger: boolean;
   /** Openness ratio (avg fingertip↔palm / hand size) — LAB telemetry. */
   open: number;
   /** Palm faces the camera (2D winding) — LAB telemetry. */
@@ -117,13 +120,17 @@ export const SWIPE_COOLDOWN_MS = 900;
 //    small deliberate flick: fewer qualifying frames + shorter
 //    cooldown than the arm-wave swipe.
 /** Index AND middle tip↔palm / hand-size must exceed this. */
-export const FSWIPE_EXT_MIN = 1.0;
+export const FSWIPE_EXT_MIN = 0.95;
 /** Ring+pinky avg tip↔palm / hand-size must stay under this. */
-export const FSWIPE_CURL_MAX = 0.78;
-/** Horizontal speed (units/sec) that counts as a flick. */
-export const FSWIPE_SPEED = 1.0;
-/** Vertical speed ceiling for a horizontal flick. */
-export const FSWIPE_MAX_CROSS = 0.9;
+export const FSWIPE_CURL_MAX = 0.85;
+/** Horizontal FINGERTIP speed (units/sec) that counts as a flick.
+ *  Measured at the index+middle tip midpoint, NOT the palm — the
+ *  founder's flick comes from the wrist, so the palm barely moves
+ *  while the fingertips sweep fast. */
+export const FSWIPE_SPEED = 0.85;
+/** Horizontal dominance: |vx| must exceed this × |vy| (wrist flicks
+ *  arc a little — an absolute vertical ceiling rejected real flicks). */
+export const FSWIPE_DOMINANCE = 1.25;
 /** Consecutive qualifying frames before the flick fires. */
 export const FSWIPE_FRAMES = 2;
 /** Min ms between flicks per hand. */
@@ -256,6 +263,11 @@ interface PerHand {
   fswipeLeft: number; // two-finger flick frame counters
   fswipeRight: number;
   lastFSwipeT: number;
+  fvx: number; // fingertip (index+middle midpoint) velocity EMA
+  fvy: number;
+  fpx: number;
+  fpy: number;
+  fpt: number;
   lastSwipeT: number;
   /** Fist→open tracking: when the current fist started (-1 = not in
    *  fist), whether it was held long enough to arm, the last moment the
@@ -304,6 +316,11 @@ function freshHand(): PerHand {
     fswipeLeft: 0,
     fswipeRight: 0,
     lastFSwipeT: -1e9,
+    fvx: 0,
+    fvy: 0,
+    fpx: -1,
+    fpy: -1,
+    fpt: -1,
     fistSince: -1,
     fistArmed: false,
     fistLastSeenT: -1e9,
@@ -463,6 +480,22 @@ export class GestureEngine {
       s.py = palm.y;
       s.pt = t;
 
+      // ── Fingertip velocity EMA (index+middle midpoint) — drives the
+      //    two-finger flick. Faster alpha than the palm EMA: a wrist
+      //    flick lives ~150ms, a sluggish EMA never sees it. ──
+      {
+        const tipX = (hand.landmarks[8].x + hand.landmarks[12].x) / 2;
+        const tipY = (hand.landmarks[8].y + hand.landmarks[12].y) / 2;
+        if (s.fpt >= 0 && t > s.fpt) {
+          const fdt = (t - s.fpt) / 1000;
+          s.fvx += 0.6 * ((tipX - s.fpx) / fdt - s.fvx);
+          s.fvy += 0.6 * ((tipY - s.fpy) / fdt - s.fvy);
+        }
+        s.fpx = tipX;
+        s.fpy = tipY;
+        s.fpt = t;
+      }
+
       // ── Pinch with hysteresis ──
       if (!warm) {
         // Still warming up — hold the state machine released so the first
@@ -553,10 +586,13 @@ export class GestureEngine {
         s.swipeFramesRight = 0;
       }
 
-      // ── Two-finger flick: the dedicated carousel-scroll gesture ──
-      if (warm && twoFinger && Math.abs(s.vy) < FSWIPE_MAX_CROSS) {
-        s.fswipeLeft = s.vx < -FSWIPE_SPEED ? s.fswipeLeft + 1 : 0;
-        s.fswipeRight = s.vx > FSWIPE_SPEED ? s.fswipeRight + 1 : 0;
+      // ── Two-finger flick: the dedicated carousel-scroll gesture.
+      //    FINGERTIP velocity with horizontal dominance — palm speed
+      //    misses wrist flicks entirely. ──
+      const fHoriz = Math.abs(s.fvx) > FSWIPE_DOMINANCE * Math.abs(s.fvy);
+      if (warm && twoFinger && fHoriz) {
+        s.fswipeLeft = s.fvx < -FSWIPE_SPEED ? s.fswipeLeft + 1 : 0;
+        s.fswipeRight = s.fvx > FSWIPE_SPEED ? s.fswipeRight + 1 : 0;
       } else {
         s.fswipeLeft = 0;
         s.fswipeRight = 0;
@@ -633,6 +669,7 @@ export class GestureEngine {
         pinching: s.pinching,
         pinchStrength,
         pointing,
+        twoFinger,
         open: openAvg,
         facing: palmFacing,
       });

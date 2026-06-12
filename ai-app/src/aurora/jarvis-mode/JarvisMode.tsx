@@ -1570,6 +1570,13 @@ export function JarvisMode({
         ctx.beginPath();
         ctx.arc(x, y, c.pinching ? 9 : 13, 0, Math.PI * 2);
         ctx.stroke();
+        // Two-finger pose recognized → show the scroll affordance so
+        // the user KNOWS the flick is armed before they sweep.
+        if (c.twoFinger) {
+          ctx.fillStyle = "rgba(170, 244, 255, 0.95)";
+          ctx.font = "14px 'Geist Mono', ui-monospace, monospace";
+          ctx.fillText("⇄", x + 17, y - 13);
+        }
       }
 
       // Pinch/clap sparks — expanding fading rings, pruned in place
