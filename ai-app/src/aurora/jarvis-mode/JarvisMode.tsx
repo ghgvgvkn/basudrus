@@ -302,7 +302,7 @@ export function JarvisMode({
   }, []);
 
   const spawnWindow = useCallback(
-    (payload: HoloPayload, at?: { x: number; y: number }) => {
+    (payload: HoloPayload, at?: { x: number; y: number }, scale0 = 1) => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const slot = SPAWN_SLOTS[spawnRef.current % SPAWN_SLOTS.length];
@@ -319,16 +319,17 @@ export function JarvisMode({
         y: at ? at.y : slot[1] * vh,
         t0: performance.now(),
       });
+      const s0 = Math.min(SCALE_MAX, Math.max(SCALE_MIN, scale0));
       const win: HoloWindow = {
         id,
         payload,
         x: p.x,
         y: p.y,
-        scale: 1,
+        scale: s0,
         z: zRef.current,
         expanded: false,
       };
-      liveRef.current.set(id, { x: win.x, y: win.y, scale: 1, z: win.z });
+      liveRef.current.set(id, { x: win.x, y: win.y, scale: s0, z: win.z });
       setWindows((ws) => {
         const next = [...ws, win];
         // Cap: drop the oldest non-welcome window beyond the limit.
@@ -583,9 +584,20 @@ export function JarvisMode({
           sparksRef.current.push({ x, y, t0: performance.now(), hue: "cyan" });
           if (focusModeRef.current) return; // windows are away — nothing to grab
           const hit = topWindowAt(x, y);
-          // The opened page is pinned center — it can't be grabbed/dragged
-          // (close it with fist→open or its ✕). Other tabs grab as usual.
-          if (hit != null && hit !== pageIdRef.current) {
+          if (hit != null) {
+            // MAP DIVE intercept: pinch landing on the MAP IMAGE of an
+            // EXPANDED map tab takes the camera (orbit ⇄ ground) instead
+            // of grabbing — the tab's header strip still grabs as usual.
+            const winEl = elsRef.current.get(hit);
+            if (winEl?.classList.contains("is-expanded")) {
+              const at = document.elementFromPoint(x, y);
+              if (at instanceof Element && at.closest(".jarvis-map")) {
+                winEl.classList.add("is-scrubbed");
+                mapScrub = { hand: e.hand, id: hit, y0: e.y, k0: mapK };
+                blip(640, 60, 0.045);
+                break;
+              }
+            }
             const tr = liveRef.current.get(hit);
             if (tr) {
               zRef.current += 1;
@@ -607,15 +619,6 @@ export function JarvisMode({
               el?.classList.add("is-grabbed");
               blip(520, 70, 0.055); // tock — you grabbed something
             }
-          } else if (hit != null && hit === pageIdRef.current) {
-            // Pinch ON the open page: if it's a map, the hand takes the
-            // camera — MAP DIVE (orbit ⇄ ground), hands-only.
-            const el = elsRef.current.get(hit);
-            if (el && el.querySelector(".jarvis-map")) {
-              el.classList.add("is-scrubbed");
-              mapScrub = { hand: e.hand, y0: e.y, k0: mapK };
-              blip(640, 60, 0.045);
-            }
           } else if (hit == null) {
             // Pinch in EMPTY space — candidate Dr Strange portal sweep.
             portalsRef.current.set(e.hand, { lastSparkT: performance.now() });
@@ -625,9 +628,9 @@ export function JarvisMode({
         }
         case "pinch-move": {
           // MAP DIVE in flight — vertical hand travel drives the
-          // orbit⇄ground crossfade on the open map page.
+          // orbit⇄ground crossfade on the expanded map tab.
           if (mapScrub && mapScrub.hand === e.hand) {
-            const el = pageIdRef.current != null ? elsRef.current.get(pageIdRef.current) : null;
+            const el = elsRef.current.get(mapScrub.id);
             if (el) {
               mapK = Math.min(1, Math.max(0, mapScrub.k0 + (e.y - mapScrub.y0) * 2.6));
               el.style.setProperty("--mapk", mapK.toFixed(2));
@@ -709,15 +712,18 @@ export function JarvisMode({
           if (grab) {
             const el = elsRef.current.get(grab.id);
             el?.classList.remove("is-grabbed");
-            // FAST DELETE (founder: "there should be a really fast
-            // shortcut"): drag a tab to ANY screen edge and let go — gone.
+            // FAST DELETE, two ways (founder: "there should be a really
+            // fast shortcut" + "like I'm gonna throw something and then I
+            // leave it — it should delete the tab"):
+            //   1. drag a tab to ANY screen edge and let go
+            //   2. THROW it — release mid-throwing-motion, gone instantly
             const flickSpeed =
               performance.now() - grab.lt > FLICK_STALE_MS ? 0 : Math.hypot(grab.vx, grab.vy);
             const mX = window.innerWidth * 0.04;
             const mY = window.innerHeight * 0.05;
             const atEdge =
               x < mX || x > window.innerWidth - mX || y < mY || y > window.innerHeight - mY;
-            if (!isTap(e) && atEdge) {
+            if (!isTap(e) && (atEdge || flickSpeed > FLICK_TOSS_SPEED)) {
               sparksRef.current.push({ x, y, t0: performance.now(), hue: "gold" });
               blip(300, 110, 0.05); // low thunk — deleted
               closeWindow(grab.id);
@@ -726,12 +732,13 @@ export function JarvisMode({
               // rAF loop; commits to React when it stops).
               glidesRef.current.set(grab.id, { vx: grab.vx, vy: grab.vy, lt: performance.now() });
             } else commitWindow(grab.id);
-            // A quick, still pinch on a tab = "click" → open it as the big
-            // centered PAGE (founder: "after hitting your tab you could
-            // open it"). Fist→open or ✕ closes it back to a small tab.
+            // A quick, still pinch on a tab = "click" → the tab GROWS IN
+            // PLACE (and a second tap shrinks it back). Founder: "I don't
+            // want something to take full screen" — the page takeover is
+            // gone; an expanded tab stays draggable and deletable.
             if (isTap(e)) {
-              setPageId(grab.id);
-              setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: true } : w)));
+              blip(980, 60, 0.045);
+              setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: !w.expanded } : w)));
             }
           } else if (isTap(e)) {
             if (pageIdRef.current != null) {
@@ -847,15 +854,15 @@ export function JarvisMode({
             if (!tr) return;
             const raw = sc.baseScale * e.ratio;
             // BLOW IT UP (movie move): keep spreading past the resize cap
-            // and the tab erupts into the full page.
-            if (raw > SCALE_MAX * 1.18 && pageIdRef.current == null) {
+            // and the tab pops into its EXPANDED form — in place, still a
+            // draggable tab, never a full-screen takeover.
+            if (raw > SCALE_MAX * 1.18) {
               const id = sc.id;
               scalingRef.current = null;
-              tr.scale = sc.baseScale; // page view ignores scale; restore for later
+              tr.scale = sc.baseScale; // expanded layout carries the size; restore scale
               commitWindow(id);
               blip(740, 90, 0.05);
               setTimeout(() => blip(1480, 140, 0.05), 70);
-              setPageId(id);
               setWindows((ws) => ws.map((w) => (w.id === id ? { ...w, expanded: true } : w)));
               return;
             }
@@ -891,7 +898,10 @@ export function JarvisMode({
               );
               blip(740, 90, 0.05);
               setTimeout(() => blip(1480, 140, 0.05), 70);
-              spawnWindow({ kind: "note", text: "" }, { x, y });
+              // Founder: "I can make it wider or smaller based on my
+              // fingers" — the stretched frame's size IS the tab's size.
+              const frameDiag = Math.hypot(pa.x - pb.x, pa.y - pb.y);
+              spawnWindow({ kind: "note", text: "" }, { x, y }, frameDiag / 420);
             }
             creating = null;
             break;
@@ -951,10 +961,10 @@ export function JarvisMode({
       armed: boolean;
     } | null = null;
 
-    /** MAP DIVE — pinch ON the open map page and the hand takes the
-     *  camera: pull DOWN to dive from orbit to the ground, push UP to
-     *  rise back to space. k: 0 = orbit, 1 = landed. */
-    let mapScrub: { hand: string; y0: number; k0: number } | null = null;
+    /** MAP DIVE — pinch on an expanded map tab's image and the hand
+     *  takes the camera: pull DOWN to dive from orbit to the ground,
+     *  push UP to rise back to space. k: 0 = orbit, 1 = landed. */
+    let mapScrub: { hand: string; id: number; y0: number; k0: number } | null = null;
     let mapK = 1;
 
     // ── Proximity glow: the tab under each cursor lights up, brightness
@@ -1484,16 +1494,15 @@ export function JarvisMode({
   const gestureChips = useMemo(
     () => [
       ["PINCH", "grab a tab"],
-      ["FLICK", "throw a tab"],
-      ["DRAG TO ANY EDGE", "delete tab"],
-      ["TAP", "open page"],
-      ["TAP OUTSIDE", "close page"],
-      ["SWIPE / FIST→OPEN", "close page"],
+      ["FLICK", "toss a tab"],
+      ["THROW / EDGE-DROP", "delete tab"],
+      ["TAP", "grow ⇄ shrink tab"],
+      ["FIST→OPEN", "reset zoom"],
       ["TWO HANDS", "resize"],
-      ["SPREAD WIDE", "blow up to page"],
+      ["SPREAD WIDE", "grow tab"],
       ["TWO HANDS (AIR)", "zoom space"],
       ["PINCH TOGETHER + STRETCH", "create tab"],
-      ["PINCH + PULL (MAP PAGE)", "orbit ⇄ ground"],
+      ["PINCH + PULL (MAP)", "orbit ⇄ ground"],
       ["DOUBLE PINCH", "new tab"],
       ["TAP SPACE", "+ add menu"],
       ["PALM HOLD", "menu on hand"],
@@ -1547,14 +1556,13 @@ export function JarvisMode({
               onClick={
                 // Notes/ask/empty-map are editable — clicking must NOT
                 // hijack focus from their inputs. Other kinds: mouse-click
-                // opens the big page view, same as a gesture tap.
+                // toggles the in-place expanded form, same as a gesture tap.
                 w.payload.kind === "note" ||
                 w.payload.kind === "ask" ||
                 (w.payload.kind === "map" && !w.payload.query)
                   ? undefined
                   : () => {
-                      setPageId(w.id);
-                      setWindows((ws) => ws.map((x) => (x.id === w.id ? { ...x, expanded: true } : x)));
+                      setWindows((ws) => ws.map((x) => (x.id === w.id ? { ...x, expanded: !x.expanded } : x)));
                     }
               }
             >
@@ -2002,14 +2010,14 @@ function HoloContent({
             <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
             <li>⚡ <b>Pinch twice fast</b> in empty space — new tab (type in it, or talk)</li>
-            <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create the tab</li>
+            <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create the tab <b>at the size you stretched</b></li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
-            <li>🤲 <b>Grab with both hands and spread wide</b> — the tab blows up into the page</li>
-            <li>🗑️ <b>Drag a tab to any screen edge</b> and let go — deleted, instantly</li>
+            <li>🤲 <b>Grab with both hands and spread wide</b> — the tab grows to its big form</li>
+            <li>🗑️ <b>Throw a tab</b> — release mid-throw and it's deleted · dropping it off <b>any screen edge</b> deletes too</li>
             <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
-            <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; open it, then <b>pinch + pull</b> to fly orbit ⇄ ground</li>
-            <li>👆 <b>Tap a tab</b> — opens as a big page · <b>tap anywhere outside</b> closes it</li>
+            <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; grow it, then <b>pinch + pull on the map</b> to fly orbit ⇄ ground</li>
+            <li>👆 <b>Tap a tab</b> — it grows in place · tap again to shrink it back (nothing ever takes the full screen)</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>
             <li>👈 <b>Swipe left</b> — just Tony · <b>swipe right</b> — tabs return</li>
           </ul>

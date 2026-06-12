@@ -916,12 +916,26 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   text-shadow: 0 0 8px rgba(64, 224, 255, 0.7);
   pointer-events: none;
 }
-/* The map fills the opened page; the dive hint only shows there. */
-.jarvis-win.is-page .jarvis-map {
-  width: 100%;
-  height: 52vh;
+/* IN-PLACE EXPANDED TAB — founder: "I don't want something to take
+   full screen". The grown form is just a BIGGER DRAGGABLE TAB: no
+   center pin, no backdrop dim, and every gesture (grab, throw,
+   edge-delete, resize) still works on it. Tap toggles it back. */
+.jarvis-win.is-expanded {
+  width: min(46vw, 560px);
 }
-.jarvis-win.is-page .jarvis-geo-hint {
+.jarvis-win.is-expanded .jarvis-win-body {
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.jarvis-win.is-expanded .jarvis-note-input {
+  min-height: 26vh;
+}
+/* The map fills the expanded tab; the dive hint only shows there. */
+.jarvis-win.is-expanded .jarvis-map {
+  width: 100%;
+  height: 40vh;
+}
+.jarvis-win.is-expanded .jarvis-geo-hint {
   display: block;
 }
 /* MAP DIVE: the hand owns the crossfade (animations would pin opacity
