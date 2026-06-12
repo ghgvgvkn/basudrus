@@ -251,6 +251,14 @@ export function JarvisMode({
   const portalsRef = useRef(new Map<string, { lastSparkT: number }>());
   // Pinch sparks (decorative): spawn on pinch-start, fade ~360ms.
   const sparksRef = useRef<Array<{ x: number; y: number; t0: number; hue: "cyan" | "gold" }>>([]);
+  // Emitter-disc bursts (H.U.D. reference): every new tab "rises" off a
+  // radial projector disc that flashes open under it. Pushed by
+  // spawnWindow, drawn/pruned by the rAF canvas pass.
+  const discFxRef = useRef<Array<{ x: number; y: number; t0: number }>>([]);
+  // Mirror of the "+" menu for the rAF pass (it draws the steady palm
+  // disc under the open menu without touching React state per frame).
+  const plusMenuRef = useRef<{ x: number; y: number; open: boolean } | null>(null);
+  plusMenuRef.current = plusMenu;
 
   // Model-viewer routing read inside the rAF via refs, so toggling the
   // viewer (or swapping its callbacks) never tears down + restarts the
@@ -304,6 +312,13 @@ export function JarvisMode({
       // `at` arrives in viewport px — convert to workspace coords so the
       // tab lands under the hand even when the workspace is zoomed.
       const p = toWs(at ? at.x : slot[0] * vw, at ? at.y : slot[1] * vh);
+      // Emitter-disc flash at the birth point — the tab "rises" off a
+      // projector disc (H.U.D. reference, photos 6/10).
+      discFxRef.current.push({
+        x: at ? at.x : slot[0] * vw,
+        y: at ? at.y : slot[1] * vh,
+        t0: performance.now(),
+      });
       const win: HoloWindow = {
         id,
         payload,
@@ -955,6 +970,98 @@ export function JarvisMode({
       { x: 0, y: 0, pinching: false },
     ];
 
+    // ── Movie-pack FX (founder's H.U.D. reference) ──────────────────
+    // Every glow is pre-rendered ONCE into a sprite canvas here; the
+    // per-frame cost is plain drawImage blits. No gradients, no blurs,
+    // no DOM writes inside the rAF — the weak-MacBook rules hold.
+    const makeSprite = (
+      size: number,
+      paint: (c: CanvasRenderingContext2D, s: number) => void,
+    ): HTMLCanvasElement => {
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const x = c.getContext("2d");
+      if (x) paint(x, size);
+      return c;
+    };
+    // Soft glow dot — light at every fingertip while a hand is on screen.
+    const tipSprite = makeSprite(32, (c, s) => {
+      const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+      g.addColorStop(0, "rgba(215, 250, 255, 0.95)");
+      g.addColorStop(0.3, "rgba(64, 224, 255, 0.55)");
+      g.addColorStop(1, "rgba(64, 224, 255, 0)");
+      c.fillStyle = g;
+      c.fillRect(0, 0, s, s);
+    });
+    // Two-lobed molecule mote — the ambient "fireflies" drifting in depth.
+    const moteSprite = makeSprite(24, (c, s) => {
+      const lobe = (x: number, y: number, r: number, a: number) => {
+        const g = c.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(190, 246, 255, ${a})`);
+        g.addColorStop(1, "rgba(64, 224, 255, 0)");
+        c.fillStyle = g;
+        c.beginPath();
+        c.arc(x, y, r, 0, Math.PI * 2);
+        c.fill();
+      };
+      lobe(s * 0.38, s * 0.55, s * 0.3, 0.9);
+      lobe(s * 0.62, s * 0.42, s * 0.26, 0.8);
+    });
+    // Palm emitter disc — radial ticks + two rings; the "projector"
+    // holograms rise from. Drawn rotated for a slow idle spin.
+    const discSprite = makeSprite(240, (c, s) => {
+      const cx = s / 2;
+      c.translate(cx, cx);
+      c.strokeStyle = "rgba(64, 224, 255, 0.5)";
+      c.lineWidth = 1;
+      for (let i = 0; i < 60; i++) {
+        const a = (i / 60) * Math.PI * 2;
+        const r0 = s * (i % 5 === 0 ? 0.3 : 0.36);
+        const r1 = s * (i % 5 === 0 ? 0.48 : 0.44);
+        c.beginPath();
+        c.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
+        c.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        c.stroke();
+      }
+      c.lineWidth = 1.5;
+      for (const [r, a] of [
+        [0.26, 0.7],
+        [0.49, 0.45],
+      ] as const) {
+        c.strokeStyle = `rgba(64, 224, 255, ${a})`;
+        c.beginPath();
+        c.arc(0, 0, s * r, 0, Math.PI * 2);
+        c.stroke();
+      }
+    });
+    const blitDisc = (
+      g: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      size: number,
+      alpha: number,
+      angle: number,
+    ) => {
+      g.save();
+      g.translate(x, y);
+      g.rotate(angle);
+      g.globalAlpha = alpha;
+      g.drawImage(discSprite, -size / 2, -size / 2, size, size);
+      g.restore();
+    };
+    // Ambient motes: position/velocity in normalized viewport space so a
+    // resize never strands them. 26 blits/frame — cheap.
+    const motes = Array.from({ length: 26 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      z: 0.3 + Math.random() * 0.7,
+      vx: (Math.random() - 0.5) * 0.000045,
+      vy: (Math.random() - 0.5) * 0.00003,
+      ph: Math.random() * Math.PI * 2,
+    }));
+    let lastFxT = performance.now();
+    const TIPS = [4, 8, 12, 16, 20] as const;
+
     const draw = (cursors: CursorState[]) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -972,6 +1079,37 @@ export function JarvisMode({
       if (!ctx) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, vw, vh);
+      const now = performance.now();
+
+      // Ambient molecule motes — drift, wrap, twinkle, behind everything.
+      const dtFx = Math.min(50, now - lastFxT);
+      lastFxT = now;
+      for (const m of motes) {
+        m.x += m.vx * dtFx;
+        m.y += m.vy * dtFx;
+        if (m.x < -0.05) m.x += 1.1;
+        else if (m.x > 1.05) m.x -= 1.1;
+        if (m.y < -0.05) m.y += 1.1;
+        else if (m.y > 1.05) m.y -= 1.1;
+        const tw = 0.55 + 0.45 * Math.sin(now * 0.0012 + m.ph);
+        ctx.globalAlpha = 0.05 + 0.17 * m.z * tw;
+        const sz = 7 + 13 * m.z;
+        ctx.drawImage(moteSprite, m.x * vw - sz / 2, m.y * vh - sz / 2, sz, sz);
+      }
+      ctx.globalAlpha = 1;
+
+      // Palm emitter disc — the "+" menu floats on a slow-spinning
+      // projector; every freshly spawned tab flashes one open beneath it.
+      const pm = plusMenuRef.current;
+      if (pm) blitDisc(ctx, pm.x, pm.y, 150, 0.75, now * 0.00045);
+      const discs = discFxRef.current;
+      let dkeep = 0;
+      for (const d of discs) if (now - d.t0 < 700) discs[dkeep++] = d;
+      discs.length = dkeep;
+      for (const d of discs) {
+        const k = (now - d.t0) / 700;
+        blitDisc(ctx, d.x, d.y, 60 + 160 * k, (1 - k) * 0.9, now * 0.0009);
+      }
 
       // Hand skeletons — thin cyan bones + landmark dots. Landmark
       // coords are written in place into skelPts (no per-frame objects).
@@ -1000,6 +1138,30 @@ export function JarvisMode({
           ctx.arc(pts[i].x, pts[i].y, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
+        // Fingertip glow nodes — light at all five fingertips, the
+        // "power coming out of the hands" read from the reference.
+        for (const t of TIPS) {
+          if (t < n) ctx.drawImage(tipSprite, pts[t].x - 9, pts[t].y - 9, 18, 18);
+        }
+      }
+
+      // Leader lines — a thin thread from each pinching hand to the tab
+      // it holds, so the grip reads as physical contact.
+      if (grabsRef.current.size) {
+        ctx.strokeStyle = "rgba(64, 224, 255, 0.35)";
+        ctx.lineWidth = 1;
+        for (const [hand, grab] of grabsRef.current) {
+          const el = elsRef.current.get(grab.id);
+          if (!el) continue;
+          let hc: CursorState | null = null;
+          for (const c of cursors) if (c.hand === hand) { hc = c; break; }
+          if (!hc) continue;
+          const r = el.getBoundingClientRect();
+          ctx.beginPath();
+          ctx.moveTo(view.offX + hc.x * view.dispW, view.offY + hc.y * view.dispH);
+          ctx.lineTo(r.left + r.width / 2, r.top + r.height / 2);
+          ctx.stroke();
+        }
       }
 
       // Cursors — ring at the grab point; pink when pinching.
@@ -1015,7 +1177,6 @@ export function JarvisMode({
 
       // Pinch/clap sparks — expanding fading rings, pruned in place
       // after 360ms (filter() would allocate an array every frame).
-      const now = performance.now();
       const sparks = sparksRef.current;
       let keep = 0;
       for (const s of sparks) if (now - s.t0 < 360) sparks[keep++] = s;
@@ -1039,18 +1200,48 @@ export function JarvisMode({
         const y1 = view.offY + Math.min(creating.ay, creating.by) * view.dispH;
         const y2 = view.offY + Math.max(creating.ay, creating.by) * view.dispH;
         const armed = creating.armed;
-        ctx.strokeStyle = armed ? "rgba(255, 208, 96, 0.9)" : "rgba(64, 224, 255, 0.7)";
+        // Stretch progress 0..1 — how close the spread is to arming.
+        const spread = Math.hypot(creating.ax - creating.bx, creating.ay - creating.by);
+        const prog = Math.min(1, spread / CREATE_MIN_DIST);
+        const hue = armed ? "rgba(255, 208, 96, 0.9)" : "rgba(64, 224, 255, 0.7)";
+        // DATA VAULT panel outline — dashed, with the top-right corner
+        // clipped at 45° (the reference's hexagonal cut).
+        const cut = Math.min(16, (x2 - x1) / 4, (y2 - y1) / 4);
+        ctx.strokeStyle = hue;
         ctx.lineWidth = 2;
         ctx.setLineDash([8, 6]);
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2 - cut, y1);
+        ctx.lineTo(x2, y1 + cut);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x1, y2);
+        ctx.closePath();
+        ctx.stroke();
         ctx.setLineDash([]);
-        // Corner brackets.
+        // Header tag above the frame.
+        ctx.fillStyle = hue;
+        ctx.font = "10px 'Geist Mono', ui-monospace, monospace";
+        ctx.fillText(armed ? "DATA VAULT · RELEASE TO CREATE" : "DATA VAULT · STRETCH", x1, y1 - 8);
+        // Loading bar along the bottom edge — fills with the stretch.
+        const by = y2 - 8;
+        ctx.strokeStyle = "rgba(64, 224, 255, 0.25)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x1 + 6, by);
+        ctx.lineTo(x2 - 6, by);
+        ctx.stroke();
+        ctx.strokeStyle = hue;
+        ctx.beginPath();
+        ctx.moveTo(x1 + 6, by);
+        ctx.lineTo(x1 + 6 + (x2 - x1 - 12) * prog, by);
+        ctx.stroke();
+        // Corner brackets (top-right skipped — the cut carries it).
         const L = Math.min(18, (x2 - x1) / 3, (y2 - y1) / 3);
         ctx.lineWidth = 3;
         ctx.beginPath();
         for (const [cx2, cy2, dx, dy] of [
           [x1, y1, 1, 1],
-          [x2, y1, -1, 1],
           [x1, y2, 1, -1],
           [x2, y2, -1, -1],
         ] as const) {
