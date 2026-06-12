@@ -92,7 +92,10 @@ const FLICK_TOSS_SPEED = 850;
 /** STRETCH-TO-CREATE (the AR-reel move): two pinches that BEGIN closer
  *  than this (normalized hand distance) are "hands together" — pulling
  *  them apart stretches a new tab into existence instead of zooming. */
-const CREATE_START_MAX = 0.18;
+// 0.14 (was 0.18): a missed two-hand RESIZE — both pinches landing
+// just off the tab — must not read as "create". The deliberate
+// hands-together creation sign starts well under this.
+const CREATE_START_MAX = 0.14;
 /** Spread the pinches past this distance and the ghost frame arms —
  *  release spawns the tab. Release before reaching it cancels. */
 const CREATE_MIN_DIST = 0.3;
@@ -723,11 +726,17 @@ export function JarvisMode({
             const mY = window.innerHeight * 0.05;
             const atEdge =
               x < mX || x > window.innerWidth - mX || y < mY || y > window.innerHeight - mY;
-            if (!isTap(e) && (atEdge || flickSpeed > FLICK_TOSS_SPEED)) {
+            // A release that was part of a two-hand RESIZE is never a
+            // throw or an edge-delete — the hand naturally moves fast
+            // and drifts wide while scaling.
+            const justScaled =
+              (scalingRef.current !== null && scalingRef.current.id === grab.id) ||
+              performance.now() - lastScaleEndT < 400;
+            if (!isTap(e) && !justScaled && (atEdge || flickSpeed > FLICK_TOSS_SPEED)) {
               sparksRef.current.push({ x, y, t0: performance.now(), hue: "gold" });
               blip(300, 110, 0.05); // low thunk — deleted
               closeWindow(grab.id);
-            } else if (!isTap(e) && flickSpeed > FLICK_MIN_SPEED) {
+            } else if (!isTap(e) && !justScaled && flickSpeed > FLICK_MIN_SPEED) {
               // FLICK: released at speed — let it glide (stepped in the
               // rAF loop; commits to React when it stops).
               glidesRef.current.set(grab.id, { vx: grab.vx, vy: grab.vy, lt: performance.now() });
@@ -883,6 +892,7 @@ export function JarvisMode({
           break;
         }
         case "two-hand-scale-end": {
+          lastScaleEndT = performance.now();
           if (creating) {
             if (creating.armed) {
               const { x, y } = toScreen(
@@ -966,6 +976,12 @@ export function JarvisMode({
      *  push UP to rise back to space. k: 0 = orbit, 1 = landed. */
     let mapScrub: { hand: string; id: number; y0: number; k0: number } | null = null;
     let mapK = 1;
+
+    /** Stamped whenever a two-hand scale/zoom/create ends. A pinch
+     *  released during or right after resizing must NEVER read as a
+     *  throw/edge-delete — founder: "while I'm only making it bigger
+     *  or smaller, it might get deleted". */
+    let lastScaleEndT = 0;
 
     // ── Proximity glow: the tab under each cursor lights up, brightness
     //    tracking pinch closeness (Ultraleap-style approach feedback).

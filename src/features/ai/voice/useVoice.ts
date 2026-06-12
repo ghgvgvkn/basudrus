@@ -183,6 +183,67 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
+/**
+ * Decode a MediaRecorder blob and re-encode it as 16 kHz mono 16-bit
+ * PCM WAV. Browser audio containers (Safari's fragmented mp4 above
+ * all) intermittently come out CORRUPTED on the 2nd+ recording of a
+ * session — upstream STT rejects them with 400 "corrupted file". A
+ * PCM WAV has no container structure to corrupt, so re-encoding here
+ * makes every upload bit-identical in shape. 16 kHz mono is full
+ * speech-transcription quality at ~32 KB/s — a 60 s ramble is ~1.9 MB,
+ * comfortably inside the server's 6 MB body cap.
+ *
+ * Returns null when the blob can't even be decoded locally — the
+ * capture is truly unusable and should not be uploaded at all.
+ */
+async function blobToWav16k(blob: Blob): Promise<Blob | null> {
+  try {
+    const raw = await blob.arrayBuffer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const AC: typeof AudioContext = (window.AudioContext || (window as any).webkitAudioContext);
+    const probe = new AC();
+    let decoded: AudioBuffer;
+    try {
+      decoded = await probe.decodeAudioData(raw);
+    } finally {
+      try { void probe.close(); } catch { /* noop */ }
+    }
+    const RATE = 16000;
+    const frames = Math.max(1, Math.ceil(decoded.duration * RATE));
+    const off = new OfflineAudioContext(1, frames, RATE);
+    const src = off.createBufferSource();
+    src.buffer = decoded;
+    src.connect(off.destination);
+    src.start(0);
+    const mono = await off.startRendering();
+    const pcm = mono.getChannelData(0);
+    const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+    const wstr = (o: number, s: string) => {
+      for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i));
+    };
+    wstr(0, "RIFF");
+    out.setUint32(4, 36 + pcm.length * 2, true);
+    wstr(8, "WAVE");
+    wstr(12, "fmt ");
+    out.setUint32(16, 16, true);   // fmt chunk size
+    out.setUint16(20, 1, true);    // PCM
+    out.setUint16(22, 1, true);    // mono
+    out.setUint32(24, RATE, true);
+    out.setUint32(28, RATE * 2, true); // byte rate
+    out.setUint16(32, 2, true);    // block align
+    out.setUint16(34, 16, true);   // bits per sample
+    wstr(36, "data");
+    out.setUint32(40, pcm.length * 2, true);
+    for (let i = 0, o = 44; i < pcm.length; i++, o += 2) {
+      const s = Math.max(-1, Math.min(1, pcm[i]));
+      out.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return new Blob([out.buffer], { type: "audio/wav" });
+  } catch {
+    return null;
+  }
+}
+
 export function useVoice(): UseVoiceResult {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -679,13 +740,25 @@ export function useVoice(): UseVoiceResult {
         setError(msg);
         return { ok: false, transcript: "", error: msg };
       }
-      const buf = await blob.arrayBuffer();
+      // NORMALIZE TO WAV before upload. Production logs showed the
+      // recurring "Transcription failed (HTTP 400)": the FIRST
+      // utterance of a session transcribes fine, then ElevenLabs
+      // rejects the 2nd+ as a CORRUPTED FILE — Safari/Chrome
+      // MediaRecorder containers (esp. fragmented mp4) come out
+      // malformed once TTS playback has run in between. Decoding in
+      // the browser and re-encoding to 16 kHz mono PCM WAV gives the
+      // server the same bulletproof bytes every time. If the local
+      // decode itself fails, the capture is truly unusable — bail
+      // without burning the round-trip and let the loop re-arm.
+      const wav = await blobToWav16k(blob);
+      if (!wav) {
+        const msg = "audio glitched — say that again?";
+        setError(msg);
+        return { ok: false, transcript: "", error: msg };
+      }
+      const buf = await wav.arrayBuffer();
       const base64 = arrayBufferToBase64(buf);
-      // Normalize mediaType: drop the codecs= suffix variant the server
-      // doesn't need to know — Scribe handles either form, but our
-      // server allowlist is matched against both with-/without-codec
-      // variants anyway.
-      const mediaType = blob.type || "audio/webm";
+      const mediaType = "audio/wav";
       const body = JSON.stringify({ audioBase64: base64, mediaType, languageCode });
 
       // The POST can fail at the NETWORK level (Safari "Load failed",
