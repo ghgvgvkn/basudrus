@@ -440,10 +440,16 @@ export function JarvisMode({
   // ── Spawn holo-tabs from Tony's artifacts (deduped per content) ──
   useEffect(() => {
     const sigs = seenSigsRef.current;
+    // Cascade: each new tab of one answer lands 160ms after the
+    // previous — the spread ASSEMBLES around the user (each off its
+    // own emitter disc) instead of popping in as one blob.
+    let spawnSeq = 0;
     const spawnOnce = (sig: string, payload: HoloPayload) => {
       if (sigs.has(sig)) return;
       sigs.add(sig);
-      spawnWindow(payload);
+      const delay = spawnSeq++ * 160;
+      if (delay === 0) spawnWindow(payload);
+      else setTimeout(() => spawnWindow(payload), delay);
     };
     if (presenting.stat) {
       const s = presenting.stat;
@@ -483,34 +489,37 @@ export function JarvisMode({
       spawnOnce(`map:${q}`, { kind: "map", query: q });
     }
 
-    // Tony's prose answer fills the newest EMPTY note tab (the founder's
-    // "create a tab, then talk to fill it" flow). Only when there's no
-    // richer artifact for this turn — a STAT/DATA/etc. already became its
-    // own tab. Deduped per answer text so it lands once.
-    const hasArtifact =
-      !!(presenting.stat || presenting.data || presenting.quote || presenting.compare || presenting.show || presenting.map);
+    // Tony's prose ALWAYS lands now (founder: "tab for the description"
+    // — before, any artifact in the turn silently dropped the words and
+    // the spread felt like "one boring table"). It fills the newest
+    // EMPTY note if one is open (the "create a tab, then talk" flow),
+    // otherwise it becomes the DESCRIPTION panel of the spread.
     const answer = presenting.cleanText.trim();
-    if (!hasArtifact && answer.length > 0) {
+    if (answer.length > 0) {
       const sig = `answer:${answer.slice(0, 60)}`;
       if (!sigs.has(sig)) {
         sigs.add(sig);
-        setWindows((ws) => {
-          // Find the most-recently-created empty note (no user text yet).
-          let targetId = -1;
-          let bestZ = -1;
-          for (const w of ws) {
-            if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
-              bestZ = w.z;
-              targetId = w.id;
-            }
+        let targetId = -1;
+        let bestZ = -1;
+        for (const w of windowsRef.current) {
+          if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
+            bestZ = w.z;
+            targetId = w.id;
           }
-          if (targetId === -1) return ws; // no empty note open → leave as-is
-          return ws.map((w) =>
-            w.id === targetId && w.payload.kind === "note"
-              ? { ...w, payload: { kind: "note", text: answer } }
-              : w,
+        }
+        if (targetId !== -1) {
+          const tid = targetId;
+          setWindows((ws) =>
+            ws.map((w) =>
+              w.id === tid && w.payload.kind === "note"
+                ? { ...w, payload: { kind: "note", text: answer } }
+                : w,
+            ),
           );
-        });
+        } else {
+          const delay = spawnSeq++ * 160;
+          setTimeout(() => spawnWindow({ kind: "note", text: answer }), delay);
+        }
       }
     }
   }, [presenting, spawnWindow]);
@@ -551,10 +560,16 @@ export function JarvisMode({
     };
 
     const topWindowAt = (px: number, py: number): number | null => {
+      // 28px forgiveness margin — the founder's video showed both
+      // pinches narrowly MISSING a small tab, which then read as
+      // "hands together in empty space" and created a new tab instead
+      // of resizing. Hand tracking is ±a-few-px jittery; near the tab
+      // should mean ON the tab.
+      const PAD = 28;
       let best: { id: number; z: number } | null = null;
       for (const [id, el] of elsRef.current) {
         const r = el.getBoundingClientRect();
-        if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
+        if (px >= r.left - PAD && px <= r.right + PAD && py >= r.top - PAD && py <= r.bottom + PAD) {
           const z = liveRef.current.get(id)?.z ?? 0;
           if (!best || z > best.z) best = { id, z };
         }
