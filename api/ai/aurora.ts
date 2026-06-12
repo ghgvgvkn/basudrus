@@ -99,7 +99,9 @@ const LIMITS = { daily: 50, hourly: 20, minute: 4 };
 // 256 KB body cap. Aurora has no file uploads (yet) so we don't need
 // the multi-MB allowance tutor.ts needs for PDFs. Keeping it tight
 // reduces the cost-amplification surface.
-const MAX_BODY_BYTES = 256 * 1024;
+// 1.5 MB (was 256 KB): JARVIS "eyes" attaches a camera frame as
+// base64 JPEG (~100-200 KB) alongside the chat history.
+const MAX_BODY_BYTES = 1536 * 1024;
 
 // Transient upstream Anthropic statuses worth one retry on. 529 is
 // the "overloaded" code Anthropic returns when the cluster is hot.
@@ -114,6 +116,10 @@ const RETRY_BACKOFF_MS = [700, 1700];
 
 interface AuroraBody {
   messages?: unknown;
+  /** JARVIS "eyes": base64 JPEG (no data: prefix) of the camera frame
+   *  the user asked Tony to look at. Attached to the last user turn.
+   *  Same field name as the tutor endpoint's image attachments. */
+  imageBase64?: unknown;
   uni?: unknown;
   major?: unknown;
   year?: unknown;
@@ -202,6 +208,34 @@ export default async function handler(req: Request): Promise<Response> {
         headers: { ...sHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // ── JARVIS "eyes" ──
+    // A camera frame (base64 JPEG, no data: prefix) rides along when
+    // the user asked Tony to LOOK at something. Same field name the
+    // tutor endpoint uses (imageBase64) — useStreamingAI already
+    // forwards it for every persona, so the client wiring is shared.
+    // It becomes an image content block on the LAST user turn. Guards:
+    // base64 charset only, ~1 MB cap.
+    const frameRaw = typeof body.imageBase64 === "string" ? body.imageBase64 : "";
+    const frameBase64 =
+      frameRaw.length > 100 && frameRaw.length < 1_400_000 && /^[A-Za-z0-9+/=]+$/.test(frameRaw)
+        ? frameRaw
+        : "";
+    const messagesForApi: Array<Record<string, unknown>> = apiMessages.map((m, i) => {
+      if (frameBase64 && i === apiMessages.length - 1 && m.role === "user") {
+        return {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/jpeg", data: frameBase64 },
+            },
+            { type: "text", text: m.content },
+          ],
+        };
+      }
+      return { role: m.role, content: m.content };
+    });
 
     // ── Per-user context, sanitized ──
     // Same fields the tutor brain uses so the two share grounding
@@ -448,7 +482,7 @@ export default async function handler(req: Request): Promise<Response> {
         model: useSmartTier ? smartModel : "claude-haiku-4-5-20251001",
         max_tokens: useSmartTier ? 3000 : 1500,
         system: systemPrompt,
-        messages: apiMessages,
+        messages: messagesForApi,
         stream: true,
       };
       if (useMcp) {

@@ -181,6 +181,12 @@ function KaraokeCaption({
   );
 }
 
+/** Phrases that mean "Tony, use your eyes" — generous on purpose;
+ *  attaching a frame to a false positive costs nothing, missing a
+ *  real one breaks the magic. Covers English + common Arabic. */
+const LOOK_INTENT_RE =
+  /\b(look at|look here|take a look|have a look|can you see|do you see|what do you see|what am i holding|what i'?m holding|what is this|what'?s this|read (this|that|it)|check (this|it) out|شوف|اقرأ|انظر)\b/i;
+
 function formatStamp(at: number): string {
   return new Date(at).toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -416,6 +422,12 @@ export function AuroraAIScreen() {
     setVoiceRateState(next);
   }, [voice]);
 
+  /** JARVIS EYES — JarvisMode drops a camera-frame grabber here while
+   *  the camera runs. When the user's words ask Tony to LOOK, the
+   *  frame rides along with the message (imageBase64, same field the
+   *  tutor's photo uploads use server-side). */
+  const frameGrabRef = useRef<(() => string | null) | null>(null);
+
   const micLevelRef = useRef(0);
   /** Loudest mic level seen during the current utterance (0–1 scaled).
    *  Read when a transcript comes back EMPTY to tell the user what
@@ -580,6 +592,7 @@ export function AuroraAIScreen() {
     quote: null,
     compare: null,
     model: null,
+    say: null,
     cleanText: "",
   } as const;
   const presenting = useMemo(() => {
@@ -1485,11 +1498,21 @@ export function AuroraAIScreen() {
     // see the AIPersona doc in @/shared/types. The aurora endpoint
     // ignores `subject` (life-mode has no subject keying); we still
     // pass profile fields for context grounding.
+    // JARVIS EYES: "look at this" (and friends) while the camera is
+    // live → snapshot the frame so Tony answers about what the user
+    // is actually holding up. The grabber only exists while JARVIS
+    // mode is mounted, so this is implicitly gated to camera mode.
+    let lookFrame: string | undefined;
+    if (frameGrabRef.current && LOOK_INTENT_RE.test(text)) {
+      lookFrame = frameGrabRef.current() ?? undefined;
+    }
     const sendOnce = () => send("aurora", text, chatHistory, {
       lang: "auto",
       uni: profile?.uni ?? undefined,
       major: profile?.major ?? undefined,
       year: profile?.year ?? undefined,
+      imageBase64: lookFrame,
+      imageMediaType: lookFrame ? "image/jpeg" : undefined,
     });
 
     let result = await sendOnce();
@@ -1525,7 +1548,13 @@ export function AuroraAIScreen() {
       // while Tony is still talking and capture his voice as input.
       if (wasVoice && result.assistant.trim() && !jarvisMicMutedRef.current) {
         try {
-          const speakRes = await voice.speak(result.assistant);
+          // MOUTH ≠ SCREEN: when Tony marked a SAY block, speak ONLY
+          // those 1-2 sentences — the full text lands silently as the
+          // description panel. No SAY block → speak the clean text
+          // (small talk, no artifacts).
+          const parsedReply = parseArtifacts(result.assistant);
+          const spoken = (parsedReply.say || parsedReply.cleanText || result.assistant).trim();
+          const speakRes = await voice.speak(spoken);
           if (speakRes.ok) {
             speakEndedRef.current = speakRes.ended ?? null;
           } else {
@@ -2080,6 +2109,7 @@ export function AuroraAIScreen() {
                 onToggleMic={() => setJarvisMicMuted((m) => !m)}
                 voiceRate={voiceRate}
                 onCycleVoiceRate={cycleVoiceRate}
+                frameGrab={frameGrabRef}
                 modelViewerOpen={!!activeJarvisModel || !!activeGeneratedPrompt}
                 onModelExplodeStart={() => {
                   // Capture the current explosion so the pull composes
@@ -2112,7 +2142,7 @@ export function AuroraAIScreen() {
               dark glass scrim, never serif-over-camera. */}
           {jarvisActive && voice.isSpeaking && presentingText && (
             <div className="jarvis-karaoke-dock">
-              <KaraokeCaption text={presentingText} getProgress={voice.getSpeechProgress} />
+              <KaraokeCaption text={presenting.say ?? presentingText} getProgress={voice.getSpeechProgress} />
             </div>
           )}
 
@@ -2142,7 +2172,7 @@ export function AuroraAIScreen() {
               // bottom-left karaoke dock (rendered with JarvisMode)
               // carries the words instead; serif-over-camera read ugly.
               jarvisActive ? null : voice.isSpeaking ? (
-                <KaraokeCaption text={presentingText} getProgress={voice.getSpeechProgress} />
+                <KaraokeCaption text={presenting.say ?? presentingText} getProgress={voice.getSpeechProgress} />
               ) : (
                 <p className="aurora-stage-text">{renderMarkdown(presentingText)}</p>
               )

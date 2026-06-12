@@ -136,11 +136,16 @@ export interface ParsedMessage {
   compare: CompareBlock | null;
   /** First MODEL block found in the text, if any. */
   model: ModelBlock | null;
+  /** What Tony SPEAKS (the SAY block) — ≤2 punchy sentences. The rest
+   *  of cleanText is the silent description panel. Null when the
+   *  reply has no SAY block (then the whole cleanText is spoken). */
+  say: string | null;
   /** Message text with all artifact blocks removed and trailing
    *  whitespace collapsed. Safe to render as-is. */
   cleanText: string;
 }
 
+const SAY_BLOCK_RE = /<<<SAY:\s*([^>]+?)\s*>>>/i;
 const SHOW_BLOCK_RE = /<<<SHOW:\s*([^>]+?)\s*>>>/i;
 const MAP_BLOCK_RE = /<<<MAP:\s*([^>]+?)\s*>>>/i;
 const STAT_BLOCK_RE = /<<<STAT:\s*([^>]+?)\s*>>>/i;
@@ -168,9 +173,11 @@ export function parseArtifacts(rawText: string): ParsedMessage {
       quote: null,
       compare: null,
       model: null,
+      say: null,
       cleanText: rawText ?? "",
     };
   }
+  const sayMatch = SAY_BLOCK_RE.exec(rawText);
   const showMatch = SHOW_BLOCK_RE.exec(rawText);
   const mapMatch = MAP_BLOCK_RE.exec(rawText);
   const statMatch = STAT_BLOCK_RE.exec(rawText);
@@ -182,6 +189,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
   // Strip ALL block instances (even past the first one) so the
   // user never sees raw markers if Tony emits duplicates.
   const cleanText = rawText
+    .replace(/<<<SAY:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<SHOW:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<MAP:\s*[^>]+?\s*>>>/gi, "")
     .replace(/<<<STAT:\s*[^>]+?\s*>>>/gi, "")
@@ -191,6 +199,8 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     .replace(/<<<MODEL:\s*[^>]+?\s*>>>/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  const say = sayMatch?.[1].trim() || null;
 
   const showQuery = showMatch?.[1].trim();
   const mapQuery = mapMatch?.[1].trim();
@@ -289,6 +299,7 @@ export function parseArtifacts(rawText: string): ParsedMessage {
     quote,
     compare,
     model: modelName ? { name: modelName } : null,
+    say,
     cleanText,
   };
 }

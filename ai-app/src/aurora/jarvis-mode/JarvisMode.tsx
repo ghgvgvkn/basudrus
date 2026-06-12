@@ -168,6 +168,10 @@ interface JarvisModeProps {
    *  by the screen (it owns the voice pipeline); JARVIS renders the pill. */
   voiceRate?: number;
   onCycleVoiceRate?: () => void;
+  /** JARVIS EYES — the screen drops a grabber here; calling it returns
+   *  a base64 JPEG (no data: prefix) of the CURRENT camera frame, or
+   *  null. Used when the user says "look at this". */
+  frameGrab?: React.MutableRefObject<(() => string | null) | null>;
   /** EXPLODED VIEW bridge — when the 3D model viewer is open ON TOP of
    *  this camera layer, two-hand pull-apart drives the model's explode
    *  instead of resizing a (now-hidden) holo-tab, and fist→open closes
@@ -195,6 +199,7 @@ export function JarvisMode({
   onToggleMic,
   voiceRate = 1,
   onCycleVoiceRate,
+  frameGrab,
   modelViewerOpen = false,
   onModelExplodeStart,
   onModelExplode,
@@ -222,8 +227,40 @@ export function JarvisMode({
   const [showGuide, setShowGuide] = useState(false);
   /** SAVE DOCK (founder's Tab 1/Tab 2 mockup): drag a tab off the
    *  RIGHT edge and it tucks into this stack instead of dying; tap a
-   *  card to bring it back. LEFT edge stays the delete. */
-  const [docked, setDocked] = useState<Array<{ id: number; payload: HoloPayload; title: string }>>([]);
+   *  card to bring it back. LEFT edge stays the delete. PERSISTED —
+   *  the dock survives refresh (founder: "the dock survives refresh").
+   *  PDFs are skipped on save (their object URLs die with the page);
+   *  restored entries get negative ids so they can't collide with the
+   *  session's fresh id counter. */
+  const [docked, setDocked] = useState<Array<{ id: number; payload: HoloPayload; title: string }>>(() => {
+    try {
+      const raw = localStorage.getItem("jarvis-dock");
+      if (!raw) return [];
+      const arr = JSON.parse(raw) as Array<{ payload: HoloPayload; title: string }>;
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .filter((d) => d && d.payload && typeof d.payload.kind === "string" && d.payload.kind !== "pdf")
+        .slice(0, 12)
+        .map((d, i) => ({ id: -(i + 1), payload: d.payload, title: String(d.title ?? "SAVED") }));
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "jarvis-dock",
+        JSON.stringify(
+          docked
+            .filter((d) => d.payload.kind !== "pdf")
+            .slice(0, 12)
+            .map(({ payload, title }) => ({ payload, title })),
+        ),
+      );
+    } catch {
+      /* private mode / quota — dock just won't persist */
+    }
+  }, [docked]);
   const [focusMode, setFocusMode] = useState(false);
   const focusModeRef = useRef(false);
   focusModeRef.current = focusMode;
@@ -382,6 +419,32 @@ export function JarvisMode({
   const windowsRef = useRef<HoloWindow[]>([]);
   windowsRef.current = windows;
 
+  /** SCENE SWEEP — move the previous answer's spread (artifact panels
+   *  + filled description notes) into the save dock. User-owned tabs
+   *  (welcome, empty notes, ask/pdf/orb) stay on the workspace. */
+  const sweepSpreadToDock = useCallback(() => {
+    const spread = windowsRef.current.filter(
+      (w) =>
+        w.payload.kind === "show" ||
+        w.payload.kind === "stat" ||
+        w.payload.kind === "data" ||
+        w.payload.kind === "quote" ||
+        w.payload.kind === "compare" ||
+        (w.payload.kind === "map" && w.payload.query !== "") ||
+        (w.payload.kind === "note" && w.payload.text.trim().length > 0),
+    );
+    if (!spread.length) return;
+    setDocked((d) =>
+      [
+        ...spread.map((w) => ({ id: w.id, payload: w.payload, title: windowTitle(w.payload) })),
+        ...d,
+      ].slice(0, 12),
+    );
+    for (const w of spread) liveRef.current.delete(w.id);
+    const sweptIds = new Set(spread.map((w) => w.id));
+    setWindows((ws) => ws.filter((w) => !sweptIds.has(w.id)));
+  }, []);
+
   /** Prompt-tab submit router — MAP tabs take a place name, ASK tabs
    *  send to Tony (the tab becomes an empty note so his answer lands
    *  right back in it), 3D tabs hand the prompt to the fabricator. */
@@ -454,89 +517,143 @@ export function JarvisMode({
     // Cascade: each new tab of one answer lands 160ms after the
     // previous — the spread ASSEMBLES around the user (each off its
     // own emitter disc) instead of popping in as one blob.
-    let spawnSeq = 0;
-    const spawnOnce = (sig: string, payload: HoloPayload) => {
-      if (sigs.has(sig)) return;
-      sigs.add(sig);
-      const delay = spawnSeq++ * 160;
-      if (delay === 0) spawnWindow(payload);
-      else setTimeout(() => spawnWindow(payload), delay);
-    };
+    // SCENE DISCIPLINE (founder: "a real assistant REPLACES the scene")
+    // — collect this turn's panels first; if anything new is landing,
+    // the previous spread sweeps into the save dock, THEN the new
+    // spread assembles. Each panel kind has a fixed CENTER-SAFE slot:
+    // the middle of the screen (the user's face) stays clear.
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const plan: Array<{ sig: string; payload: HoloPayload; at: { x: number; y: number } }> = [];
     if (presenting.stat) {
       const s = presenting.stat;
-      spawnOnce(`stat:${s.label}|${s.big}`, { kind: "stat", label: s.label, big: s.big, sub: s.sub });
+      plan.push({
+        sig: `stat:${s.label}|${s.big}`,
+        payload: { kind: "stat", label: s.label, big: s.big, sub: s.sub },
+        at: { x: vw * 0.5, y: vh * 0.13 },
+      });
     }
     if (presenting.data) {
       const d = presenting.data;
-      spawnOnce(`data:${d.title}|${d.rows.length}`, { kind: "data", title: d.title, rows: d.rows });
+      plan.push({
+        sig: `data:${d.title}|${d.rows.length}`,
+        payload: { kind: "data", title: d.title, rows: d.rows },
+        at: { x: vw * 0.2, y: vh * 0.78 },
+      });
     }
     if (presenting.quote) {
       const q = presenting.quote;
-      spawnOnce(`quote:${q.text.slice(0, 60)}`, { kind: "quote", text: q.text, attribution: q.attribution });
+      plan.push({
+        sig: `quote:${q.text.slice(0, 60)}`,
+        payload: { kind: "quote", text: q.text, attribution: q.attribution },
+        at: { x: vw * 0.5, y: vh * 0.87 },
+      });
     }
     if (presenting.compare) {
       const c = presenting.compare;
-      spawnOnce(`compare:${c.title}|${c.rows.length}`, {
-        kind: "compare",
-        title: c.title,
-        labelA: c.labelA,
-        labelB: c.labelB,
-        rows: c.rows,
+      plan.push({
+        sig: `compare:${c.title}|${c.rows.length}`,
+        payload: { kind: "compare", title: c.title, labelA: c.labelA, labelB: c.labelB, rows: c.rows },
+        at: { x: vw * 0.5, y: vh * 0.8 },
       });
     }
     if (presenting.show) {
       const q = presenting.show.query;
-      spawnOnce(`show:${q}`, {
-        kind: "show",
-        query: q,
-        snippet: presenting.cleanText.trim().slice(0, 220),
+      // snippet stays EMPTY — the description panel carries the prose
+      // (founder: "the same information appears 3-4 times at once").
+      plan.push({
+        sig: `show:${q}`,
+        payload: { kind: "show", query: q, snippet: "" },
+        at: { x: vw * 0.8, y: vh * 0.26 },
       });
     }
     if (presenting.map) {
-      // GEO scene (founder: "if anybody asks about any country, any
-      // type" — generalized, never hardcoded): Tony's MAP block lands
-      // as a live satellite tab with the pulsing location ring.
+      // GEO scene — generalized, never hardcoded: any place Tony
+      // mentions lands as a live satellite tab.
       const q = presenting.map.query;
-      spawnOnce(`map:${q}`, { kind: "map", query: q });
+      plan.push({
+        sig: `map:${q}`,
+        payload: { kind: "map", query: q },
+        at: { x: vw * 0.8, y: vh * 0.64 },
+      });
     }
-
-    // Tony's prose ALWAYS lands now (founder: "tab for the description"
-    // — before, any artifact in the turn silently dropped the words and
-    // the spread felt like "one boring table"). It fills the newest
-    // EMPTY note if one is open (the "create a tab, then talk" flow),
-    // otherwise it becomes the DESCRIPTION panel of the spread.
+    const fresh = plan.filter((p) => !sigs.has(p.sig));
+    // Tony's prose: the DESCRIPTION panel. "(...)" lines are status
+    // messages — chat log only, never tabs.
     const answer = presenting.cleanText.trim();
-    // "(...)" lines are STATUS messages (mic diagnostics, transcription
-    // errors) — they belong in the chat log, never as workspace tabs.
-    // The founder's screenshot had a mic-diagnosis floating as a tab.
-    if (answer.length > 0 && !answer.startsWith("(")) {
-      const sig = `answer:${answer.slice(0, 60)}`;
-      if (!sigs.has(sig)) {
-        sigs.add(sig);
-        let targetId = -1;
-        let bestZ = -1;
-        for (const w of windowsRef.current) {
-          if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
-            bestZ = w.z;
-            targetId = w.id;
-          }
-        }
-        if (targetId !== -1) {
-          const tid = targetId;
-          setWindows((ws) =>
-            ws.map((w) =>
-              w.id === tid && w.payload.kind === "note"
-                ? { ...w, payload: { kind: "note", text: answer } }
-                : w,
-            ),
-          );
-        } else {
-          const delay = spawnSeq++ * 160;
-          setTimeout(() => spawnWindow({ kind: "note", text: answer }), delay);
+    const answerSig = `answer:${answer.slice(0, 60)}`;
+    const answerFresh = answer.length > 0 && !answer.startsWith("(") && !sigs.has(answerSig);
+    if (fresh.length === 0 && !answerFresh) return;
+
+    // New spread incoming → the old one auto-docks (saved, not lost).
+    sweepSpreadToDock();
+
+    // Cascade: panels land 160ms apart, each off its own emitter disc.
+    let seq = 0;
+    const cascade = (payload: HoloPayload, at: { x: number; y: number }) => {
+      const delay = seq++ * 160;
+      if (delay === 0) spawnWindow(payload, at);
+      else setTimeout(() => spawnWindow(payload, at), delay);
+    };
+    for (const p of fresh) {
+      sigs.add(p.sig);
+      cascade(p.payload, p.at);
+    }
+    if (answerFresh) {
+      sigs.add(answerSig);
+      // Fill the newest EMPTY note if one is open (the "create a tab,
+      // then talk" flow — empty notes survive the sweep), else the
+      // prose becomes the description panel on the left.
+      let targetId = -1;
+      let bestZ = -1;
+      for (const w of windowsRef.current) {
+        if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
+          bestZ = w.z;
+          targetId = w.id;
         }
       }
+      if (targetId !== -1) {
+        const tid = targetId;
+        setWindows((ws) =>
+          ws.map((w) =>
+            w.id === tid && w.payload.kind === "note"
+              ? { ...w, payload: { kind: "note", text: answer } }
+              : w,
+          ),
+        );
+      } else {
+        cascade({ kind: "note", text: answer }, { x: vw * 0.2, y: vh * 0.42 });
+      }
     }
-  }, [presenting, spawnWindow]);
+  }, [presenting, spawnWindow, sweepSpreadToDock]);
+
+  // ── JARVIS EYES: expose a frame grabber to the screen ──
+  // Snapshot the live camera into a ≤960px JPEG. Called only when the
+  // user asks Tony to LOOK — zero per-frame cost otherwise.
+  useEffect(() => {
+    if (!frameGrab) return;
+    frameGrab.current = () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || !video.videoWidth) return null;
+      const w = Math.min(960, video.videoWidth);
+      const h = Math.round((video.videoHeight / video.videoWidth) * w);
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, w, h);
+      try {
+        const url = c.toDataURL("image/jpeg", 0.72);
+        return url.split(",")[1] ?? null;
+      } catch {
+        return null;
+      }
+    };
+    return () => {
+      frameGrab.current = null;
+    };
+  }, [frameGrab, videoRef]);
 
   // ── Gesture + draw loop (single rAF; reads landmarksRef) ──
   useEffect(() => {
@@ -791,7 +908,7 @@ export function JarvisMode({
               const w = windowsRef.current.find((win) => win.id === grab.id);
               if (w) {
                 setDocked((d) =>
-                  [{ id: w.id, payload: w.payload, title: windowTitle(w.payload) }, ...d].slice(0, 8),
+                  [{ id: w.id, payload: w.payload, title: windowTitle(w.payload) }, ...d].slice(0, 12),
                 );
                 sparksRef.current.push({ x, y, t0: performance.now(), hue: "cyan" });
                 blip(880, 70, 0.05);
@@ -1497,7 +1614,7 @@ export function JarvisMode({
             const w = windowsRef.current.find((win) => win.id === id);
             if (w) {
               setDocked((d) =>
-                [{ id: w.id, payload: w.payload, title: windowTitle(w.payload) }, ...d].slice(0, 8),
+                [{ id: w.id, payload: w.payload, title: windowTitle(w.payload) }, ...d].slice(0, 12),
               );
               blip(880, 70, 0.05);
               setTimeout(() => blip(1180, 90, 0.05), 70); // rising — tucked away
