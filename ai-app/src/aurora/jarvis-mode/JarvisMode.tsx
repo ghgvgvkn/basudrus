@@ -8,7 +8,6 @@
  *   "move the tab with your hand"            → pinch a tab, drag it.
  *   "take the tab with two hands… in smaller, out bigger"
  *        → both hands pinching = resize the held tab.
- *   "click your hand twice → new tab"        → double-pinch in space.
  *   "two hands together → create a circle"   → clap spawns a mini orb.
  *   "hand to the left → only the AI speaking"→ swipe-left = focus mode
  *          (tabs fly off); swipe-right brings them back.
@@ -78,10 +77,6 @@ interface HoloWindow {
 const MAX_WINDOWS = 8;
 const SCALE_MIN = 0.45;
 const SCALE_MAX = 1.8;
-/** DR STRANGE portal: a pinch that starts in EMPTY space and sweeps at
- *  least this far (normalized units) conjures a new tab where it ends —
- *  "bring two fingers together, move them, a tab opens". */
-const PORTAL_MIN_TRAVEL = 0.12;
 /** Flick momentum: release a drag faster than this (workspace px/s) and
  *  the tab keeps gliding with friction instead of stopping dead. */
 const FLICK_MIN_SPEED = 650;
@@ -120,7 +115,7 @@ const SPAWN_SLOTS: Array<[number, number]> = [
 
 // ── audio feedback ───────────────────────────────────────────────────────────
 // Tiny synthesized ticks (no audio files): pinch = tick, grab = tock,
-// hand-tap on a button = click, portal = two-tone chime. Quiet by design —
+// hand-tap on a button = click. Quiet by design —
 // feedback, not music. AudioContext is created lazily on the first gesture
 // (JARVIS mode itself starts from a user click, so autoplay rules pass).
 let audioCtx: AudioContext | null = null;
@@ -251,9 +246,6 @@ export function JarvisMode({
   const glidesRef = useRef(new Map<number, { vx: number; vy: number; lt: number; curve: number }>());
   // Two-hand resize target + its scale when the gesture started.
   const scalingRef = useRef<{ id: number; baseScale: number } | null>(null);
-  // DR STRANGE portal draw: pinches that started in EMPTY space, per
-  // hand — sweeping far enough conjures a new tab at the release point.
-  const portalsRef = useRef(new Map<string, { lastSparkT: number }>());
   // Pinch sparks (decorative): spawn on pinch-start, fade ~360ms.
   const sparksRef = useRef<Array<{ x: number; y: number; t0: number; hue: "cyan" | "gold" }>>([]);
   // Emitter-disc bursts (H.U.D. reference): every new tab "rises" off a
@@ -415,7 +407,6 @@ export function JarvisMode({
     if (modelViewerOpen) {
       grabsRef.current.clear();
       scalingRef.current = null;
-      portalsRef.current.clear();
       setPlusMenu(null);
     }
   }, [modelViewerOpen]);
@@ -642,8 +633,6 @@ export function JarvisMode({
               blip(520, 70, 0.055); // tock — you grabbed something
             }
           } else if (hit == null) {
-            // Pinch in EMPTY space — candidate Dr Strange portal sweep.
-            portalsRef.current.set(e.hand, { lastSparkT: performance.now() });
             blip(1250, 40, 0.03); // soft tick — pinch in air
           }
           break;
@@ -695,16 +684,6 @@ export function JarvisMode({
             applyTransform(grab.id);
             return;
           }
-          // Portal sweep — golden ember trail behind the moving pinch.
-          const portal = portalsRef.current.get(e.hand);
-          if (portal) {
-            const now = performance.now();
-            if (now - portal.lastSparkT > 70) {
-              portal.lastSparkT = now;
-              const { x, y } = toScreen(e.x, e.y);
-              sparksRef.current.push({ x, y, t0: now, hue: "gold" });
-            }
-          }
           break;
         }
         case "pinch-end": {
@@ -717,8 +696,6 @@ export function JarvisMode({
               break;
             }
           }
-          const portal = portalsRef.current.get(e.hand);
-          portalsRef.current.delete(e.hand);
           const grab = grabsRef.current.get(e.hand);
           grabsRef.current.delete(e.hand);
           const { x, y } = toScreen(e.x, e.y);
@@ -726,9 +703,27 @@ export function JarvisMode({
           // HAND-TAP = CLICK. Any button under the tap point gets a real
           // DOM click — close ✕, the "+" menu, CAM/EXIT/mic, overlay
           // buttons — so NOTHING in this mode ever needs the mouse.
+          // MAGNETIC: the founder's pinch kept landing ~20px off the
+          // small "+" button and nothing fired. A fingertip is not a
+          // mouse — probe outward from the tap point so a near-miss
+          // still clicks the button it was aimed at (same forgiveness
+          // as the 28px grab halo).
           if (isTap(e)) {
-            const at = document.elementFromPoint(x, y);
-            const btn = at instanceof Element ? at.closest("button") : null;
+            let btn: Element | null = null;
+            outer: for (const r of [0, 16, 32, 46]) {
+              const probes: Array<[number, number]> =
+                r === 0
+                  ? [[0, 0]]
+                  : [[r, 0], [-r, 0], [0, r], [0, -r], [r * 0.7, r * 0.7], [-r * 0.7, r * 0.7], [r * 0.7, -r * 0.7], [-r * 0.7, -r * 0.7]];
+              for (const [dx, dy] of probes) {
+                const at = document.elementFromPoint(x + dx, y + dy);
+                const b = at instanceof Element ? at.closest("button") : null;
+                if (b instanceof HTMLButtonElement && !b.disabled) {
+                  btn = b;
+                  break outer;
+                }
+              }
+            }
             if (btn instanceof HTMLButtonElement && !btn.disabled) {
               if (grab) {
                 elsRef.current.get(grab.id)?.classList.remove("is-grabbed");
@@ -804,33 +799,19 @@ export function JarvisMode({
               // to dismiss).
               setPlusMenu((m) => (m ? null : { x, y, open: false }));
             }
-          } else if (portal && e.moved >= PORTAL_MIN_TRAVEL && !focusModeRef.current) {
-            // DR STRANGE: the sweep traveled far enough — open the portal.
-            const now = performance.now();
-            sparksRef.current.push({ x, y, t0: now, hue: "gold" }, { x, y, t0: now + 120, hue: "gold" });
-            blip(880, 90, 0.05);
-            setTimeout(() => blip(1320, 130, 0.05), 80); // rising two-tone — portal open
-            spawnWindow({ kind: "note", text: "" }, { x, y });
           }
           break;
         }
         case "double-pinch": {
-          if (focusModeRef.current) return;
-          const { x, y } = toScreen(e.x, e.y);
-          // Only spawn over empty space — double-pinch on a tab is just a
-          // fast double-click, not "bury the tab under a new one".
-          // Creates a REAL empty note: type into it, or just talk to Tony
-          // and his next answer drops into the newest empty note.
-          if (topWindowAt(x, y) == null) {
-            spawnWindow({ kind: "note", text: "" }, { x, y });
-          }
+          // No longer creates anything. Founder: "creating a tab should
+          // not be by any way except when I bring my hands together and
+          // create a rectangle" — single-finger creates kept misfiring
+          // into accidental tabs. Creation now lives ONLY in the
+          // two-hand stretch and the explicit "+" menu.
           break;
         }
         case "two-hand-scale-start": {
           if (focusModeRef.current) return;
-          // A two-hand gesture is never a portal sweep — drop candidates
-          // so releasing the zoom doesn't conjure phantom tabs.
-          portalsRef.current.clear();
           // Resize target: a currently-grabbed window wins; otherwise the
           // topmost window under either cursor; otherwise nothing.
           const grabbed = [...grabsRef.current.values()][0]?.id ?? null;
@@ -1562,10 +1543,8 @@ export function JarvisMode({
       ["TWO HANDS (AIR)", "zoom space"],
       ["PINCH TOGETHER + STRETCH", "create tab"],
       ["PINCH + PULL (MAP)", "orbit ⇄ ground"],
-      ["DOUBLE PINCH", "new tab"],
       ["TAP SPACE", "+ add menu"],
       ["PALM HOLD", "menu on hand"],
-      ["PINCH SWEEP", "portal tab"],
       ["CLAP", "new orb"],
       ["SWIPE ←", "focus Tony"],
       ["SWIPE →", "tabs back"],
@@ -1594,7 +1573,9 @@ export function JarvisMode({
                 elsRef.current.delete(w.id);
               }
             }}
-            className={`jarvis-win jarvis-win-${w.payload.kind}${w.expanded ? " is-expanded" : ""}${pageId === w.id ? " is-page" : ""}`}
+            className={`jarvis-win jarvis-win-${w.payload.kind}${w.expanded ? " is-expanded" : ""}${
+              w.payload.kind === "note" && w.payload.text.trim().length > 240 ? " is-reading" : ""
+            }${pageId === w.id ? " is-page" : ""}`}
             onPointerDown={pageId === w.id ? undefined : onWindowPointerDown(w.id)}
           >
             <div className="jarvis-win-chrome">
@@ -2021,10 +2002,22 @@ function HoloContent({
           {expanded && image && <span className="jarvis-source-chip">image · web search</span>}
         </div>
       );
-    case "note":
-      // A real, editable panel. Type into it, or leave it empty and Tony's
-      // next answer drops in. onPointerDown stopPropagation so dragging the
-      // CHROME moves the tab but interacting with the text doesn't.
+    case "note": {
+      // LONG text (Tony's description panels) renders as a READING
+      // panel — proper type, line height and scroll — never an essay
+      // crammed into a 4-row textarea (founder: "a very small tab and
+      // the information inside is so much").
+      if (payload.text.trim().length > 240) {
+        return (
+          <div className="jarvis-reading" onPointerDown={(ev) => ev.stopPropagation()}>
+            {payload.text}
+          </div>
+        );
+      }
+      // Short/empty: a real, editable panel. Type into it, or leave it
+      // empty and Tony's next answer drops in. onPointerDown
+      // stopPropagation so dragging the CHROME moves the tab but
+      // interacting with the text doesn't.
       return (
         <textarea
           className="jarvis-note-input"
@@ -2035,6 +2028,7 @@ function HoloContent({
           rows={4}
         />
       );
+    }
     case "orb":
       return (
         <div className="jarvis-mini-orb" aria-hidden>
@@ -2068,14 +2062,12 @@ function HoloContent({
           <ul>
             <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
-            <li>⚡ <b>Pinch twice fast</b> in empty space — new tab (type in it, or talk)</li>
             <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create the tab <b>at the size you stretched</b></li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab grows to its big form</li>
             <li>🏀 <b>Throw a tab</b> — it glides, curves with your wrist, and bounces off the screen edges like a ball</li>
             <li>🗑️ <b>Drag a tab to any screen edge</b> and let go — deleted, instantly</li>
-            <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
             <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; grow it, then <b>pinch + pull on the map</b> to fly orbit ⇄ ground</li>
             <li>👆 <b>Tap a tab</b> — it grows in place · tap again to shrink it back (nothing ever takes the full screen)</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>

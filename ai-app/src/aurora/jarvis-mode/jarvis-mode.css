@@ -916,6 +916,31 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   text-shadow: 0 0 8px rgba(64, 224, 255, 0.7);
   pointer-events: none;
 }
+/* READING PANEL — a note holding a long Tony answer is a proper
+   briefing panel (the reference's "PROPERTIES OF WATER" board), not
+   an essay in a tiny box: wider tab, magazine type, scrolls. */
+.jarvis-win.is-reading {
+  width: min(38vw, 520px);
+}
+.jarvis-reading {
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: #e2f6fd;
+  white-space: pre-wrap;
+  max-height: 38vh;
+  overflow-y: auto;
+  padding: 2px 4px 4px 2px;
+  text-shadow: 0 0 14px rgba(64, 224, 255, 0.25);
+}
+.jarvis-reading::first-line {
+  color: #aef0ff;
+  font-weight: 600;
+}
+.jarvis-win.is-expanded .jarvis-reading {
+  max-height: 56vh;
+  font-size: 15.5px;
+}
+
 /* IN-PLACE EXPANDED TAB — founder: "I don't want something to take
    full screen". The grown form is just a BIGGER DRAGGABLE TAB: no
    center pin, no backdrop dim, and every gesture (grab, throw,
