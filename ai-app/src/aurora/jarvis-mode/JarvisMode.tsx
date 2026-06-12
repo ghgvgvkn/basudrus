@@ -32,6 +32,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMapboxFlyImages, type MapboxFlyImages, type ParsedMessage } from "../auroraVisuals";
+import { renderMarkdown } from "../auroraMarkdown";
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
 import type { ViewerHandCursor } from "../../jarvis/explode";
@@ -158,6 +159,10 @@ interface JarvisModeProps {
    *  renders the toggle. */
   micMuted?: boolean;
   onToggleMic?: () => void;
+  /** Tony's voice speed (1 / 1.2 / 1.5 / 2) + the cycle action — owned
+   *  by the screen (it owns the voice pipeline); JARVIS renders the pill. */
+  voiceRate?: number;
+  onCycleVoiceRate?: () => void;
   /** EXPLODED VIEW bridge — when the 3D model viewer is open ON TOP of
    *  this camera layer, two-hand pull-apart drives the model's explode
    *  instead of resizing a (now-hidden) holo-tab, and fist→open closes
@@ -183,6 +188,8 @@ export function JarvisMode({
   onExit,
   micMuted = false,
   onToggleMic,
+  voiceRate = 1,
+  onCycleVoiceRate,
   modelViewerOpen = false,
   onModelExplodeStart,
   onModelExplode,
@@ -486,7 +493,10 @@ export function JarvisMode({
     // EMPTY note if one is open (the "create a tab, then talk" flow),
     // otherwise it becomes the DESCRIPTION panel of the spread.
     const answer = presenting.cleanText.trim();
-    if (answer.length > 0) {
+    // "(...)" lines are STATUS messages (mic diagnostics, transcription
+    // errors) — they belong in the chat log, never as workspace tabs.
+    // The founder's screenshot had a mic-diagnosis floating as a tab.
+    if (answer.length > 0 && !answer.startsWith("(")) {
       const sig = `answer:${answer.slice(0, 60)}`;
       if (!sigs.has(sig)) {
         sigs.add(sig);
@@ -1743,6 +1753,18 @@ export function JarvisMode({
           {micMuted ? "MUTED · CAMERA ONLY" : "MIC LIVE"}
         </button>
       )}
+      {/* Voice speed — cycles 1× → 1.2× → 1.5× → 2× (founder: "make
+          his voice go faster"). Applies live mid-sentence. */}
+      {onCycleVoiceRate && (
+        <button
+          type="button"
+          className="jarvis-rate-toggle"
+          onClick={onCycleVoiceRate}
+          title="Tony's voice speed — tap to cycle"
+        >
+          VOICE {(voiceRate ?? 1).toFixed(1).replace(/\.0$/, "")}×
+        </button>
+      )}
 
       {/* Status overlays */}
       {/* Loading is a compact, non-dimming pill — the founder saw the
@@ -1810,7 +1832,7 @@ function windowTitle(p: HoloPayload): string {
     case "note": {
       // Once filled (typed or by Tony's answer), the first words become
       // the title so a wall of "NEW TAB"s never piles up.
-      const t = p.text.trim();
+      const t = p.text.replace(/\*\*/g, "").trim();
       return t ? `${t.slice(0, 26)}${t.length > 26 ? "…" : ""}` : "NEW TAB";
     }
     case "orb":
@@ -2010,7 +2032,7 @@ function HoloContent({
       if (payload.text.trim().length > 240) {
         return (
           <div className="jarvis-reading" onPointerDown={(ev) => ev.stopPropagation()}>
-            {payload.text}
+            {renderMarkdown(payload.text)}
           </div>
         );
       }

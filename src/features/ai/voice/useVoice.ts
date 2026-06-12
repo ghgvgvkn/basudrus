@@ -146,6 +146,13 @@ export interface UseVoiceResult {
   /** Label of the input device used by the active/last recording —
    *  empty until the first successful startRecording. */
   micLabelRef: React.RefObject<string>;
+  /** Current playback speed (1 / 1.2 / 1.5 / 2), persisted. */
+  voiceRateRef: React.RefObject<number>;
+  /** Change playback speed — applies live to the current utterance. */
+  setVoiceRate: (rate: number) => void;
+  /** Seconds consumed + duration of the playing utterance (null when
+   *  silent). Rate-aware; drives caption sync. */
+  getSpeechProgress: () => { pos: number; duration: number } | null;
 }
 
 /** What MediaRecorder mime type to use. Browsers vary:
@@ -292,6 +299,25 @@ export function useVoice(): UseVoiceResult {
   // Abort controller for the in-flight speak() fetch (cancels server
   // streaming if the user navigates away or interrupts).
   const speakAbortRef = useRef<AbortController | null>(null);
+  /** Playback speed (1 / 1.2 / 1.5 / 2). Applied to the BufferSource's
+   *  playbackRate — note Web Audio rate-shift also shifts pitch a bit
+   *  at 2×. Persisted across sessions. */
+  const voiceRateRef = useRef<number>(0);
+  if (voiceRateRef.current === 0) {
+    let r = 1;
+    try { r = parseFloat(localStorage.getItem("aurora-voice-rate") || "1") || 1; } catch { /* SSR/private */ }
+    voiceRateRef.current = r;
+  }
+  /** Speech clock for caption sync: how many seconds of the CURRENT
+   *  utterance's audio have been consumed, rate-aware even when the
+   *  rate changes mid-playback. */
+  const speechClockRef = useRef<{
+    ctx: AudioContext;
+    basePos: number;
+    baseAt: number;
+    rate: number;
+    duration: number;
+  } | null>(null);
 
   // MediaRecorder + stream refs for STT.
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -535,9 +561,17 @@ export function useVoice(): UseVoiceResult {
 
     const src = ctx.createBufferSource();
     src.buffer = decoded;
+    try { src.playbackRate.value = voiceRateRef.current; } catch { /* noop */ }
     src.connect(analyser);
     analyser.connect(ctx.destination);
     bufferSourceRef.current = src;
+    speechClockRef.current = {
+      ctx,
+      basePos: 0,
+      baseAt: ctx.currentTime,
+      rate: voiceRateRef.current,
+      duration: decoded.duration,
+    };
 
     setIsSpeaking(true);
     const ended = new Promise<void>((resolve) => {
@@ -547,6 +581,7 @@ export function useVoice(): UseVoiceResult {
         settled = true;
         try { src.disconnect(); } catch { /* noop */ }
         if (bufferSourceRef.current === src) bufferSourceRef.current = null;
+        speechClockRef.current = null;
         setIsSpeaking(false);
         resolve();
       };
@@ -575,6 +610,38 @@ export function useVoice(): UseVoiceResult {
 
     return { ok: true, ended };
   }, [ensureAudioContext, stopSpeaking]);
+
+  /** Set playback speed (1 / 1.2 / 1.5 / 2). Applies LIVE to the
+   *  currently-playing utterance and to all future ones; keeps the
+   *  caption clock honest across mid-utterance changes. */
+  const setVoiceRate = useCallback((rate: number) => {
+    const r = Math.min(2, Math.max(0.5, rate));
+    // Re-anchor the clock at the current position BEFORE the rate
+    // changes, so consumed-seconds stays continuous.
+    const c = speechClockRef.current;
+    if (c) {
+      c.basePos = Math.min(c.duration, c.basePos + (c.ctx.currentTime - c.baseAt) * c.rate);
+      c.baseAt = c.ctx.currentTime;
+      c.rate = r;
+    }
+    voiceRateRef.current = r;
+    try { localStorage.setItem("aurora-voice-rate", String(r)); } catch { /* private mode */ }
+    const src = bufferSourceRef.current;
+    if (src) {
+      try { src.playbackRate.value = r; } catch { /* detached */ }
+    }
+  }, []);
+
+  /** Seconds of the current utterance consumed + its total duration.
+   *  Null when nothing is playing. Drives the karaoke captions. */
+  const getSpeechProgress = useCallback((): { pos: number; duration: number } | null => {
+    const c = speechClockRef.current;
+    if (!c) return null;
+    return {
+      pos: Math.min(c.duration, c.basePos + (c.ctx.currentTime - c.baseAt) * c.rate),
+      duration: c.duration,
+    };
+  }, []);
 
   // ── STT ────────────────────────────────────────────────────────────
 
@@ -1013,5 +1080,8 @@ export function useVoice(): UseVoiceResult {
     error,
     analyserRef,
     micLabelRef,
+    voiceRateRef,
+    setVoiceRate,
+    getSpeechProgress,
   };
 }

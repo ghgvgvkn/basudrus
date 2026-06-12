@@ -82,6 +82,92 @@ type AuroraMessage = {
 };
 
 /** "10:32:15 AM" — matches the topbar's 12-hour clock convention. */
+/** Split prose into caption lines (sentences, long ones wrapped at
+ *  clause breaks) for the karaoke caption. Markdown markers stripped —
+ *  captions show what Tony SAYS, not how the text is formatted. */
+function captionLines(text: string): string[] {
+  const plain = text
+    .replace(/\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return [];
+  // Sentence split without lookbehind (Safari < 16.4 safety).
+  const out: string[] = [];
+  let buf = "";
+  for (const ch of plain) {
+    buf += ch;
+    if ((ch === "." || ch === "!" || ch === "?" || ch === "…") && buf.trim().length > 2) {
+      out.push(buf.trim());
+      buf = "";
+    }
+  }
+  if (buf.trim()) out.push(buf.trim());
+  // Wrap very long sentences at the nearest comma/dash past 90 chars.
+  const wrapped: string[] = [];
+  for (const s of out) {
+    let rest = s;
+    while (rest.length > 130) {
+      let cut = -1;
+      for (let i = 90; i < Math.min(rest.length, 130); i++) {
+        if (rest[i] === "," || rest[i] === "—" || rest[i] === ";") cut = i + 1;
+      }
+      if (cut === -1) break;
+      wrapped.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) wrapped.push(rest);
+  }
+  return wrapped;
+}
+
+/** Apple-Music-style live caption: the line Tony is SAYING right now
+ *  is big and bright; the one before and after sit dim around it.
+ *  Synced to real audio progress (rate-aware), lines weighted by
+ *  character count. Falls back to nothing when audio isn't playing —
+ *  the caller renders static text instead. */
+function KaraokeCaption({
+  text,
+  getProgress,
+}: {
+  text: string;
+  getProgress: () => { pos: number; duration: number } | null;
+}) {
+  const lines = useMemo(() => captionLines(text), [text]);
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    setIdx(0);
+    if (!lines.length) return;
+    const total = lines.reduce((a, s) => a + s.length, 0) || 1;
+    const cum: number[] = [];
+    let acc = 0;
+    for (const s of lines) {
+      acc += s.length;
+      cum.push(acc / total);
+    }
+    let raf = 0;
+    const tick = () => {
+      const p = getProgress();
+      if (p && p.duration > 0) {
+        const f = p.pos / p.duration;
+        let i = cum.findIndex((c) => f < c);
+        if (i === -1) i = lines.length - 1;
+        setIdx(i); // same value → React bails, no re-render
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [lines, getProgress]);
+  if (!lines.length) return null;
+  return (
+    <div className="aurora-karaoke" aria-live="polite">
+      <p className="aurora-karaoke-line is-past">{idx > 0 ? lines[idx - 1] : " "}</p>
+      <p className="aurora-karaoke-line is-now">{lines[idx]}</p>
+      <p className="aurora-karaoke-line is-next">{idx < lines.length - 1 ? lines[idx + 1] : " "}</p>
+    </div>
+  );
+}
+
 function formatStamp(at: number): string {
   return new Date(at).toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -305,6 +391,18 @@ export function AuroraAIScreen() {
 
   /** Live mic level 0–1, set by the VAD onLevel callback every frame.
    *  Reserved for canvas reactivity — read by AuroraCanvas via ref. */
+  /** Tony's voice speed — cycles 1 → 1.2 → 1.5 → 2 from the JARVIS
+   *  pill. The hook owns the live audio + persistence; this state just
+   *  drives the pill label. */
+  const [voiceRate, setVoiceRateState] = useState<number>(() => voice.voiceRateRef.current || 1);
+  const cycleVoiceRate = useCallback(() => {
+    const steps = [1, 1.2, 1.5, 2];
+    const cur = voice.voiceRateRef.current || 1;
+    const next = steps[(steps.findIndex((s) => Math.abs(s - cur) < 0.01) + 1) % steps.length];
+    voice.setVoiceRate(next);
+    setVoiceRateState(next);
+  }, [voice]);
+
   const micLevelRef = useRef(0);
   /** Loudest mic level seen during the current utterance (0–1 scaled).
    *  Read when a transcript comes back EMPTY to tell the user what
@@ -1967,6 +2065,8 @@ export function AuroraAIScreen() {
                 onExit={() => setJarvisActive(false)}
                 micMuted={jarvisMicMuted}
                 onToggleMic={() => setJarvisMicMuted((m) => !m)}
+                voiceRate={voiceRate}
+                onCycleVoiceRate={cycleVoiceRate}
                 modelViewerOpen={!!activeJarvisModel || !!activeGeneratedPrompt}
                 onModelExplodeStart={() => {
                   // Capture the current explosion so the pull composes
@@ -2014,7 +2114,14 @@ export function AuroraAIScreen() {
                 </span>
               </div>
             ) : presentingText ? (
-              <p className="aurora-stage-text">{renderMarkdown(presentingText)}</p>
+              // While Tony's voice is playing, the caption goes lyrics-
+              // mode (founder's Apple Music reference): current sentence
+              // big and bright, neighbours dim, advancing with the audio.
+              voice.isSpeaking ? (
+                <KaraokeCaption text={presentingText} getProgress={voice.getSpeechProgress} />
+              ) : (
+                <p className="aurora-stage-text">{renderMarkdown(presentingText)}</p>
+              )
             ) : (
               <p className="aurora-stage-text aurora-stage-text-idle">
                 Tap the mic and talk — Tony's reply will appear here.

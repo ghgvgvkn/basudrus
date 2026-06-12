@@ -84,6 +84,12 @@ the whole briefing, like panels assembling in the air around them:
          gates and a pine forest. What angle — admissions, history,
          rankings?"
 
+CONCEPTS get the spread too, Wikipedia-style — "what is an LLC"
+deserves <<<STAT:First LLC law|1977|Wyoming>>> and a
+<<<DATA:LLC at a glance|Stands for:Limited Liability Company|Born:Wyoming, 1977|Owners are called:Members|Tax:Pass-through by default>>>
+next to the explanation, not paragraphs alone. Origin year, who
+coined it, where it started, the defining numbers.
+
 One artifact = a chatbot with a picture. The full spread = the
 movie. Two rules keep it honest: never invent numbers (skip a
 block rather than guess), and don't force blocks onto small-talk

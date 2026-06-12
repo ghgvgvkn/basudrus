@@ -720,6 +720,39 @@ body.aurora-jarvis-mode .aurora-app .aurora-jarvis-toggle {
   text-shadow: 0 0 14px rgba(140,200,255,0.30);
 }
 
+/* ── KARAOKE CAPTION (Apple Music lyrics reference) ──
+   While Tony's voice plays: the line he is SAYING is big and bright,
+   the previous and next lines sit small and dim around it. Lines
+   advance in sync with real audio progress. transform/opacity only. */
+.aurora-app .aurora-karaoke {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+.aurora-app .aurora-karaoke-line {
+  margin: 0;
+  font-family: 'Instrument Serif', 'Times New Roman', serif;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  transition: opacity 0.35s ease, filter 0.35s ease, transform 0.35s ease;
+}
+.aurora-app .aurora-karaoke-line.is-now {
+  font-size: clamp(26px, 3.4vmin, 38px);
+  line-height: 1.4;
+  color: rgba(244, 252, 255, 1);
+  text-shadow:
+    0 0 22px rgba(140, 200, 255, 0.6),
+    0 0 48px rgba(140, 200, 255, 0.28);
+}
+.aurora-app .aurora-karaoke-line.is-past,
+.aurora-app .aurora-karaoke-line.is-next {
+  font-size: clamp(17px, 2.2vmin, 23px);
+  line-height: 1.35;
+  color: rgba(190, 224, 250, 0.42);
+  filter: blur(0.6px);
+  min-height: 1.35em;
+}
+
 /* Thinking state on the stage. */
 .aurora-app .aurora-stage-thinking {
   display: inline-flex;
