@@ -469,13 +469,20 @@ export function JarvisMode({
         snippet: presenting.cleanText.trim().slice(0, 220),
       });
     }
+    if (presenting.map) {
+      // GEO scene (founder: "if anybody asks about any country, any
+      // type" — generalized, never hardcoded): Tony's MAP block lands
+      // as a live satellite tab with the pulsing location ring.
+      const q = presenting.map.query;
+      spawnOnce(`map:${q}`, { kind: "map", query: q });
+    }
 
     // Tony's prose answer fills the newest EMPTY note tab (the founder's
     // "create a tab, then talk to fill it" flow). Only when there's no
     // richer artifact for this turn — a STAT/DATA/etc. already became its
     // own tab. Deduped per answer text so it lands once.
     const hasArtifact =
-      !!(presenting.stat || presenting.data || presenting.quote || presenting.compare || presenting.show);
+      !!(presenting.stat || presenting.data || presenting.quote || presenting.compare || presenting.show || presenting.map);
     const answer = presenting.cleanText.trim();
     if (!hasArtifact && answer.length > 0) {
       const sig = `answer:${answer.slice(0, 60)}`;
@@ -600,6 +607,15 @@ export function JarvisMode({
               el?.classList.add("is-grabbed");
               blip(520, 70, 0.055); // tock — you grabbed something
             }
+          } else if (hit != null && hit === pageIdRef.current) {
+            // Pinch ON the open page: if it's a map, the hand takes the
+            // camera — MAP DIVE (orbit ⇄ ground), hands-only.
+            const el = elsRef.current.get(hit);
+            if (el && el.querySelector(".jarvis-map")) {
+              el.classList.add("is-scrubbed");
+              mapScrub = { hand: e.hand, y0: e.y, k0: mapK };
+              blip(640, 60, 0.045);
+            }
           } else if (hit == null) {
             // Pinch in EMPTY space — candidate Dr Strange portal sweep.
             portalsRef.current.set(e.hand, { lastSparkT: performance.now() });
@@ -608,6 +624,16 @@ export function JarvisMode({
           break;
         }
         case "pinch-move": {
+          // MAP DIVE in flight — vertical hand travel drives the
+          // orbit⇄ground crossfade on the open map page.
+          if (mapScrub && mapScrub.hand === e.hand) {
+            const el = pageIdRef.current != null ? elsRef.current.get(pageIdRef.current) : null;
+            if (el) {
+              mapK = Math.min(1, Math.max(0, mapScrub.k0 + (e.y - mapScrub.y0) * 2.6));
+              el.style.setProperty("--mapk", mapK.toFixed(2));
+            }
+            return;
+          }
           const grab = grabsRef.current.get(e.hand);
           if (grab) {
             const { x, y } = toScreen(e.x, e.y);
@@ -642,6 +668,15 @@ export function JarvisMode({
           break;
         }
         case "pinch-end": {
+          // MAP DIVE release. A quick tap falls through (page buttons
+          // like ✕ must still click); a real pull consumes the event.
+          if (mapScrub && mapScrub.hand === e.hand) {
+            mapScrub = null;
+            if (!isTap(e)) {
+              blip(900, 70, 0.04);
+              break;
+            }
+          }
           const portal = portalsRef.current.get(e.hand);
           portalsRef.current.delete(e.hand);
           const grab = grabsRef.current.get(e.hand);
@@ -915,6 +950,12 @@ export function JarvisMode({
       by: number;
       armed: boolean;
     } | null = null;
+
+    /** MAP DIVE — pinch ON the open map page and the hand takes the
+     *  camera: pull DOWN to dive from orbit to the ground, push UP to
+     *  rise back to space. k: 0 = orbit, 1 = landed. */
+    let mapScrub: { hand: string; y0: number; k0: number } | null = null;
+    let mapK = 1;
 
     // ── Proximity glow: the tab under each cursor lights up, brightness
     //    tracking pinch closeness (Ultraleap-style approach feedback).
@@ -1452,6 +1493,7 @@ export function JarvisMode({
       ["SPREAD WIDE", "blow up to page"],
       ["TWO HANDS (AIR)", "zoom space"],
       ["PINCH TOGETHER + STRETCH", "create tab"],
+      ["PINCH + PULL (MAP PAGE)", "orbit ⇄ ground"],
       ["DOUBLE PINCH", "new tab"],
       ["TAP SPACE", "+ add menu"],
       ["PALM HOLD", "menu on hand"],
@@ -1780,28 +1822,49 @@ function MapTabContent({
   onSetQuery: (q: string) => void;
 }) {
   const [imgs, setImgs] = useState<MapboxFlyImages | null>(null);
+  // GEO scene grammar: "place | era" — the optional era becomes the
+  // year stamp ("year 300 BC") from the founder's H.U.D. reference.
+  // Only the place part is geocoded.
+  const sep = query.indexOf("|");
+  const place = (sep >= 0 ? query.slice(0, sep) : query).trim();
+  const era = sep >= 0 ? query.slice(sep + 1).trim() : "";
   useEffect(() => {
-    if (!query) return;
+    if (!place) return;
     let cancelled = false;
     const ctl = new AbortController();
     setImgs(null);
-    void fetchMapboxFlyImages(query, ctl.signal).then((r) => {
+    void fetchMapboxFlyImages(place, ctl.signal).then((r) => {
       if (!cancelled) setImgs(r);
     });
     return () => {
       cancelled = true;
       ctl.abort();
     };
-  }, [query]);
+  }, [place]);
 
   if (!query) return <PromptInput placeholder="Where? Type a place, hit enter…" onSubmit={onSetQuery} />;
-  if (!imgs) return <div className="jarvis-map-status">LOCATING “{query.toUpperCase()}”…</div>;
+  if (!imgs) return <div className="jarvis-map-status">LOCATING “{place.toUpperCase()}”…</div>;
   if (!imgs.city && !imgs.world)
-    return <div className="jarvis-map-status">NO MAP SIGNAL FOR “{query.toUpperCase()}”</div>;
+    return <div className="jarvis-map-status">NO MAP SIGNAL FOR “{place.toUpperCase()}”</div>;
   return (
     <div className="jarvis-map">
       {imgs.world && <img className="jarvis-map-world" src={imgs.world} alt="" draggable={false} />}
-      {imgs.city && <img className="jarvis-map-city" src={imgs.city} alt={query} draggable={false} />}
+      {imgs.city && <img className="jarvis-map-city" src={imgs.city} alt={place} draggable={false} />}
+      {/* Pulsing location ring over the pin (image is centered on it). */}
+      <div className="jarvis-geo-halo" aria-hidden />
+      <div className="jarvis-geo-mark" aria-hidden />
+      {era && (
+        <div className="jarvis-geo-era" aria-hidden>
+          <i /> {era}
+        </div>
+      )}
+      <div className="jarvis-geo-callout">
+        <i aria-hidden />
+        <span>{place}</span>
+      </div>
+      <div className="jarvis-geo-hint" aria-hidden>
+        PINCH + PULL · ORBIT ⇄ GROUND
+      </div>
     </div>
   );
 }
@@ -1945,6 +2008,7 @@ function HoloContent({
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab blows up into the page</li>
             <li>🗑️ <b>Drag a tab to any screen edge</b> and let go — deleted, instantly</li>
             <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
+            <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; open it, then <b>pinch + pull</b> to fly orbit ⇄ ground</li>
             <li>👆 <b>Tap a tab</b> — opens as a big page · <b>tap anywhere outside</b> closes it</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>
             <li>👈 <b>Swipe left</b> — just Tony · <b>swipe right</b> — tabs return</li>

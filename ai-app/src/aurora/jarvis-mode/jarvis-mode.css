@@ -818,6 +818,122 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   letter-spacing: 0.24em;
   animation: jarvis-blink 1.4s ease-in-out infinite;
 }
+
+/* ── GEO scene (H.U.D. reference, photos 11–13) ──
+   Pulsing location ring over the pin, underlined place callout, the
+   optional era stamp, and the MAP DIVE: while .is-scrubbed the
+   orbit→ground crossfade is driven by the HAND via --mapk instead of
+   the entrance animation. transform/opacity only — composited. */
+.jarvis-geo-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid rgba(255, 208, 96, 0.95);
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255, 176, 64, 0.7);
+  pointer-events: none;
+}
+.jarvis-geo-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border: 2px solid rgba(255, 176, 64, 0.85);
+  border-radius: 50%;
+  animation: jarvis-geo-pulse 1.7s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes jarvis-geo-pulse {
+  0% { transform: scale(0.5); opacity: 0.95; }
+  70% { transform: scale(1.15); opacity: 0.25; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+.jarvis-geo-callout {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+.jarvis-geo-callout i {
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+.jarvis-geo-callout span {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.8);
+  padding-bottom: 1px;
+  text-shadow: 0 0 12px rgba(64, 224, 255, 0.8);
+  max-width: 75%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.jarvis-geo-era {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  text-shadow: 0 0 10px rgba(255, 176, 64, 0.8);
+  pointer-events: none;
+}
+.jarvis-geo-era i {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255, 208, 96, 0.95);
+  border-radius: 50%;
+}
+.jarvis-geo-hint {
+  display: none;
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  color: #aef0ff;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 8px rgba(64, 224, 255, 0.7);
+  pointer-events: none;
+}
+/* The map fills the opened page; the dive hint only shows there. */
+.jarvis-win.is-page .jarvis-map {
+  width: 100%;
+  height: 52vh;
+}
+.jarvis-win.is-page .jarvis-geo-hint {
+  display: block;
+}
+/* MAP DIVE: the hand owns the crossfade (animations would pin opacity
+   at animation priority, so they're switched off while scrubbed). */
+.jarvis-win.is-scrubbed .jarvis-map-world {
+  animation: none;
+  opacity: 1;
+}
+.jarvis-win.is-scrubbed .jarvis-map-city {
+  animation: none;
+  opacity: var(--mapk, 1);
+}
 @keyframes jarvis-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
