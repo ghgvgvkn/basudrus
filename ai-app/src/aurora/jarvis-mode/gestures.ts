@@ -4,7 +4,7 @@
  * Turns raw MediaPipe hand landmarks into high-level "spells":
  *
  *   pinch-start / pinch-move / pinch-end   → grab + drag a holo-window
- *   double-pinch                            → spawn a new tab          (founder: "click your hand twice")
+ *   double-pinch (hold the 2nd)             → MOVE GRIP: carry a tab   (founder: "double click → move")
  *   two-hand-scale (both hands pinching)    → resize the held window   (founder: "take the tab with two hands")
  *   clap (palms together, fast)             → create a new orb/circle  (founder: "two hands together → circle")
  *   swipe-left (open palm, fast left)       → focus mode, orb only     (founder: "hand to the left → only AI")
@@ -451,7 +451,11 @@ export class GestureEngine {
         !s.pinching &&
         indexRatio > FSWIPE_EXT_MIN &&
         middleRatio > FSWIPE_EXT_MIN &&
-        restCurl < FSWIPE_CURL_MAX;
+        restCurl < FSWIPE_CURL_MAX &&
+        // Thumb must be clearly AWAY from the fingertips: the about-to-
+        // click "C" (thumb hovering near index+middle — the MOVE grip)
+        // is a different gesture and must not block its pinches.
+        pinchDist > PINCH_ON * 1.8;
       if (twoFinger) s.twoFingerLastT = t;
 
       // ── Cursor smoothing (midpoint of thumb+index reads as "the grab
