@@ -1151,9 +1151,23 @@ export function AuroraAIScreen() {
           // unblocks, and we fall through to beginListening which
           // captures the user's next utterance.
           voice.stopSpeaking();
+          // Say WHY he went quiet. The founder's report — "it stopped
+          // talking for no reason, there was no error" — was this
+          // firing invisibly.
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: "ai", text: "(you interrupted — go ahead, I'm listening)" },
+          ]);
         },
-        threshold: 0.020,
-        durationMs: 140,
+        // threshold 0.045 / 400ms (was 0.020 / 140ms). The hair-trigger
+        // tuning made Tony interrupt HIMSELF: on speakers his own voice
+        // — or a single JARVIS gesture blip (40-140ms) — crossed 0.020
+        // and cut his reply mid-sentence with no error shown. Barge-in
+        // now needs sustained, speech-loud input: a real spoken word
+        // still triggers in under half a second; echoes and UI ticks
+        // don't.
+        threshold: 0.045,
+        durationMs: 400,
       });
     })();
 

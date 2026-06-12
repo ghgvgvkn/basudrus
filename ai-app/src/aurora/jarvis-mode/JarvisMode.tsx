@@ -85,10 +85,6 @@ const PORTAL_MIN_TRAVEL = 0.12;
 /** Flick momentum: release a drag faster than this (workspace px/s) and
  *  the tab keeps gliding with friction instead of stopping dead. */
 const FLICK_MIN_SPEED = 650;
-/** A glide that hits an edge still moving faster than this flies OFF
- *  screen and the tab closes — Tony's "toss it over the shoulder".
- *  Slower impacts bounce. */
-const FLICK_TOSS_SPEED = 850;
 /** STRETCH-TO-CREATE (the AR-reel move): two pinches that BEGIN closer
  *  than this (normalized hand distance) are "hands together" — pulling
  *  them apart stretches a new tab into existence instead of zooming. */
@@ -99,8 +95,10 @@ const CREATE_START_MAX = 0.14;
 /** Spread the pinches past this distance and the ghost frame arms —
  *  release spawns the tab. Release before reaching it cancels. */
 const CREATE_MIN_DIST = 0.3;
-/** Exponential friction (per second) while gliding. */
-const FLICK_DECAY = 4;
+/** Exponential friction (per second) while gliding. 2.2 (was 4) —
+ *  ball rules: a good throw should cross the screen and survive a
+ *  bounce or two before settling. */
+const FLICK_DECAY = 2.2;
 /** Glide ends (and commits to React) below this speed. */
 const FLICK_STOP_SPEED = 40;
 /** Velocity older than this at release is stale — the hand stopped,
@@ -242,11 +240,15 @@ export function JarvisMode({
   const grabsRef = useRef(
     new Map<
       string,
-      { id: number; offX: number; offY: number; vx: number; vy: number; lx: number; ly: number; lt: number }
+      // w/lh: angular velocity EMA (rad/s) + last heading of the hand
+      // path — a curling wrist at release puts CURVE on the throw.
+      { id: number; offX: number; offY: number; vx: number; vy: number; lx: number; ly: number; lt: number; w: number; lh: number | null }
     >(),
   );
   // Windows currently gliding from a flick — stepped every rAF tick.
-  const glidesRef = useRef(new Map<number, { vx: number; vy: number; lt: number }>());
+  // curve: residual spin from the wrist arc, rotates the velocity
+  // vector each tick so thrown tabs bend like a curveball.
+  const glidesRef = useRef(new Map<number, { vx: number; vy: number; lt: number; curve: number }>());
   // Two-hand resize target + its scale when the gesture started.
   const scalingRef = useRef<{ id: number; baseScale: number } | null>(null);
   // DR STRANGE portal draw: pinches that started in EMPTY space, per
@@ -615,6 +617,8 @@ export function JarvisMode({
                 lx: wp.x,
                 ly: wp.y,
                 lt: performance.now(),
+                w: 0,
+                lh: null,
               });
               glidesRef.current.delete(hit); // catching a gliding tab stops it
               applyTransform(hit);
@@ -654,6 +658,21 @@ export function JarvisMode({
             if (gdt > 0.001) {
               grab.vx += 0.4 * ((wp.x - grab.lx) / gdt - grab.vx);
               grab.vy += 0.4 * ((wp.y - grab.ly) / gdt - grab.vy);
+              // Angular velocity EMA (rad/s) of the hand path's heading
+              // — a curling wrist at release puts CURVE on the throw.
+              // Only sampled while moving with intent; tiny jittery
+              // steps produce garbage headings.
+              const sp = Math.hypot(grab.vx, grab.vy);
+              if (sp > 140) {
+                const h = Math.atan2(wp.y - grab.ly, wp.x - grab.lx);
+                if (grab.lh !== null) {
+                  let dh = h - grab.lh;
+                  if (dh > Math.PI) dh -= Math.PI * 2;
+                  else if (dh < -Math.PI) dh += Math.PI * 2;
+                  grab.w += 0.35 * (dh / gdt - grab.w);
+                }
+                grab.lh = h;
+              }
               grab.lx = wp.x;
               grab.ly = wp.y;
               grab.lt = nowMs;
@@ -715,11 +734,10 @@ export function JarvisMode({
           if (grab) {
             const el = elsRef.current.get(grab.id);
             el?.classList.remove("is-grabbed");
-            // FAST DELETE, two ways (founder: "there should be a really
-            // fast shortcut" + "like I'm gonna throw something and then I
-            // leave it — it should delete the tab"):
-            //   1. drag a tab to ANY screen edge and let go
-            //   2. THROW it — release mid-throwing-motion, gone instantly
+            // FAST DELETE stays on the DELIBERATE move only: drag the
+            // tab to any screen edge and let go. Plain throws don't
+            // delete anymore — founder: "play with it like a ball" —
+            // they glide, curve and bounce in the stepper instead.
             const flickSpeed =
               performance.now() - grab.lt > FLICK_STALE_MS ? 0 : Math.hypot(grab.vx, grab.vy);
             const mX = window.innerWidth * 0.04;
@@ -732,14 +750,21 @@ export function JarvisMode({
             const justScaled =
               (scalingRef.current !== null && scalingRef.current.id === grab.id) ||
               performance.now() - lastScaleEndT < 400;
-            if (!isTap(e) && !justScaled && (atEdge || flickSpeed > FLICK_TOSS_SPEED)) {
+            if (!isTap(e) && !justScaled && atEdge) {
               sparksRef.current.push({ x, y, t0: performance.now(), hue: "gold" });
               blip(300, 110, 0.05); // low thunk — deleted
               closeWindow(grab.id);
             } else if (!isTap(e) && !justScaled && flickSpeed > FLICK_MIN_SPEED) {
               // FLICK: released at speed — let it glide (stepped in the
               // rAF loop; commits to React when it stops).
-              glidesRef.current.set(grab.id, { vx: grab.vx, vy: grab.vy, lt: performance.now() });
+              glidesRef.current.set(grab.id, {
+                vx: grab.vx,
+                vy: grab.vy,
+                lt: performance.now(),
+                // Wrist arc → spin. Clamped: a full-effort curl bends
+                // the path hard but can't whip the tab into orbit.
+                curve: Math.max(-5, Math.min(5, grab.w)),
+              });
             } else commitWindow(grab.id);
             // A quick, still pinch on a tab = "click" → the tab GROWS IN
             // PLACE (and a second tap shrinks it back). Founder: "I don't
@@ -1408,27 +1433,30 @@ export function JarvisMode({
           const gdt = Math.min(0.05, (now - g.lt) / 1000);
           g.lt = now;
           if (gdt <= 0) continue;
+          // CURVE: rotate the velocity vector by the residual wrist
+          // spin — the throw bends like a curveball. Spin decays so
+          // the path straightens out as it slows.
+          if (g.curve) {
+            const a = g.curve * gdt;
+            const ca = Math.cos(a);
+            const sa = Math.sin(a);
+            const nvx = g.vx * ca - g.vy * sa;
+            g.vy = g.vx * sa + g.vy * ca;
+            g.vx = nvx;
+            g.curve *= Math.exp(-1.4 * gdt);
+          }
           tr.x += g.vx * gdt;
           tr.y += g.vy * gdt;
           const tl = toWs(0, 0);
           const br = toWs(window.innerWidth, window.innerHeight);
-          // TOSS: hit ANY edge still moving fast → the tab flies off
-          // screen and closes ("over the shoulder"). Slow impacts bounce.
-          const atEdge =
-            (g.vx < 0 && tr.x < tl.x + (br.x - tl.x) * 0.02) ||
-            (g.vx > 0 && tr.x > br.x) ||
-            (g.vy < 0 && tr.y < tl.y) ||
-            (g.vy > 0 && tr.y > br.y);
-          if (atEdge && Math.hypot(g.vx, g.vy) > FLICK_TOSS_SPEED) {
-            blip(360, 140, 0.05); // low whoosh — gone
-            closeWindow(id);
-            continue;
-          }
-          // Soft bounce (lose 30% on impact).
-          if (g.vx < 0 && tr.x < tl.x) { tr.x = tl.x; g.vx *= -0.7; }
-          if (g.vx > 0 && tr.x > br.x) { tr.x = br.x; g.vx *= -0.7; }
-          if (g.vy < 0 && tr.y < tl.y) { tr.y = tl.y; g.vy *= -0.7; }
-          if (g.vy > 0 && tr.y > br.y) { tr.y = br.y; g.vy *= -0.7; }
+          // BALL RULES (founder: "play with it like a ball"): edges are
+          // WALLS, never trash — every impact bounces with a tick. The
+          // only delete is the deliberate one: drag to an edge and
+          // release from the hand.
+          if (g.vx < 0 && tr.x < tl.x) { tr.x = tl.x; g.vx *= -0.7; blip(240, 50, 0.04); }
+          if (g.vx > 0 && tr.x > br.x) { tr.x = br.x; g.vx *= -0.7; blip(240, 50, 0.04); }
+          if (g.vy < 0 && tr.y < tl.y) { tr.y = tl.y; g.vy *= -0.7; blip(240, 50, 0.04); }
+          if (g.vy > 0 && tr.y > br.y) { tr.y = br.y; g.vy *= -0.7; blip(240, 50, 0.04); }
           const friction = Math.exp(-FLICK_DECAY * gdt);
           g.vx *= friction;
           g.vy *= friction;
@@ -1510,8 +1538,8 @@ export function JarvisMode({
   const gestureChips = useMemo(
     () => [
       ["PINCH", "grab a tab"],
-      ["FLICK", "toss a tab"],
-      ["THROW / EDGE-DROP", "delete tab"],
+      ["THROW + CURL WRIST", "curve + bounce"],
+      ["DRAG TO EDGE", "delete tab"],
       ["TAP", "grow ⇄ shrink tab"],
       ["FIST→OPEN", "reset zoom"],
       ["TWO HANDS", "resize"],
@@ -2030,7 +2058,8 @@ function HoloContent({
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab grows to its big form</li>
-            <li>🗑️ <b>Throw a tab</b> — release mid-throw and it's deleted · dropping it off <b>any screen edge</b> deletes too</li>
+            <li>🏀 <b>Throw a tab</b> — it glides, curves with your wrist, and bounces off the screen edges like a ball</li>
+            <li>🗑️ <b>Drag a tab to any screen edge</b> and let go — deleted, instantly</li>
             <li>🌀 <b>Pinch + sweep</b> through empty space — portal opens a new tab</li>
             <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; grow it, then <b>pinch + pull on the map</b> to fly orbit ⇄ ground</li>
             <li>👆 <b>Tap a tab</b> — it grows in place · tap again to shrink it back (nothing ever takes the full screen)</li>
