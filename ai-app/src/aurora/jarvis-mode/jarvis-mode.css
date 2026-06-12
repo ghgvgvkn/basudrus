@@ -394,11 +394,13 @@
    .jarvis-hud — the 3D viewer's stylesheet (src/jarvis/jarvis.css)
    owns that class as a full-screen frame, and both sheets are loaded
    when the viewer opens over camera mode. */
-/* INFO pill — the gesture guide is hidden by default; this reveals it. */
+/* INFO pill — the gesture guide is hidden by default; this reveals it.
+   TOP-left (under BACK TO CHAT): the bottom-left corner belongs to the
+   karaoke caption while Tony speaks. */
 .jarvis-info-toggle {
   position: absolute;
-  left: 16px;
-  bottom: 14px;
+  left: 18px;
+  top: 148px;
   padding: 8px 14px;
   border: 1px solid rgba(64, 224, 255, 0.4);
   border-radius: 2px;
@@ -459,8 +461,8 @@
 
 .jarvis-gesture-guide {
   position: absolute;
-  left: 16px;
-  bottom: 52px;
+  left: 18px;
+  top: 192px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

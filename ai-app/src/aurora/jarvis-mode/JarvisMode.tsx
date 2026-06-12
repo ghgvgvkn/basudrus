@@ -91,6 +91,11 @@ const CREATE_START_MAX = 0.14;
 /** Spread the pinches past this distance and the ghost frame arms —
  *  release spawns the tab. Release before reaching it cancels. */
 const CREATE_MIN_DIST = 0.3;
+/** A glide that hits the LEFT or RIGHT wall still moving faster than
+ *  this acts (delete / save-to-dock); slower impacts bounce. The
+ *  founder threw a tab at the wall expecting the edge action and got
+ *  a bounce — release-at-edge and throw-at-edge must agree. */
+const FLICK_TOSS_SPEED = 850;
 /** Exponential friction (per second) while gliding. 2.2 (was 4) —
  *  ball rules: a good throw should cross the screen and survive a
  *  bounce or two before settling. */
@@ -1474,10 +1479,32 @@ export function JarvisMode({
           tr.y += g.vy * gdt;
           const tl = toWs(0, 0);
           const br = toWs(window.innerWidth, window.innerHeight);
-          // BALL RULES (founder: "play with it like a ball"): edges are
-          // WALLS, never trash — every impact bounces with a tick. The
-          // only delete is the deliberate one: drag to an edge and
-          // release from the hand.
+          // BALL RULES + EDGE SEMANTICS: a FAST glide into the LEFT
+          // wall is a throw-to-delete; into the RIGHT wall a throw-to-
+          // save (same meaning as releasing the hand at that edge —
+          // the founder threw a tab at the wall and rightly expected
+          // the edge action, not a bounce). Slow impacts — and the
+          // top/bottom walls always — bounce like a ball.
+          const gSpeed = Math.hypot(g.vx, g.vy);
+          if (g.vx < 0 && tr.x < tl.x && gSpeed > FLICK_TOSS_SPEED) {
+            glides.delete(id);
+            blip(300, 110, 0.05); // low thunk — deleted
+            closeWindow(id);
+            continue;
+          }
+          if (g.vx > 0 && tr.x > br.x && gSpeed > FLICK_TOSS_SPEED) {
+            glides.delete(id);
+            const w = windowsRef.current.find((win) => win.id === id);
+            if (w) {
+              setDocked((d) =>
+                [{ id: w.id, payload: w.payload, title: windowTitle(w.payload) }, ...d].slice(0, 8),
+              );
+              blip(880, 70, 0.05);
+              setTimeout(() => blip(1180, 90, 0.05), 70); // rising — tucked away
+              closeWindow(id);
+            } else commitWindow(id);
+            continue;
+          }
           if (g.vx < 0 && tr.x < tl.x) { tr.x = tl.x; g.vx *= -0.7; blip(240, 50, 0.04); }
           if (g.vx > 0 && tr.x > br.x) { tr.x = br.x; g.vx *= -0.7; blip(240, 50, 0.04); }
           if (g.vy < 0 && tr.y < tl.y) { tr.y = tl.y; g.vy *= -0.7; blip(240, 50, 0.04); }
@@ -1564,8 +1591,8 @@ export function JarvisMode({
     () => [
       ["PINCH", "grab a tab"],
       ["THROW + CURL WRIST", "curve + bounce"],
-      ["DRAG LEFT EDGE", "delete tab"],
-      ["DRAG RIGHT EDGE", "save tab"],
+      ["DRAG / THROW LEFT", "delete tab"],
+      ["DRAG / THROW RIGHT", "save tab"],
       ["TAP", "grow ⇄ shrink tab"],
       ["FIST→OPEN", "reset zoom"],
       ["TWO HANDS", "resize"],
@@ -2145,7 +2172,7 @@ function HoloContent({
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab grows to its big form</li>
             <li>🏀 <b>Throw a tab</b> — it glides, curves with your wrist, and bounces off the screen edges like a ball</li>
-            <li>🗑️ <b>Drag a tab off the LEFT edge</b> — deleted · <b>off the RIGHT edge</b> — saved in the side dock, tap to bring it back</li>
+            <li>🗑️ <b>Drag or throw a tab off the LEFT edge</b> — deleted · <b>off the RIGHT edge</b> — saved in the side dock, tap to bring it back</li>
             <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; grow it, then <b>pinch + pull on the map</b> to fly orbit ⇄ ground</li>
             <li>👆 <b>Tap a tab</b> — it grows in place · tap again to shrink it back (nothing ever takes the full screen)</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>

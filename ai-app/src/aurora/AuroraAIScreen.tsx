@@ -90,30 +90,41 @@ function captionLines(text: string): string[] {
     .replace(/\$\$[\s\S]*?\$\$/g, " ") // LaTeX blocks — never caption-worthy
     .replace(/\\[a-z]+\{([^}]*)\}/gi, "$1") // \text{x} → x (stray commands)
     .replace(/\*\*/g, "")
-    .replace(/\s+/g, " ")
     .trim();
   if (!plain) return [];
-  // Sentence split without lookbehind (Safari < 16.4 safety).
+  // Newlines and list bullets are HARD breaks. Without this, Tony's
+  // lists (no periods!) fused into one giant "sentence" and the
+  // founder got a whole paragraph as a single caption.
+  const rough = plain
+    .split(/\n+/)
+    .flatMap((seg) => seg.split(/(?:^|\s)[-•·]\s+/))
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  // Sentence-ish split (no lookbehind — Safari safety). Colons end a
+  // caption line too: "You just need:" stands alone.
   const out: string[] = [];
-  let buf = "";
-  for (const ch of plain) {
-    buf += ch;
-    if ((ch === "." || ch === "!" || ch === "?" || ch === "…") && buf.trim().length > 2) {
-      out.push(buf.trim());
-      buf = "";
+  for (const seg of rough) {
+    let buf = "";
+    for (const ch of seg) {
+      buf += ch;
+      if ((ch === "." || ch === "!" || ch === "?" || ch === "…" || ch === ":") && buf.trim().length > 2) {
+        out.push(buf.trim());
+        buf = "";
+      }
     }
+    if (buf.trim()) out.push(buf.trim());
   }
-  if (buf.trim()) out.push(buf.trim());
-  // Wrap very long sentences at the nearest comma/dash past 90 chars.
+  // HARD CAP ~88 chars: wrap at the last space before the cap, so even
+  // a run-on clause becomes small caption lines, never a wall.
   const wrapped: string[] = [];
   for (const s of out) {
     let rest = s;
-    while (rest.length > 130) {
+    while (rest.length > 88) {
       let cut = -1;
-      for (let i = 90; i < Math.min(rest.length, 130); i++) {
-        if (rest[i] === "," || rest[i] === "—" || rest[i] === ";") cut = i + 1;
+      for (let i = 36; i < 88; i++) {
+        if (rest[i] === " ") cut = i;
       }
-      if (cut === -1) break;
+      if (cut <= 0) cut = 88;
       wrapped.push(rest.slice(0, cut).trim());
       rest = rest.slice(cut).trim();
     }
