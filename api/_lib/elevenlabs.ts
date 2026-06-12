@@ -70,11 +70,11 @@ const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
 //   - Adam    "pNInz6obpgDQGcFmaJgB" — deep American, professional
 //   - Antoni  "ErXwobaYiN019PkySvjV" — well-rounded American
 //   - George  "JBFqnCBsd6RMkjVDRZzb" — deep British, formal
-// REVERTED 2026-06-12: both founder-picked IDs (1t1EeRixsJrKbiF1zwM6,
-// then QbrR6b6YCLjyBkFKH5Xz) made ElevenLabs return errors → speak 502,
-// Tony went text-only. Library voices must be added to the account's
-// "My Voices" before the API may use them. Daniel until that's done.
-export const DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"; // Daniel (known good)
+// FOUNDER'S TONY VOICE (2026-06-12, added to his My Voices). History:
+// 1t1EeRixsJrKbiF1zwM6 worked; QbrR6b6YCLjyBkFKH5Xz 502'd (not in the
+// account) and was reverted to Daniel onwK4e9ZLuTAKqWW03F9 (known good
+// fallback if this one ever errors).
+export const DEFAULT_VOICE_ID = "wWWn96OtTHu1sn8SRGEr"; // founder's Tony voice
 export const DEFAULT_TTS_MODEL = "eleven_flash_v2_5";
 export const DEFAULT_STT_MODEL = "scribe_v1";
 
