@@ -211,6 +211,14 @@ export function JarvisMode({
   labRef.current = lab;
 
   const [windows, setWindows] = useState<HoloWindow[]>([]);
+  /** Gesture cheat-sheet hidden by default (founder: "hide the moves
+   *  of the hand — the user should automatically know it"); the INFO
+   *  pill toggles it for whoever needs the reminder. */
+  const [showGuide, setShowGuide] = useState(false);
+  /** SAVE DOCK (founder's Tab 1/Tab 2 mockup): drag a tab off the
+   *  RIGHT edge and it tucks into this stack instead of dying; tap a
+   *  card to bring it back. LEFT edge stays the delete. */
+  const [docked, setDocked] = useState<Array<{ id: number; payload: HoloPayload; title: string }>>([]);
   const [focusMode, setFocusMode] = useState(false);
   const focusModeRef = useRef(false);
   focusModeRef.current = focusMode;
@@ -754,26 +762,37 @@ export function JarvisMode({
           if (grab) {
             const el = elsRef.current.get(grab.id);
             el?.classList.remove("is-grabbed");
-            // FAST DELETE stays on the DELIBERATE move only: drag the
-            // tab to any screen edge and let go. Plain throws don't
-            // delete anymore — founder: "play with it like a ball" —
-            // they glide, curve and bounce in the stepper instead.
+            // EDGE SEMANTICS (founder's mockup): drop a tab off the
+            // LEFT edge — deleted; off the RIGHT edge — SAVED into the
+            // side dock for later. Top/bottom are neutral. Throws
+            // still glide and bounce (ball rules).
             const flickSpeed =
               performance.now() - grab.lt > FLICK_STALE_MS ? 0 : Math.hypot(grab.vx, grab.vy);
             const mX = window.innerWidth * 0.04;
-            const mY = window.innerHeight * 0.05;
-            const atEdge =
-              x < mX || x > window.innerWidth - mX || y < mY || y > window.innerHeight - mY;
+            const atLeft = x < mX;
+            const atRight = x > window.innerWidth - mX;
             // A release that was part of a two-hand RESIZE is never a
-            // throw or an edge-delete — the hand naturally moves fast
+            // throw or an edge action — the hand naturally moves fast
             // and drifts wide while scaling.
             const justScaled =
               (scalingRef.current !== null && scalingRef.current.id === grab.id) ||
               performance.now() - lastScaleEndT < 400;
-            if (!isTap(e) && !justScaled && atEdge) {
+            if (!isTap(e) && !justScaled && atLeft) {
               sparksRef.current.push({ x, y, t0: performance.now(), hue: "gold" });
               blip(300, 110, 0.05); // low thunk — deleted
               closeWindow(grab.id);
+            } else if (!isTap(e) && !justScaled && atRight) {
+              // SAVE — "move it to the right, it just gets saved."
+              const w = windowsRef.current.find((win) => win.id === grab.id);
+              if (w) {
+                setDocked((d) =>
+                  [{ id: w.id, payload: w.payload, title: windowTitle(w.payload) }, ...d].slice(0, 8),
+                );
+                sparksRef.current.push({ x, y, t0: performance.now(), hue: "cyan" });
+                blip(880, 70, 0.05);
+                setTimeout(() => blip(1180, 90, 0.05), 70); // rising — tucked away
+                closeWindow(grab.id);
+              } else commitWindow(grab.id);
             } else if (!isTap(e) && !justScaled && flickSpeed > FLICK_MIN_SPEED) {
               // FLICK: released at speed — let it glide (stepped in the
               // rAF loop; commits to React when it stops).
@@ -1545,7 +1564,8 @@ export function JarvisMode({
     () => [
       ["PINCH", "grab a tab"],
       ["THROW + CURL WRIST", "curve + bounce"],
-      ["DRAG TO EDGE", "delete tab"],
+      ["DRAG LEFT EDGE", "delete tab"],
+      ["DRAG RIGHT EDGE", "save tab"],
       ["TAP", "grow ⇄ shrink tab"],
       ["FIST→OPEN", "reset zoom"],
       ["TWO HANDS", "resize"],
@@ -1702,14 +1722,50 @@ export function JarvisMode({
         </div>
       )}
 
-      {/* HUD — gesture guide (bottom-left), privacy note, exit */}
-      <div className="jarvis-gesture-guide" aria-hidden>
-        {gestureChips.map(([k, v]) => (
-          <span key={k} className="jarvis-chip">
-            <b>{k}</b> {v}
-          </span>
-        ))}
-      </div>
+      {/* HUD — INFO pill (bottom-left) reveals the gesture guide on
+          demand; hidden by default so the camera stays clean. */}
+      {showGuide && (
+        <div className="jarvis-gesture-guide" aria-hidden>
+          {gestureChips.map(([k, v]) => (
+            <span key={k} className="jarvis-chip">
+              <b>{k}</b> {v}
+            </span>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        className="jarvis-info-toggle"
+        onClick={() => setShowGuide((g) => !g)}
+        title="Gesture shortcuts"
+      >
+        {showGuide ? "✕ HIDE" : "ⓘ SHORTCUTS"}
+      </button>
+
+      {/* SAVE DOCK — tabs dropped off the right edge wait here; tap a
+          card (hand or mouse) to bring it back to the workspace. */}
+      {docked.length > 0 && (
+        <div className="jarvis-dock">
+          {docked.map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              className="jarvis-dock-card"
+              title="Tap to bring this tab back"
+              onClick={() => {
+                setDocked((ds) => ds.filter((c) => c.id !== d.id));
+                spawnWindow(d.payload, {
+                  x: window.innerWidth - 320,
+                  y: window.innerHeight * 0.42,
+                });
+              }}
+            >
+              <span className="jarvis-dock-dot" aria-hidden />
+              {d.title}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="jarvis-privacy">Hands read on-device · camera never uploads</div>
       <button type="button" className="jarvis-exit" onClick={onExit}>
         EXIT JARVIS
@@ -2089,7 +2145,7 @@ function HoloContent({
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab grows to its big form</li>
             <li>🏀 <b>Throw a tab</b> — it glides, curves with your wrist, and bounces off the screen edges like a ball</li>
-            <li>🗑️ <b>Drag a tab to any screen edge</b> and let go — deleted, instantly</li>
+            <li>🗑️ <b>Drag a tab off the LEFT edge</b> — deleted · <b>off the RIGHT edge</b> — saved in the side dock, tap to bring it back</li>
             <li>🌍 <b>Ask Tony about any place</b> — a live satellite tab lands; grow it, then <b>pinch + pull on the map</b> to fly orbit ⇄ ground</li>
             <li>👆 <b>Tap a tab</b> — it grows in place · tap again to shrink it back (nothing ever takes the full screen)</li>
             <li>👏 <b>Clap</b> — spawn an orb</li>

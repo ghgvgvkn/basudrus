@@ -394,10 +394,73 @@
    .jarvis-hud — the 3D viewer's stylesheet (src/jarvis/jarvis.css)
    owns that class as a full-screen frame, and both sheets are loaded
    when the viewer opens over camera mode. */
-.jarvis-gesture-guide {
+/* INFO pill — the gesture guide is hidden by default; this reveals it. */
+.jarvis-info-toggle {
   position: absolute;
   left: 16px;
   bottom: 14px;
+  padding: 8px 14px;
+  border: 1px solid rgba(64, 224, 255, 0.4);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
+  color: #9be8ff;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  cursor: pointer;
+  z-index: 30;
+}
+.jarvis-info-toggle:hover {
+  background: rgba(64, 224, 255, 0.14);
+}
+
+/* SAVE DOCK — right-edge stack of tucked-away tabs (founder's
+   Tab 1 / Tab 2 mockup). Tap a card to bring it back. */
+.jarvis-dock {
+  position: absolute;
+  right: 14px;
+  top: 32%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 220px;
+  z-index: 30;
+}
+.jarvis-dock-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  background: rgba(5, 11, 20, 0.62);
+  border: 1px solid rgba(64, 224, 255, 0.45);
+  border-radius: 2px;
+  color: #bfeefe;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jarvis-dock-card:hover {
+  background: rgba(64, 224, 255, 0.14);
+}
+.jarvis-dock-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #40e0ff;
+  box-shadow: 0 0 8px rgba(64, 224, 255, 0.9);
+}
+
+.jarvis-gesture-guide {
+  position: absolute;
+  left: 16px;
+  bottom: 52px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

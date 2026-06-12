@@ -87,6 +87,8 @@ type AuroraMessage = {
  *  captions show what Tony SAYS, not how the text is formatted. */
 function captionLines(text: string): string[] {
   const plain = text
+    .replace(/\$\$[\s\S]*?\$\$/g, " ") // LaTeX blocks — never caption-worthy
+    .replace(/\\[a-z]+\{([^}]*)\}/gi, "$1") // \text{x} → x (stray commands)
     .replace(/\*\*/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -2094,6 +2096,14 @@ export function AuroraAIScreen() {
               />
             </Suspense>
           )}
+          {/* JARVIS karaoke dock — bottom-left lyrics panel (founder's
+              mockup): bold sans lines advancing with Tony's voice on a
+              dark glass scrim, never serif-over-camera. */}
+          {jarvisActive && voice.isSpeaking && presentingText && (
+            <div className="jarvis-karaoke-dock">
+              <KaraokeCaption text={presentingText} getProgress={voice.getSpeechProgress} />
+            </div>
+          )}
 
           {/* TONY'S WORDS — floating glowing typography below the
               orb. No paper. No card. Just the words breathing in
@@ -2117,7 +2127,10 @@ export function AuroraAIScreen() {
               // While Tony's voice is playing, the caption goes lyrics-
               // mode (founder's Apple Music reference): current sentence
               // big and bright, neighbours dim, advancing with the audio.
-              voice.isSpeaking ? (
+              // In JARVIS the stage caption is fully suppressed — the
+              // bottom-left karaoke dock (rendered with JarvisMode)
+              // carries the words instead; serif-over-camera read ugly.
+              jarvisActive ? null : voice.isSpeaking ? (
                 <KaraokeCaption text={presentingText} getProgress={voice.getSpeechProgress} />
               ) : (
                 <p className="aurora-stage-text">{renderMarkdown(presentingText)}</p>
