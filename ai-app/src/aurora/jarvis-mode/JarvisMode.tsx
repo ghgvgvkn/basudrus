@@ -1230,6 +1230,17 @@ export function JarvisMode({
           if (!focusModeRef.current) spawnWindow({ kind: "orb" }, { x, y });
           break;
         }
+        case "finger-swipe": {
+          // TWO-FINGER FLICK (founder's photo): the dedicated chooser-
+          // scroll gesture — index+middle out, flick left or right.
+          const chooser = [...windowsRef.current].reverse().find((w) => w.payload.kind === "chooser");
+          if (chooser) {
+            // Flick left → the next option slides in from the right.
+            cycleChooser(chooser.id, e.dir === -1 ? 1 : -1);
+            blip(980, 50, 0.04);
+          }
+          break;
+        }
         case "swipe-left": {
           // A CHOOSER on screen owns the swipes — scroll its carousel
           // (founder: "if I swipe to the left it's gonna scroll").
@@ -1863,6 +1874,7 @@ export function JarvisMode({
       ["SPREAD WIDE", "grow tab"],
       ["TWO HANDS (AIR)", "zoom space"],
       ["PINCH TOGETHER + STRETCH", "create tab"],
+      ["TWO FINGERS ⇄ FLICK", "scroll the chooser"],
       ["PINCH + PULL (MAP)", "orbit ⇄ ground"],
       ["TAP SPACE", "+ add menu"],
       ["PALM HOLD", "menu on hand"],
@@ -2310,6 +2322,14 @@ function ChooserContent({
   const cur = CHOOSER_OPTIONS[index % n];
   const prev = CHOOSER_OPTIONS[(index - 1 + n) % n];
   const next = CHOOSER_OPTIONS[(index + 1) % n];
+  // Slide direction for the scroll animation: forward (next slides in
+  // from the right) vs back. Re-keyed card restarts the animation.
+  const lastIndexRef = useRef(index);
+  const dirRef = useRef(1);
+  if (lastIndexRef.current !== index) {
+    dirRef.current = (lastIndexRef.current + 1) % n === index % n ? 1 : -1;
+    lastIndexRef.current = index;
+  }
   return (
     <div className="jarvis-chooser">
       <div className="jarvis-chooser-dots" aria-hidden>
@@ -2328,8 +2348,9 @@ function ChooserContent({
           ‹ {prev.label}
         </button>
         <button
+          key={cur.key}
           type="button"
-          className="jarvis-chooser-card"
+          className={`jarvis-chooser-card ${dirRef.current === 1 ? "slide-fwd" : "slide-back"}`}
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={() => onPick(cur.key)}
           title={cur.hint}

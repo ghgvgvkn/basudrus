@@ -78,6 +78,10 @@ export type GestureEvent =
   | { type: "clap"; x: number; y: number }
   | { type: "swipe-left"; hand: HandId }
   | { type: "swipe-right"; hand: HandId }
+  /** TWO-FINGER FLICK (founder's photo: index+middle out, rest
+   *  curled, quick horizontal sweep). dir -1 = left, 1 = right.
+   *  Drives the chooser carousel. */
+  | { type: "finger-swipe"; hand: HandId; dir: -1 | 1 }
   | { type: "fist-open"; hand: HandId }
   /** Open palm held STILL facing the camera → quick menu at the palm
    *  (North Star "virtual wearables" style). */
@@ -108,6 +112,22 @@ export const SWIPE_MAX_CROSS = 0.9;
 export const SWIPE_FRAMES = 3;
 /** Min ms between swipes per hand. */
 export const SWIPE_COOLDOWN_MS = 900;
+// ── Two-finger flick (chooser scroll) — index+middle extended like a
+//    "peace sign closed", ring+pinky curled, swept horizontally. A
+//    small deliberate flick: fewer qualifying frames + shorter
+//    cooldown than the arm-wave swipe.
+/** Index AND middle tip↔palm / hand-size must exceed this. */
+export const FSWIPE_EXT_MIN = 1.0;
+/** Ring+pinky avg tip↔palm / hand-size must stay under this. */
+export const FSWIPE_CURL_MAX = 0.78;
+/** Horizontal speed (units/sec) that counts as a flick. */
+export const FSWIPE_SPEED = 1.0;
+/** Vertical speed ceiling for a horizontal flick. */
+export const FSWIPE_MAX_CROSS = 0.9;
+/** Consecutive qualifying frames before the flick fires. */
+export const FSWIPE_FRAMES = 2;
+/** Min ms between flicks per hand. */
+export const FSWIPE_COOLDOWN_MS = 550;
 /** Cursor smoothing is SPEED-ADAPTIVE (1€-filter style): a slow hand
  *  gets heavy smoothing (steady, no jitter) while a fast hand gets
  *  almost none — so a grabbed tab keeps up with a fast throw instead
@@ -233,6 +253,9 @@ interface PerHand {
   rt: number;
   swipeFramesLeft: number; // consecutive frames qualifying leftward
   swipeFramesRight: number;
+  fswipeLeft: number; // two-finger flick frame counters
+  fswipeRight: number;
+  lastFSwipeT: number;
   lastSwipeT: number;
   /** Fist→open tracking: when the current fist started (-1 = not in
    *  fist), whether it was held long enough to arm, the last moment the
@@ -278,6 +301,9 @@ function freshHand(): PerHand {
     swipeFramesLeft: 0,
     swipeFramesRight: 0,
     lastSwipeT: -1e9,
+    fswipeLeft: 0,
+    fswipeRight: 0,
+    lastFSwipeT: -1e9,
     fistSince: -1,
     fistArmed: false,
     fistLastSeenT: -1e9,
@@ -387,6 +413,19 @@ export class GestureEngine {
       // rest curled) has a low average but is NOT a fist.
       const fistPose = poseValid && openAvg < FIST_RATIO && indexRatio < FIST_RATIO;
       const pointing = poseValid && !s.pinching && indexRatio > POINT_INDEX_MIN && curlAvg < POINT_CURL_MAX;
+      // Two-finger pose (founder's photo): index + middle extended
+      // together, ring + pinky curled. Distinct from "pointing" (which
+      // demands the middle curled via curlAvg).
+      const middleRatio = poseValid ? dist(hand.landmarks[12], palm) / handSize : 1;
+      const restCurl = poseValid
+        ? (dist(hand.landmarks[16], palm) + dist(hand.landmarks[20], palm)) / 2 / handSize
+        : 1;
+      const twoFinger =
+        poseValid &&
+        !s.pinching &&
+        indexRatio > FSWIPE_EXT_MIN &&
+        middleRatio > FSWIPE_EXT_MIN &&
+        restCurl < FSWIPE_CURL_MAX;
 
       // ── Cursor smoothing (midpoint of thumb+index reads as "the grab
       //    point"; while open, the index tip alone feels more precise) ──
@@ -495,8 +534,9 @@ export class GestureEngine {
         events.push({ type: "pinch-move", hand: hand.id, x: s.cx, y: s.cy, dx, dy, depth: s.sizeEma });
       }
 
-      // ── Swipes: open palm only (pinching = dragging, never a swipe) ──
-      if (warm && !s.pinching && Math.abs(s.vy) < SWIPE_MAX_CROSS) {
+      // ── Swipes: open palm only (pinching = dragging, never a swipe;
+      //    the two-finger pose belongs to the flick machine below) ──
+      if (warm && !s.pinching && !twoFinger && Math.abs(s.vy) < SWIPE_MAX_CROSS) {
         s.swipeFramesLeft = s.vx < -SWIPE_SPEED ? s.swipeFramesLeft + 1 : 0;
         s.swipeFramesRight = s.vx > SWIPE_SPEED ? s.swipeFramesRight + 1 : 0;
       } else {
@@ -511,6 +551,24 @@ export class GestureEngine {
         events.push({ type: "swipe-right", hand: hand.id });
         s.lastSwipeT = t;
         s.swipeFramesRight = 0;
+      }
+
+      // ── Two-finger flick: the dedicated carousel-scroll gesture ──
+      if (warm && twoFinger && Math.abs(s.vy) < FSWIPE_MAX_CROSS) {
+        s.fswipeLeft = s.vx < -FSWIPE_SPEED ? s.fswipeLeft + 1 : 0;
+        s.fswipeRight = s.vx > FSWIPE_SPEED ? s.fswipeRight + 1 : 0;
+      } else {
+        s.fswipeLeft = 0;
+        s.fswipeRight = 0;
+      }
+      if (s.fswipeLeft >= FSWIPE_FRAMES && t - s.lastFSwipeT > FSWIPE_COOLDOWN_MS) {
+        events.push({ type: "finger-swipe", hand: hand.id, dir: -1 });
+        s.lastFSwipeT = t;
+        s.fswipeLeft = 0;
+      } else if (s.fswipeRight >= FSWIPE_FRAMES && t - s.lastFSwipeT > FSWIPE_COOLDOWN_MS) {
+        events.push({ type: "finger-swipe", hand: hand.id, dir: 1 });
+        s.lastFSwipeT = t;
+        s.fswipeRight = 0;
       }
 
       // ── Fist → open: crush-and-release closes the open page view ──

@@ -1064,6 +1064,24 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   cursor: pointer;
   box-shadow: inset 0 0 24px rgba(64, 224, 255, 0.07);
 }
+/* Scroll animation — the chosen card slides in from the side the
+   flick came from (transform/opacity only, composited). */
+.jarvis-chooser-card.slide-fwd {
+  animation: jarvis-chooser-fwd 0.22s ease-out;
+}
+.jarvis-chooser-card.slide-back {
+  animation: jarvis-chooser-back 0.22s ease-out;
+}
+@keyframes jarvis-chooser-fwd {
+  from { opacity: 0.15; transform: translateX(32px); }
+}
+@keyframes jarvis-chooser-back {
+  from { opacity: 0.15; transform: translateX(-32px); }
+}
+.jarvis-chooser-dots i {
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
 .jarvis-chooser-card:hover {
   background: rgba(64, 224, 255, 0.12);
 }
