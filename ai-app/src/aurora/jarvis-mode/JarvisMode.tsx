@@ -56,6 +56,21 @@ type HoloPayload =
       rows: Array<{ key: string; valueA: string; valueB: string }>;
     }
   | { kind: "show"; query: string; snippet: string }
+  // THE BRIEFING — the founder's sketched answer panel: ONE structured
+  // card per answer (subject name, description, calculations, extra
+  // info, sources) with the photo as a DETACHABLE tab-inside-the-tab.
+  | {
+      kind: "briefing";
+      title: string;
+      description: string;
+      stat?: { label: string; big: string; sub?: string };
+      rows?: Array<{ key: string; value: string }>;
+      quote?: { text: string; attribution?: string };
+      /** Photo sub-tab (SHOW query). Undefined = the "without photo"
+       *  variant, or the photo was detached to its own tab. */
+      showQuery?: string;
+      sources?: string[];
+    }
   | { kind: "note"; text: string }
   | { kind: "orb" }
   | { kind: "welcome" }
@@ -426,6 +441,7 @@ export function JarvisMode({
     const spread = windowsRef.current.filter(
       (w) =>
         w.payload.kind === "show" ||
+        w.payload.kind === "briefing" ||
         w.payload.kind === "stat" ||
         w.payload.kind === "data" ||
         w.payload.kind === "quote" ||
@@ -444,6 +460,29 @@ export function JarvisMode({
     const sweptIds = new Set(spread.map((w) => w.id));
     setWindows((ws) => ws.filter((w) => !sweptIds.has(w.id)));
   }, []);
+
+  /** Pop the briefing's photo out to its own SHOW tab (the sketch's
+   *  "tab inside tab — I could remove the photo"). Dropping the photo
+   *  tab back ONTO the briefing re-absorbs it (grab-release path). */
+  const detachPhoto = useCallback(
+    (id: number) => {
+      const w = windowsRef.current.find((x) => x.id === id);
+      if (!w || w.payload.kind !== "briefing" || !w.payload.showQuery) return;
+      const q = w.payload.showQuery;
+      setWindows((ws) =>
+        ws.map((x) =>
+          x.id === id && x.payload.kind === "briefing"
+            ? { ...x, payload: { ...x.payload, showQuery: undefined } }
+            : x,
+        ),
+      );
+      spawnWindow(
+        { kind: "show", query: q, snippet: "" },
+        { x: window.innerWidth * 0.8, y: window.innerHeight * 0.3 },
+      );
+    },
+    [spawnWindow],
+  );
 
   /** Prompt-tab submit router — MAP tabs take a place name, ASK tabs
    *  send to Tony (the tab becomes an empty note so his answer lands
@@ -525,30 +564,7 @@ export function JarvisMode({
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const plan: Array<{ sig: string; payload: HoloPayload; at: { x: number; y: number } }> = [];
-    if (presenting.stat) {
-      const s = presenting.stat;
-      plan.push({
-        sig: `stat:${s.label}|${s.big}`,
-        payload: { kind: "stat", label: s.label, big: s.big, sub: s.sub },
-        at: { x: vw * 0.5, y: vh * 0.13 },
-      });
-    }
-    if (presenting.data) {
-      const d = presenting.data;
-      plan.push({
-        sig: `data:${d.title}|${d.rows.length}`,
-        payload: { kind: "data", title: d.title, rows: d.rows },
-        at: { x: vw * 0.2, y: vh * 0.78 },
-      });
-    }
-    if (presenting.quote) {
-      const q = presenting.quote;
-      plan.push({
-        sig: `quote:${q.text.slice(0, 60)}`,
-        payload: { kind: "quote", text: q.text, attribution: q.attribution },
-        at: { x: vw * 0.5, y: vh * 0.87 },
-      });
-    }
+    // Separate tabs: the live satellite map and (rare) comparisons.
     if (presenting.compare) {
       const c = presenting.compare;
       plan.push({
@@ -557,35 +573,88 @@ export function JarvisMode({
         at: { x: vw * 0.5, y: vh * 0.8 },
       });
     }
-    if (presenting.show) {
-      const q = presenting.show.query;
-      // snippet stays EMPTY — the description panel carries the prose
-      // (founder: "the same information appears 3-4 times at once").
-      plan.push({
-        sig: `show:${q}`,
-        payload: { kind: "show", query: q, snippet: "" },
-        at: { x: vw * 0.8, y: vh * 0.26 },
-      });
-    }
     if (presenting.map) {
-      // GEO scene — generalized, never hardcoded: any place Tony
-      // mentions lands as a live satellite tab.
       const q = presenting.map.query;
       plan.push({
         sig: `map:${q}`,
         payload: { kind: "map", query: q },
-        at: { x: vw * 0.8, y: vh * 0.64 },
+        at: { x: vw * 0.82, y: vh * 0.72 },
+      });
+    }
+
+    // THE BRIEFING (founder's sketch): everything else folds into ONE
+    // structured panel — subject name, description, calculations
+    // (stat + data rows), extra info (quote), sources pulled out of
+    // the prose, and the photo as a DETACHABLE tab-inside-the-tab.
+    const rawAnswer = presenting.cleanText.trim();
+    const isStatus = rawAnswer.startsWith("(");
+    const sources = isStatus
+      ? []
+      : [...new Set([...rawAnswer.matchAll(/\(source:\s*([^)]+)\)/gi)].map((m) => m[1].trim()))];
+    const description = isStatus
+      ? ""
+      : rawAnswer.replace(/\(source:\s*[^)]+\)/gi, "").replace(/[ \t]{2,}/g, " ").trim();
+    const hasBriefingContent =
+      !isStatus && !!(presenting.stat || presenting.data || presenting.show || presenting.quote);
+    if (hasBriefingContent) {
+      const title =
+        presenting.show?.query ||
+        presenting.data?.title ||
+        presenting.stat?.label ||
+        description.split(/[.!?]/)[0].slice(0, 40) ||
+        "BRIEFING";
+      plan.push({
+        sig: `brief:${title}|${description.slice(0, 40)}`,
+        payload: {
+          kind: "briefing",
+          title,
+          description,
+          stat: presenting.stat ?? undefined,
+          rows: presenting.data?.rows,
+          quote: presenting.quote ?? undefined,
+          showQuery: presenting.show?.query,
+          sources: sources.length ? sources : undefined,
+        },
+        at: { x: vw * 0.36, y: vh * 0.47 },
       });
     }
     const fresh = plan.filter((p) => !sigs.has(p.sig));
-    // Tony's prose: the DESCRIPTION panel. "(...)" lines are status
-    // messages — chat log only, never tabs.
-    const answer = presenting.cleanText.trim();
-    const answerSig = `answer:${answer.slice(0, 60)}`;
-    const answerFresh = answer.length > 0 && !answer.startsWith("(") && !sigs.has(answerSig);
-    if (fresh.length === 0 && !answerFresh) return;
 
-    // New spread incoming → the old one auto-docks (saved, not lost).
+    // Small-talk prose (no briefing content): fill the newest empty
+    // note (the "create a tab, then talk" flow) or land as a note.
+    // "(...)" status lines stay chat-only.
+    let noteAction: ((cascade: (payload: HoloPayload, at: { x: number; y: number }) => void) => void) | null = null;
+    if (!hasBriefingContent && !isStatus && description.length > 0) {
+      const sig = `answer:${description.slice(0, 60)}`;
+      if (!sigs.has(sig)) {
+        sigs.add(sig);
+        noteAction = (cascade) => {
+          let targetId = -1;
+          let bestZ = -1;
+          for (const w of windowsRef.current) {
+            if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
+              bestZ = w.z;
+              targetId = w.id;
+            }
+          }
+          if (targetId !== -1) {
+            const tid = targetId;
+            setWindows((ws) =>
+              ws.map((w) =>
+                w.id === tid && w.payload.kind === "note"
+                  ? { ...w, payload: { kind: "note", text: description } }
+                  : w,
+              ),
+            );
+          } else {
+            cascade({ kind: "note", text: description }, { x: vw * 0.2, y: vh * 0.42 });
+          }
+        };
+      }
+    }
+    if (fresh.length === 0 && !noteAction) return;
+
+    // New spread incoming -> the old one auto-docks (saved, not lost).
     sweepSpreadToDock();
 
     // Cascade: panels land 160ms apart, each off its own emitter disc.
@@ -599,32 +668,7 @@ export function JarvisMode({
       sigs.add(p.sig);
       cascade(p.payload, p.at);
     }
-    if (answerFresh) {
-      sigs.add(answerSig);
-      // Fill the newest EMPTY note if one is open (the "create a tab,
-      // then talk" flow — empty notes survive the sweep), else the
-      // prose becomes the description panel on the left.
-      let targetId = -1;
-      let bestZ = -1;
-      for (const w of windowsRef.current) {
-        if (w.payload.kind === "note" && w.payload.text.trim() === "" && w.z > bestZ) {
-          bestZ = w.z;
-          targetId = w.id;
-        }
-      }
-      if (targetId !== -1) {
-        const tid = targetId;
-        setWindows((ws) =>
-          ws.map((w) =>
-            w.id === tid && w.payload.kind === "note"
-              ? { ...w, payload: { kind: "note", text: answer } }
-              : w,
-          ),
-        );
-      } else {
-        cascade({ kind: "note", text: answer }, { x: vw * 0.2, y: vh * 0.42 });
-      }
-    }
+    if (noteAction) noteAction(cascade);
   }, [presenting, spawnWindow, sweepSpreadToDock]);
 
   // ── JARVIS EYES: expose a frame grabber to the screen ──
@@ -926,7 +970,39 @@ export function JarvisMode({
                 // the path hard but can't whip the tab into orbit.
                 curve: Math.max(-5, Math.min(5, grab.w)),
               });
-            } else commitWindow(grab.id);
+            } else {
+              // RE-ATTACH: dropping a photo tab ONTO a briefing that
+              // lost its photo absorbs it back (the sketch's "I could
+              // get it in").
+              const dropped = windowsRef.current.find((win) => win.id === grab.id);
+              let absorbed = false;
+              if (dropped && dropped.payload.kind === "show") {
+                for (const [bid, bel] of elsRef.current) {
+                  if (bid === grab.id) continue;
+                  const bw = windowsRef.current.find((win) => win.id === bid);
+                  if (!bw || bw.payload.kind !== "briefing" || bw.payload.showQuery) continue;
+                  const r = bel.getBoundingClientRect();
+                  if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+                    const q = dropped.payload.query;
+                    liveRef.current.delete(grab.id);
+                    setWindows((ws) =>
+                      ws
+                        .filter((win) => win.id !== grab.id)
+                        .map((win) =>
+                          win.id === bid && win.payload.kind === "briefing"
+                            ? { ...win, payload: { ...win.payload, showQuery: q } }
+                            : win,
+                        ),
+                    );
+                    blip(880, 70, 0.05);
+                    setTimeout(() => blip(1180, 80, 0.05), 60); // tucked back in
+                    absorbed = true;
+                    break;
+                  }
+                }
+              }
+              if (!absorbed) commitWindow(grab.id);
+            }
             // A quick, still pinch on a tab = "click" → the tab GROWS IN
             // PLACE (and a second tap shrinks it back). Founder: "I don't
             // want something to take full screen" — the page takeover is
@@ -1783,13 +1859,14 @@ export function JarvisMode({
               <HoloContent
                 payload={w.payload}
                 expanded={w.expanded}
-                image={w.payload.kind === "show" ? presentingImage : null}
+                image={w.payload.kind === "show" || w.payload.kind === "briefing" ? presentingImage : null}
                 onEditNote={(text) =>
                   setWindows((ws) =>
                     ws.map((x) => (x.id === w.id && x.payload.kind === "note" ? { ...x, payload: { kind: "note", text } } : x)),
                   )
                 }
                 onPrompt={(text) => handlePrompt(w.id, text)}
+                onDetachPhoto={() => detachPhoto(w.id)}
               />
             </div>
           </div>
@@ -2035,6 +2112,8 @@ function windowTitle(p: HoloPayload): string {
       const t = p.text.replace(/\*\*/g, "").trim();
       return t ? `${t.slice(0, 26)}${t.length > 26 ? "…" : ""}` : "NEW TAB";
     }
+    case "briefing":
+      return p.title.slice(0, 26).toUpperCase();
     case "orb":
       return "ORB";
     case "welcome":
@@ -2139,18 +2218,109 @@ function MapTabContent({
   );
 }
 
+/** THE BRIEFING — the founder's sketched answer panel. One card:
+ *  description (left), photo sub-tab + calculations + extra info +
+ *  sources (right rail). The photo is its own mini-tab with a detach
+ *  button; without a photo the right rail just starts at the numbers
+ *  (the sketch's two variants). */
+function BriefingContent({
+  payload,
+  image,
+  onDetachPhoto,
+}: {
+  payload: Extract<HoloPayload, { kind: "briefing" }>;
+  image: string | null;
+  onDetachPhoto?: () => void;
+}) {
+  const Pp = payload;
+  return (
+    <div className="jarvis-brief">
+      <div className="jarvis-brief-main">
+        <div className="jarvis-brief-desc">{renderMarkdown(Pp.description)}</div>
+        {Pp.sources && Pp.sources.length > 0 && (
+          <div className="jarvis-brief-sources">
+            <span className="jarvis-brief-label">SOURCES</span>
+            {Pp.sources.map((src) => (
+              <span key={src} className="jarvis-brief-source">{src}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="jarvis-brief-side">
+        {Pp.showQuery && (
+          <div className="jarvis-brief-photo">
+            <div className="jarvis-brief-photo-bar">
+              <span>{Pp.showQuery.slice(0, 18).toUpperCase()}</span>
+              <button
+                type="button"
+                title="Pop the photo out to its own tab"
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onClick={onDetachPhoto}
+              >
+                ⇱
+              </button>
+            </div>
+            {image ? (
+              <img src={image} alt={Pp.showQuery} draggable={false} />
+            ) : (
+              <div className="jarvis-brief-photo-ph" aria-hidden>
+                {Pp.showQuery.slice(0, 1).toUpperCase()}
+              </div>
+            )}
+          </div>
+        )}
+        {(Pp.stat || (Pp.rows && Pp.rows.length > 0)) && (
+          <div className="jarvis-brief-calc">
+            <span className="jarvis-brief-label">CALCULATIONS</span>
+            {Pp.stat && (
+              <div className="jarvis-brief-stat">
+                <b>{Pp.stat.big}</b>
+                <span>
+                  {Pp.stat.label}
+                  {Pp.stat.sub ? ` · ${Pp.stat.sub}` : ""}
+                </span>
+              </div>
+            )}
+            {Pp.rows && Pp.rows.length > 0 && (
+              <dl className="jarvis-brief-rows">
+                {Pp.rows.map((r, i) => (
+                  <div key={i}>
+                    <dt>{r.key}</dt>
+                    <dd>{r.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        )}
+        {Pp.quote && (
+          <div className="jarvis-brief-extra">
+            <span className="jarvis-brief-label">EXTRA INFO</span>
+            <p>
+              “{Pp.quote.text}”
+              {Pp.quote.attribution ? ` — ${Pp.quote.attribution}` : ""}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HoloContent({
   payload,
   expanded,
   image,
   onEditNote,
   onPrompt,
+  onDetachPhoto,
 }: {
   payload: HoloPayload;
   expanded: boolean;
   image: string | null;
   onEditNote?: (text: string) => void;
   onPrompt?: (text: string) => void;
+  onDetachPhoto?: () => void;
 }) {
   switch (payload.kind) {
     case "stat":
@@ -2224,6 +2394,8 @@ function HoloContent({
           {expanded && image && <span className="jarvis-source-chip">image · web search</span>}
         </div>
       );
+    case "briefing":
+      return <BriefingContent payload={payload} image={image} onDetachPhoto={onDetachPhoto} />;
     case "note": {
       // LONG text (Tony's description panels) renders as a READING
       // panel — proper type, line height and scroll — never an essay

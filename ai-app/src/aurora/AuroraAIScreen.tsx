@@ -185,7 +185,7 @@ function KaraokeCaption({
  *  attaching a frame to a false positive costs nothing, missing a
  *  real one breaks the magic. Covers English + common Arabic. */
 const LOOK_INTENT_RE =
-  /\b(look at|look here|take a look|have a look|can you see|do you see|what do you see|what am i holding|what i'?m holding|what is this|what'?s this|read (this|that|it)|check (this|it) out|شوف|اقرأ|انظر)\b/i;
+  /\b(look at|look here|take a look|have a look|can you see|do you see|what do you see|what am i holding|what i'?m holding|what is this|what'?s this|read (this|that|it)|check (this|it) out)\b/i;
 
 function formatStamp(at: number): string {
   return new Date(at).toLocaleTimeString("en-US", {

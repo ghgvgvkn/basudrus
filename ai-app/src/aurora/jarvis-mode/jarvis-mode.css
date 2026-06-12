@@ -1005,6 +1005,149 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   text-shadow: 0 0 8px rgba(64, 224, 255, 0.7);
   pointer-events: none;
 }
+/* ── THE BRIEFING (founder's sketch) ──
+   One structured answer card: description left; photo sub-tab,
+   calculations, extra info and sources on the right rail. */
+.jarvis-win-briefing {
+  width: min(52vw, 680px);
+}
+.jarvis-win-briefing.is-expanded {
+  width: min(64vw, 860px);
+}
+.jarvis-brief {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.jarvis-brief-desc {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #e2f6fd;
+  white-space: pre-wrap;
+  max-height: 44vh;
+  overflow-y: auto;
+  text-shadow: 0 0 14px rgba(64, 224, 255, 0.2);
+}
+.jarvis-brief-desc strong,
+.jarvis-brief-desc b {
+  color: #aef0ff;
+  font-weight: 600;
+}
+.jarvis-brief-label {
+  display: block;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: #6fc9e0;
+  margin-bottom: 6px;
+}
+.jarvis-brief-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Photo sub-tab — a tab INSIDE the tab, with its own mini chrome. */
+.jarvis-brief-photo {
+  border: 1px solid rgba(64, 224, 255, 0.45);
+  border-radius: 2px;
+  background: rgba(5, 11, 20, 0.5);
+  overflow: hidden;
+}
+.jarvis-brief-photo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(64, 224, 255, 0.25);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: #9be8ff;
+}
+.jarvis-brief-photo-bar button {
+  border: 1px solid rgba(64, 224, 255, 0.4);
+  background: none;
+  color: #9be8ff;
+  border-radius: 2px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.jarvis-brief-photo-bar button:hover {
+  background: rgba(64, 224, 255, 0.14);
+}
+.jarvis-brief-photo img {
+  display: block;
+  width: 100%;
+  height: 130px;
+  object-fit: cover;
+}
+.jarvis-brief-photo-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 90px;
+  font-size: 38px;
+  color: rgba(64, 224, 255, 0.5);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+}
+.jarvis-brief-calc,
+.jarvis-brief-extra {
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 2px;
+  padding: 9px 11px;
+  background: rgba(5, 11, 20, 0.4);
+}
+.jarvis-brief-stat b {
+  display: block;
+  font-size: 24px;
+  color: #ffd060;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.jarvis-brief-stat span {
+  font-size: 11px;
+  color: #9be8ff;
+}
+.jarvis-brief-rows div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(64, 224, 255, 0.14);
+  font-size: 11.5px;
+}
+.jarvis-brief-rows dt {
+  color: #7fd4e8;
+}
+.jarvis-brief-rows dd {
+  color: #e2f6fd;
+  margin: 0;
+  text-align: right;
+}
+.jarvis-brief-extra p {
+  margin: 0;
+  font-size: 12px;
+  font-style: italic;
+  color: #cfeefb;
+  line-height: 1.5;
+}
+.jarvis-brief-sources {
+  margin-top: 10px;
+}
+.jarvis-brief-source {
+  display: inline-block;
+  margin: 0 6px 4px 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 2px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  color: #8fdcf2;
+}
+
 /* READING PANEL — a note holding a long Tony answer is a proper
    briefing panel (the reference's "PROPERTIES OF WATER" board), not
    an essay in a tiny box: wider tab, magazine type, scrolls. */
