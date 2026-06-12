@@ -196,6 +196,50 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
  * Returns null when the blob can't even be decoded locally — the
  * capture is truly unusable and should not be uploaded at all.
  */
+/** Encode mono Float32 PCM at 16 kHz into a 16-bit WAV blob. */
+function encodeWav16k(pcm: Float32Array): Blob {
+  const RATE = 16000;
+  const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const wstr = (o: number, s: string) => {
+    for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i));
+  };
+  wstr(0, "RIFF");
+  out.setUint32(4, 36 + pcm.length * 2, true);
+  wstr(8, "WAVE");
+  wstr(12, "fmt ");
+  out.setUint32(16, 16, true);   // fmt chunk size
+  out.setUint16(20, 1, true);    // PCM
+  out.setUint16(22, 1, true);    // mono
+  out.setUint32(24, RATE, true);
+  out.setUint32(28, RATE * 2, true); // byte rate
+  out.setUint16(32, 2, true);    // block align
+  out.setUint16(34, 16, true);   // bits per sample
+  wstr(36, "data");
+  out.setUint32(40, pcm.length * 2, true);
+  for (let i = 0, o = 44; i < pcm.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, pcm[i]));
+    out.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([out.buffer], { type: "audio/wav" });
+}
+
+/** Linear resample of mono Float32 PCM (fromRate → 16 kHz). */
+function resampleTo16k(pcm: Float32Array, fromRate: number): Float32Array {
+  const RATE = 16000;
+  if (fromRate === RATE) return pcm;
+  const outLen = Math.max(1, Math.floor((pcm.length * RATE) / fromRate));
+  const out = new Float32Array(outLen);
+  const step = fromRate / RATE;
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * step;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(pcm.length - 1, i0 + 1);
+    const frac = pos - i0;
+    out[i] = pcm[i0] * (1 - frac) + pcm[i1] * frac;
+  }
+  return out;
+}
+
 async function blobToWav16k(blob: Blob): Promise<Blob | null> {
   try {
     const raw = await blob.arrayBuffer();
@@ -216,29 +260,7 @@ async function blobToWav16k(blob: Blob): Promise<Blob | null> {
     src.connect(off.destination);
     src.start(0);
     const mono = await off.startRendering();
-    const pcm = mono.getChannelData(0);
-    const out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
-    const wstr = (o: number, s: string) => {
-      for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i));
-    };
-    wstr(0, "RIFF");
-    out.setUint32(4, 36 + pcm.length * 2, true);
-    wstr(8, "WAVE");
-    wstr(12, "fmt ");
-    out.setUint32(16, 16, true);   // fmt chunk size
-    out.setUint16(20, 1, true);    // PCM
-    out.setUint16(22, 1, true);    // mono
-    out.setUint32(24, RATE, true);
-    out.setUint32(28, RATE * 2, true); // byte rate
-    out.setUint16(32, 2, true);    // block align
-    out.setUint16(34, 16, true);   // bits per sample
-    wstr(36, "data");
-    out.setUint32(40, pcm.length * 2, true);
-    for (let i = 0, o = 44; i < pcm.length; i++, o += 2) {
-      const s = Math.max(-1, Math.min(1, pcm[i]));
-      out.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
-    return new Blob([out.buffer], { type: "audio/wav" });
+    return encodeWav16k(mono.getChannelData(0));
   } catch {
     return null;
   }
@@ -280,6 +302,18 @@ export function useVoice(): UseVoiceResult {
    *  every startRecording — lets the UI name the culprit when speech
    *  arrives too quiet to transcribe. */
   const micLabelRef = useRef<string>("");
+  /** Raw-PCM safety tap. MediaRecorder containers (Safari fMP4 above
+   *  all) intermittently come out so corrupted after a TTS playback
+   *  that even decodeAudioData rejects them — the founder lost every
+   *  2nd+ utterance to this. While recording in hands-free mode we
+   *  ALSO capture raw Float32 samples off the same mic graph the VAD
+   *  uses; stopRecording folds them into a clean 16 kHz WAV that
+   *  transcribe() falls back to when the container is unusable. */
+  const pcmChunksRef = useRef<Float32Array[]>([]);
+  const pcmRateRef = useRef(48000);
+  const pcmTapRef = useRef<ScriptProcessorNode | null>(null);
+  const pcmSinkRef = useRef<GainNode | null>(null);
+  const pcmWavRef = useRef<Blob | null>(null);
 
   // VAD / hands-free voice mode refs. Created on startRecording when
   // hands-free mode is active, torn down on stopRecording.
@@ -598,7 +632,12 @@ export function useVoice(): UseVoiceResult {
       if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data);
     });
     recorderRef.current = recorder;
-    recorder.start(250); // 250ms timeslice — keep chunks small for low latency
+    // NO timeslice (was 250ms). Chunked recordings are only assembled
+    // at stop anyway, and Safari's per-slice fragmented-mp4 output is
+    // the prime suspect for the corrupted 2nd+ recordings. A single
+    // finalized container at stop() is the most compatible shape a
+    // MediaRecorder can produce.
+    recorder.start();
     setIsListening(true);
 
     // ── Hands-free mode: set up VAD ────────────────────────────────────
@@ -623,6 +662,35 @@ export function useVoice(): UseVoiceResult {
         micCtxRef.current = micCtx;
         micSourceRef.current = source;
         micAnalyserRef.current = analyser;
+
+        // Raw-PCM safety tap (see pcmChunksRef). ScriptProcessor is
+        // deprecated but universally supported — and unlike an
+        // AudioWorklet it needs no async module load. The zero-gain
+        // sink keeps the node processing without echoing the mic to
+        // the speakers. Capture is capped at ~2 minutes.
+        pcmWavRef.current = null;
+        pcmChunksRef.current = [];
+        pcmRateRef.current = micCtx.sampleRate;
+        try {
+          const tap = micCtx.createScriptProcessor(4096, 1, 1);
+          const sink = micCtx.createGain();
+          sink.gain.value = 0;
+          const maxSamples = micCtx.sampleRate * 120;
+          let total = 0;
+          tap.onaudioprocess = (ev) => {
+            if (total >= maxSamples) return;
+            const ch = ev.inputBuffer.getChannelData(0);
+            pcmChunksRef.current.push(new Float32Array(ch));
+            total += ch.length;
+          };
+          source.connect(tap);
+          tap.connect(sink);
+          sink.connect(micCtx.destination);
+          pcmTapRef.current = tap;
+          pcmSinkRef.current = sink;
+        } catch {
+          // No tap — transcribe simply has no PCM fallback this turn.
+        }
 
         // RMS calculation reuses one Float32Array to avoid per-frame
         // allocation. Threshold is empirical — ~0.02 is roughly
@@ -688,6 +756,35 @@ export function useVoice(): UseVoiceResult {
       cancelAnimationFrame(vadRafRef.current);
       vadRafRef.current = null;
     }
+    // PCM tap teardown + fallback WAV. Built BEFORE the context closes;
+    // consumed by transcribe() when the MediaRecorder container turns
+    // out to be corrupted.
+    if (pcmTapRef.current) {
+      try { pcmTapRef.current.onaudioprocess = null; } catch { /* noop */ }
+      try { pcmTapRef.current.disconnect(); } catch { /* noop */ }
+      pcmTapRef.current = null;
+    }
+    if (pcmSinkRef.current) {
+      try { pcmSinkRef.current.disconnect(); } catch { /* noop */ }
+      pcmSinkRef.current = null;
+    }
+    if (pcmChunksRef.current.length) {
+      try {
+        const chunks = pcmChunksRef.current;
+        pcmChunksRef.current = [];
+        let total = 0;
+        for (const c of chunks) total += c.length;
+        const all = new Float32Array(total);
+        let off = 0;
+        for (const c of chunks) {
+          all.set(c, off);
+          off += c.length;
+        }
+        pcmWavRef.current = encodeWav16k(resampleTo16k(all, pcmRateRef.current));
+      } catch {
+        pcmWavRef.current = null;
+      }
+    }
     if (micSourceRef.current) {
       try { micSourceRef.current.disconnect(); } catch { /* noop */ }
       micSourceRef.current = null;
@@ -716,7 +813,12 @@ export function useVoice(): UseVoiceResult {
 
     const chunks = recordedChunksRef.current;
     recordedChunksRef.current = [];
-    if (chunks.length === 0) return null;
+    if (chunks.length === 0) {
+      // Container produced nothing — hand over the raw-PCM capture
+      // instead so the utterance isn't lost.
+      const pcm = pcmWavRef.current;
+      return pcm && pcm.size > 1024 ? pcm : null;
+    }
     const mimeType = recorder.mimeType || chunks[0].type || "audio/webm";
     return new Blob(chunks, { type: mimeType });
   }, []);
@@ -750,7 +852,13 @@ export function useVoice(): UseVoiceResult {
       // server the same bulletproof bytes every time. If the local
       // decode itself fails, the capture is truly unusable — bail
       // without burning the round-trip and let the loop re-arm.
-      const wav = await blobToWav16k(blob);
+      let wav = blob.type === "audio/wav" ? blob : await blobToWav16k(blob);
+      if (!wav) {
+        // Container too corrupt to decode — fall back to the raw-PCM
+        // capture taken in parallel off the mic graph.
+        const pcm = pcmWavRef.current;
+        if (pcm && pcm.size > 1024) wav = pcm;
+      }
       if (!wav) {
         const msg = "audio glitched — say that again?";
         setError(msg);
