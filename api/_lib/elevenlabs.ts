@@ -70,7 +70,7 @@ const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
 //   - Adam    "pNInz6obpgDQGcFmaJgB" — deep American, professional
 //   - Antoni  "ErXwobaYiN019PkySvjV" — well-rounded American
 //   - George  "JBFqnCBsd6RMkjVDRZzb" — deep British, formal
-export const DEFAULT_VOICE_ID = "1t1EeRixsJrKbiF1zwM6"; // founder's Tony voice
+export const DEFAULT_VOICE_ID = "QbrR6b6YCLjyBkFKH5Xz"; // founder's Tony voice (2nd pick)
 export const DEFAULT_TTS_MODEL = "eleven_flash_v2_5";
 export const DEFAULT_STT_MODEL = "scribe_v1";
 
