@@ -128,9 +128,16 @@ export const FSWIPE_CURL_MAX = 0.85;
  *  founder's flick comes from the wrist, so the palm barely moves
  *  while the fingertips sweep fast. */
 export const FSWIPE_SPEED = 0.85;
-/** Horizontal dominance: |vx| must exceed this × |vy| (wrist flicks
- *  arc a little — an absolute vertical ceiling rejected real flicks). */
-export const FSWIPE_DOMINANCE = 1.25;
+/** Horizontal dominance: |vx| must exceed this × |vy|. 0.85 (was
+ *  1.25) — founder: "I might have an angle, it's not always directly
+ *  horizontal." Up to ~50° off-horizontal still reads as a flick;
+ *  the two-finger pose is what keeps that from misfiring. */
+export const FSWIPE_DOMINANCE = 0.85;
+/** Pinch-start is BLOCKED while the two-finger pose is held and for
+ *  this long after it ends. During a fast flick the tracker briefly
+ *  blurs the fingers into a thumb-index "pinch", which grabbed the
+ *  tab and dragged it — founder: "it's moving the whole tab". */
+export const FSWIPE_PINCH_GUARD_MS = 220;
 /** Consecutive qualifying frames before the flick fires. */
 export const FSWIPE_FRAMES = 2;
 /** Min ms between flicks per hand. */
@@ -263,6 +270,7 @@ interface PerHand {
   fswipeLeft: number; // two-finger flick frame counters
   fswipeRight: number;
   lastFSwipeT: number;
+  twoFingerLastT: number; // last time the two-finger pose was seen
   fvx: number; // fingertip (index+middle midpoint) velocity EMA
   fvy: number;
   fpx: number;
@@ -316,6 +324,7 @@ function freshHand(): PerHand {
     fswipeLeft: 0,
     fswipeRight: 0,
     lastFSwipeT: -1e9,
+    twoFingerLastT: -1e9,
     fvx: 0,
     fvy: 0,
     fpx: -1,
@@ -443,6 +452,7 @@ export class GestureEngine {
         indexRatio > FSWIPE_EXT_MIN &&
         middleRatio > FSWIPE_EXT_MIN &&
         restCurl < FSWIPE_CURL_MAX;
+      if (twoFinger) s.twoFingerLastT = t;
 
       // ── Cursor smoothing (midpoint of thumb+index reads as "the grab
       //    point"; while open, the index tip alone feels more precise) ──
@@ -504,6 +514,10 @@ export class GestureEngine {
       } else if (
         !s.pinching &&
         pinchDist < PINCH_ON &&
+        // A two-finger (flick) hand is never STARTING a pinch — and the
+        // tracker blurs a fast flick into thumb-index contact, which
+        // used to grab the tab mid-scroll and drag it.
+        t - s.twoFingerLastT > FSWIPE_PINCH_GUARD_MS &&
         // A clenching FIST presses thumb against index — that contact is
         // not a pinch. But ONLY a strict instantaneous fist blocks here:
         // real pinches curl the other fingers, so demanding they stay
