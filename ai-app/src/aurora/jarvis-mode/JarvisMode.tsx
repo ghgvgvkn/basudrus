@@ -72,6 +72,10 @@ type HoloPayload =
       sources?: string[];
     }
   | { kind: "note"; text: string }
+  // THE CHOOSER — what a hands-stretched rectangle becomes first: a
+  // hand-swipeable carousel (one option centered, neighbours peeking)
+  // merging the old "+" menu into the created tab itself.
+  | { kind: "chooser"; index: number }
   | { kind: "orb" }
   | { kind: "welcome" }
   // Spawned from the hand-tap "+" menu:
@@ -89,6 +93,16 @@ interface HoloWindow {
   z: number;
   expanded: boolean;
 }
+
+/** Carousel options inside a freshly created (chooser) tab — the
+ *  founder's sketch: AI VIEW centered, PDF and MAPS peeking. */
+const CHOOSER_OPTIONS = [
+  { key: "pdf", label: "UPLOAD PDF", hint: "drop a document in" },
+  { key: "note", label: "NOTE", hint: "type or talk to fill it" },
+  { key: "tony", label: "AI VIEW", hint: "ask Tony anything" },
+  { key: "map", label: "MAPS", hint: "live satellite view" },
+  { key: "model3d", label: "3D MODEL", hint: "fabricate an object" },
+] as const;
 
 const MAX_WINDOWS = 8;
 const SCALE_MIN = 0.45;
@@ -482,6 +496,47 @@ export function JarvisMode({
       );
     },
     [spawnWindow],
+  );
+
+  /** Chooser carousel: scroll (swipe / arrow buttons) and pick. Picking
+   *  transforms the chooser IN PLACE into the chosen tab — same id,
+   *  same position — except PDF, which opens the file picker. */
+  const cycleChooser = useCallback((id: number, dir: number) => {
+    setWindows((ws) =>
+      ws.map((w) =>
+        w.id === id && w.payload.kind === "chooser"
+          ? {
+              ...w,
+              payload: {
+                kind: "chooser",
+                index: (w.payload.index + dir + CHOOSER_OPTIONS.length) % CHOOSER_OPTIONS.length,
+              },
+            }
+          : w,
+      ),
+    );
+  }, []);
+  const pickFromChooser = useCallback(
+    (id: number, key: (typeof CHOOSER_OPTIONS)[number]["key"]) => {
+      if (key === "pdf") {
+        const el = elsRef.current.get(id);
+        const r = el?.getBoundingClientRect();
+        if (r) pdfSpawnAtRef.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        fileInputRef.current?.click();
+        closeWindow(id);
+        return;
+      }
+      const payload: HoloPayload =
+        key === "note"
+          ? { kind: "note", text: "" }
+          : key === "map"
+            ? { kind: "map", query: "" }
+            : key === "model3d"
+              ? { kind: "ask", mode: "model3d" }
+              : { kind: "ask", mode: "tony" };
+      setWindows((ws) => ws.map((w) => (w.id === id ? { ...w, payload } : w)));
+    },
+    [closeWindow],
   );
 
   /** Prompt-tab submit router — MAP tabs take a place name, ASK tabs
@@ -1159,7 +1214,7 @@ export function JarvisMode({
               // Founder: "I can make it wider or smaller based on my
               // fingers" — the stretched frame's size IS the tab's size.
               const frameDiag = Math.hypot(pa.x - pb.x, pa.y - pb.y);
-              spawnWindow({ kind: "note", text: "" }, { x, y }, frameDiag / 420);
+              spawnWindow({ kind: "chooser", index: 2 }, { x, y }, frameDiag / 420);
             }
             creating = null;
             break;
@@ -1175,16 +1230,32 @@ export function JarvisMode({
           if (!focusModeRef.current) spawnWindow({ kind: "orb" }, { x, y });
           break;
         }
-        case "swipe-left":
+        case "swipe-left": {
+          // A CHOOSER on screen owns the swipes — scroll its carousel
+          // (founder: "if I swipe to the left it's gonna scroll").
+          const chooser = [...windowsRef.current].reverse().find((w) => w.payload.kind === "chooser");
+          if (chooser) {
+            cycleChooser(chooser.id, 1);
+            blip(980, 50, 0.04);
+            break;
+          }
           // A wave with the page open SWIPES IT AWAY (movie dismiss) —
           // far easier than fist→open. Otherwise: focus Tony.
           if (pageIdRef.current != null) setPageId(null);
           else setFocusMode(true);
           break;
-        case "swipe-right":
+        }
+        case "swipe-right": {
+          const chooser = [...windowsRef.current].reverse().find((w) => w.payload.kind === "chooser");
+          if (chooser) {
+            cycleChooser(chooser.id, -1);
+            blip(980, 50, 0.04);
+            break;
+          }
           if (pageIdRef.current != null) setPageId(null);
           else setFocusMode(false);
           break;
+        }
         case "fist-open":
           // Crush-and-release (fist → five fingers) closes the open page
           // view — founder: "when I do this thing the page should be
@@ -1738,7 +1809,7 @@ export function JarvisMode({
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [status, applyTransform, closeWindow, commitWindow, spawnWindow, landmarksRef, videoRef, toWs, wsApply, wsReset]);
+  }, [status, applyTransform, closeWindow, commitWindow, spawnWindow, cycleChooser, landmarksRef, videoRef, toWs, wsApply, wsReset]);
 
   // ── Mouse/trackpad fallback so tabs are usable while hands are busy
   //    (or in demos where the camera angle is awkward) ──
@@ -1867,6 +1938,8 @@ export function JarvisMode({
                 }
                 onPrompt={(text) => handlePrompt(w.id, text)}
                 onDetachPhoto={() => detachPhoto(w.id)}
+                onChooserCycle={(dir) => cycleChooser(w.id, dir)}
+                onChooserPick={(key) => pickFromChooser(w.id, key)}
               />
             </div>
           </div>
@@ -2114,6 +2187,8 @@ function windowTitle(p: HoloPayload): string {
     }
     case "briefing":
       return p.title.slice(0, 26).toUpperCase();
+    case "chooser":
+      return "CREATE";
     case "orb":
       return "ORB";
     case "welcome":
@@ -2218,6 +2293,68 @@ function MapTabContent({
   );
 }
 
+/** THE CHOOSER — a freshly created tab's first form (founder's
+ *  sketch): a carousel showing ONE option big in the center with the
+ *  neighbours peeking at the edges, dots on top, "+" to confirm.
+ *  Hand-swipes scroll it; ‹ › buttons and card taps work too. */
+function ChooserContent({
+  index,
+  onCycle,
+  onPick,
+}: {
+  index: number;
+  onCycle: (dir: number) => void;
+  onPick: (key: (typeof CHOOSER_OPTIONS)[number]["key"]) => void;
+}) {
+  const n = CHOOSER_OPTIONS.length;
+  const cur = CHOOSER_OPTIONS[index % n];
+  const prev = CHOOSER_OPTIONS[(index - 1 + n) % n];
+  const next = CHOOSER_OPTIONS[(index + 1) % n];
+  return (
+    <div className="jarvis-chooser">
+      <div className="jarvis-chooser-dots" aria-hidden>
+        {CHOOSER_OPTIONS.map((o, i) => (
+          <i key={o.key} className={i === index % n ? "is-on" : ""} />
+        ))}
+      </div>
+      <div className="jarvis-chooser-row">
+        <button
+          type="button"
+          className="jarvis-chooser-peek"
+          onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={() => onCycle(-1)}
+          title={prev.label}
+        >
+          ‹ {prev.label}
+        </button>
+        <button
+          type="button"
+          className="jarvis-chooser-card"
+          onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={() => onPick(cur.key)}
+          title={cur.hint}
+        >
+          <span className="jarvis-chooser-label">{cur.label}</span>
+          <span className="jarvis-chooser-plus" aria-hidden>+</span>
+          <span className="jarvis-chooser-hint">{cur.hint}</span>
+        </button>
+        <button
+          type="button"
+          className="jarvis-chooser-peek"
+          onPointerDown={(ev) => ev.stopPropagation()}
+          onClick={() => onCycle(1)}
+          title={next.label}
+        >
+          {next.label} ›
+        </button>
+      </div>
+      <div className="jarvis-chooser-help" aria-hidden>
+        SWIPE ⇄ TO BROWSE · TAP THE CARD TO CREATE
+      </div>
+    </div>
+  );
+}
+
 /** THE BRIEFING — the founder's sketched answer panel. One card:
  *  description (left), photo sub-tab + calculations + extra info +
  *  sources (right rail). The photo is its own mini-tab with a detach
@@ -2314,6 +2451,8 @@ function HoloContent({
   onEditNote,
   onPrompt,
   onDetachPhoto,
+  onChooserCycle,
+  onChooserPick,
 }: {
   payload: HoloPayload;
   expanded: boolean;
@@ -2321,6 +2460,8 @@ function HoloContent({
   onEditNote?: (text: string) => void;
   onPrompt?: (text: string) => void;
   onDetachPhoto?: () => void;
+  onChooserCycle?: (dir: number) => void;
+  onChooserPick?: (key: (typeof CHOOSER_OPTIONS)[number]["key"]) => void;
 }) {
   switch (payload.kind) {
     case "stat":
@@ -2396,6 +2537,14 @@ function HoloContent({
       );
     case "briefing":
       return <BriefingContent payload={payload} image={image} onDetachPhoto={onDetachPhoto} />;
+    case "chooser":
+      return (
+        <ChooserContent
+          index={payload.index}
+          onCycle={(dir) => onChooserCycle?.(dir)}
+          onPick={(key) => onChooserPick?.(key)}
+        />
+      );
     case "note": {
       // LONG text (Tony's description panels) renders as a READING
       // panel — proper type, line height and scroll — never an essay
@@ -2456,7 +2605,7 @@ function HoloContent({
           <ul>
             <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
-            <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create the tab <b>at the size you stretched</b></li>
+            <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create <b>at the size you stretched</b> — then <b>swipe ⇄</b> through PDF · NOTE · AI VIEW · MAPS · 3D and tap the card</li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
             <li>✋ <b>Hold your open palm</b> to the camera — the menu lands on your hand</li>
             <li>🤲 <b>Grab with both hands and spread wide</b> — the tab grows to its big form</li>
