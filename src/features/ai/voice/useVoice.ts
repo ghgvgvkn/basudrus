@@ -143,6 +143,9 @@ export interface UseVoiceResult {
    *  browser autoplay policy). The node persists across speak() calls
    *  so the 3D scene can keep its reference. */
   analyserRef: React.RefObject<AnalyserNode | null>;
+  /** Label of the input device used by the active/last recording —
+   *  empty until the first successful startRecording. */
+  micLabelRef: React.RefObject<string>;
 }
 
 /** What MediaRecorder mime type to use. Browsers vary:
@@ -211,6 +214,11 @@ export function useVoice(): UseVoiceResult {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  /** Human label of the input device actually recording ("MacBook Pro
+   *  Microphone", "AirPods Pro", a monitor's far-away mic…). Set on
+   *  every startRecording — lets the UI name the culprit when speech
+   *  arrives too quiet to transcribe. */
+  const micLabelRef = useRef<string>("");
 
   // VAD / hands-free voice mode refs. Created on startRecording when
   // hands-free mode is active, torn down on stopRecording.
@@ -503,6 +511,7 @@ export function useVoice(): UseVoiceResult {
       return { ok: false, error: msg };
     }
     streamRef.current = stream;
+    micLabelRef.current = stream.getAudioTracks()[0]?.label ?? "";
 
     const mimeType = pickMimeType();
     let recorder: MediaRecorder;
@@ -822,5 +831,6 @@ export function useVoice(): UseVoiceResult {
     startBargeInListener,
     error,
     analyserRef,
+    micLabelRef,
   };
 }

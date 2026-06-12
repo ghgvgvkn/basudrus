@@ -306,6 +306,11 @@ export function AuroraAIScreen() {
   /** Live mic level 0–1, set by the VAD onLevel callback every frame.
    *  Reserved for canvas reactivity — read by AuroraCanvas via ref. */
   const micLevelRef = useRef(0);
+  /** Loudest mic level seen during the current utterance (0–1 scaled).
+   *  Read when a transcript comes back EMPTY to tell the user what
+   *  actually happened: mic barely heard them (device/volume problem)
+   *  vs. heard plenty of sound but no words (noise). */
+  const peakLevelRef = useRef(0);
 
   /**
    * Continuous voice-mode state machine.
@@ -939,11 +944,15 @@ export function AuroraAIScreen() {
     // doesn't feel laggy when the user IS done. If they want shorter
     // replies they just talk faster — the mic won't punish them for
     // stopping to think.
+    peakLevelRef.current = 0; // fresh utterance, fresh peak
     const result = await voice.startRecording({
       handsFree: {
         silenceMs: 2500,
         onSilence: () => { void endVoiceUtteranceRef.current(); },
-        onLevel: (rms) => { micLevelRef.current = rms; },
+        onLevel: (rms) => {
+          micLevelRef.current = rms;
+          if (rms > peakLevelRef.current) peakLevelRef.current = rms;
+        },
       },
     });
     if (!result.ok) {
@@ -1086,9 +1095,18 @@ export function AuroraAIScreen() {
         emptyStreakRef.current = 0;
         return;
       }
+      // Diagnose instead of the old generic "try speaking up": the
+      // peak level says whether the mic barely heard anything (wrong
+      // device / input volume too low / too far) or heard plenty of
+      // sound that just wasn't words (background noise).
+      const mic = voice.micLabelRef.current ? ` · mic: ${voice.micLabelRef.current}` : "";
+      const diagnosis =
+        peakLevelRef.current < 0.12
+          ? `(your mic is barely picking you up${mic} — move closer, or raise the input volume in System Settings → Sound → Input)`
+          : `(heard sound but no words${mic} — if that mic is far away or it's noisy, switch mics in System Settings → Sound)`;
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "ai", text: "(didn't catch your voice — try speaking up)" },
+        { id: nextId(), role: "ai", text: diagnosis },
       ]);
       if (stillMine()) void beginListening();
       return;
