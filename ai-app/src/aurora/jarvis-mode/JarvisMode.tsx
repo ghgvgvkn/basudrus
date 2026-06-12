@@ -848,14 +848,28 @@ export function JarvisMode({
                 break;
               }
             }
-            // SINGLE PINCH NEVER MOVES A TAB (founder: "don't ever make
-            // it move — any tab — unless the double-click"). It only
-            // CATCHES a flying tab and counts as a tap at release. The
-            // MOVE GRIP is the double-pinch (handled below).
-            if (glidesRef.current.has(hit)) {
+            const tr = liveRef.current.get(hit);
+            if (tr) {
+              zRef.current += 1;
+              tr.z = zRef.current;
+              const wp = toWs(x, y);
+              grabsRef.current.set(e.hand, {
+                id: hit,
+                offX: tr.x - wp.x,
+                offY: tr.y - wp.y,
+                vx: 0,
+                vy: 0,
+                lx: wp.x,
+                ly: wp.y,
+                lt: performance.now(),
+                w: 0,
+                lh: null,
+              });
               glidesRef.current.delete(hit); // catching a gliding tab stops it
-              commitWindow(hit);
-              blip(520, 50, 0.04);
+              applyTransform(hit);
+              const el = elsRef.current.get(hit);
+              el?.classList.add("is-grabbed");
+              blip(520, 70, 0.055); // tock — you grabbed something
             }
           } else if (hit == null) {
             blip(1250, 40, 0.03); // soft tick — pinch in air
@@ -1053,13 +1067,7 @@ export function JarvisMode({
               setWindows((ws) => ws.map((w) => (w.id === grab.id ? { ...w, expanded: !w.expanded } : w)));
             }
           } else if (isTap(e)) {
-            // Tap on a TAB (no grip): grow/shrink it in place — the
-            // single pinch is a CLICK now, never a drag.
-            const tapHit = topWindowAt(x, y);
-            if (tapHit != null) {
-              blip(980, 60, 0.045);
-              setWindows((ws) => ws.map((w) => (w.id === tapHit ? { ...w, expanded: !w.expanded } : w)));
-            } else if (pageIdRef.current != null) {
+            if (pageIdRef.current != null) {
               // Tap anywhere OUTSIDE the open page closes it — the page
               // must never trap you behind a keyboard (founder: "it should
               // be only moving by hands").
@@ -1077,37 +1085,11 @@ export function JarvisMode({
           break;
         }
         case "double-pinch": {
-          // THE MOVE GRIP (founder's photos): thumb double-clicks the
-          // fingers and HOLDS the second contact — only then does the
-          // tab under the hand attach and move. Fires on the second
-          // pinch-start, so the still-held pinch becomes the carry;
-          // pinch-move drags it and pinch-end releases (throw, edge
-          // save/delete all unchanged). Creation stays two-hand only.
-          if (focusModeRef.current) break;
-          const { x, y } = toScreen(e.x, e.y);
-          const hit = topWindowAt(x, y);
-          if (hit == null) break;
-          const tr = liveRef.current.get(hit);
-          if (!tr) break;
-          zRef.current += 1;
-          tr.z = zRef.current;
-          const wp = toWs(x, y);
-          grabsRef.current.set(e.hand, {
-            id: hit,
-            offX: tr.x - wp.x,
-            offY: tr.y - wp.y,
-            vx: 0,
-            vy: 0,
-            lx: wp.x,
-            ly: wp.y,
-            lt: performance.now(),
-            w: 0,
-            lh: null,
-          });
-          glidesRef.current.delete(hit);
-          applyTransform(hit);
-          elsRef.current.get(hit)?.classList.add("is-grabbed");
-          blip(520, 70, 0.055); // tock — move grip engaged
+          // No longer creates anything. Founder: "creating a tab should
+          // not be by any way except when I bring my hands together and
+          // create a rectangle" — single-finger creates kept misfiring
+          // into accidental tabs. Creation now lives ONLY in the
+          // two-hand stretch and the explicit "+" menu.
           break;
         }
         case "two-hand-scale-start": {
@@ -1889,7 +1871,7 @@ export function JarvisMode({
 
   const gestureChips = useMemo(
     () => [
-      ["DOUBLE-PINCH + HOLD", "carry a tab"],
+      ["PINCH", "grab a tab"],
       ["THROW + CURL WRIST", "curve + bounce"],
       ["DRAG / THROW LEFT", "delete tab"],
       ["DRAG / THROW RIGHT", "save tab"],
@@ -2649,7 +2631,7 @@ function HoloContent({
         <div className="jarvis-welcome">
           <p>Your hands are the controller now.</p>
           <ul>
-            <li>🤏 <b>Double-click a tab</b> (pinch twice, hold the second) — carry it anywhere · a single pinch only clicks, it never drags</li>
+            <li>🤏 <b>Pinch</b> a tab to grab it — move it anywhere</li>
             <li>🙌 <b>Both hands pinch</b> — pull apart to grow, together to shrink</li>
             <li>🪄 <b>Pinch with both hands together, then stretch apart</b> — a frame appears; when it turns gold, release to create <b>at the size you stretched</b> — then <b>swipe ⇄</b> through PDF · NOTE · AI VIEW · MAPS · 3D and tap the card</li>
             <li>➕ <b>Tap empty space</b> — a plus appears: map, 3D model, ask Tony, PDF</li>
