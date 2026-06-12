@@ -59,19 +59,18 @@ const PUBLIC_VOICE_ALLOWLIST: ReadonlySet<string> = new Set([
   "TxGEqnHWrfWFTfGW9XjX", // Josh — calm, deep male
 ]);
 
-// DANIEL — deep British male voice. The closest match in ElevenLabs'
-// library to the actual Tony Stark cadence: confident, slightly dry,
-// understated power. Replaces Brian (an American narrator-style voice
-// that fit "calm/warm" but lacked the dry-wit edge Tony Starrk's
-// persona calls for). To override per-deploy without code, set
-// ELEVENLABS_DEFAULT_VOICE_ID in Vercel env.
+// FOUNDER'S PICK (2026-06-12): the ElevenLabs voice he chose for Tony
+// ("this is the voice I wanna use for the Tony Stark"). To override
+// per-deploy without code, set ELEVENLABS_DEFAULT_VOICE_ID in Vercel
+// env — note the env var WINS over this constant if both exist.
 //
-// Alternative voices to try if Daniel doesn't fit:
+// Previous/alternative voices if this one doesn't fit:
+//   - Daniel  "onwK4e9ZLuTAKqWW03F9" — deep British, dry-wit (old default)
 //   - Brian   "nPczCjzI2devNBz1zQrb" — American, calm narrator
 //   - Adam    "pNInz6obpgDQGcFmaJgB" — deep American, professional
 //   - Antoni  "ErXwobaYiN019PkySvjV" — well-rounded American
 //   - George  "JBFqnCBsd6RMkjVDRZzb" — deep British, formal
-export const DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"; // Daniel
+export const DEFAULT_VOICE_ID = "1t1EeRixsJrKbiF1zwM6"; // founder's Tony voice
 export const DEFAULT_TTS_MODEL = "eleven_flash_v2_5";
 export const DEFAULT_STT_MODEL = "scribe_v1";
 
