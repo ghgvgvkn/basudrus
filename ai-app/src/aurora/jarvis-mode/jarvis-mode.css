@@ -908,6 +908,70 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   animation: jarvis-blink 1.4s ease-in-out infinite;
 }
 
+/* ── MAP GLOBE — the real 3D Mapbox dive (only in the expanded tab) ── */
+.jarvis-globe {
+  position: relative;
+  width: 100%;
+  height: 52vh;
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  background: #02060e;
+}
+.jarvis-globe-canvas {
+  position: absolute;
+  inset: 0;
+}
+.jarvis-globe-canvas .mapboxgl-ctrl-logo,
+.jarvis-globe-canvas .mapboxgl-ctrl-attrib {
+  /* Keep the holo frame clean; attribution shows on the small static
+     tile preview / about page instead. */
+  opacity: 0.25;
+  transform: scale(0.8);
+  transform-origin: bottom right;
+}
+.jarvis-globe-status {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 5px 10px;
+  background: rgba(2, 8, 14, 0.6);
+  border-left: 2px solid rgba(64, 224, 255, 0.8);
+  color: #9be8ff;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  animation: jarvis-blink 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.jarvis-globe-callout {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.jarvis-globe-callout i {
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255, 207, 64, 0.9);
+  background: rgba(255, 207, 64, 0.5);
+}
+.jarvis-globe-callout span {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.8);
+  padding-bottom: 1px;
+  text-shadow: 0 0 12px rgba(64, 224, 255, 0.8);
+}
+
 /* ── GEO scene (H.U.D. reference, photos 11–13) ──
    Pulsing location ring over the pin, underlined place callout, the
    optional era stamp, and the MAP DIVE: while .is-scrubbed the

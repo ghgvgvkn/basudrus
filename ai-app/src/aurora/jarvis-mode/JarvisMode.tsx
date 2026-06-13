@@ -30,9 +30,13 @@
  *   - Canvas draws strokes only (no shadows/filters per frame).
  *   - MediaPipe runs at ~30fps on the GPU delegate (see useHandTracking).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMapboxFlyImages, type MapboxFlyImages, type ParsedMessage } from "../auroraVisuals";
 import { renderMarkdown } from "../auroraMarkdown";
+
+// The real 3D globe (Mapbox GL / WebGL) is code-split: the heavy lib
+// only downloads the first time a map tab is opened big.
+const MapGlobe = lazy(() => import("./MapGlobe"));
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
 import type { ViewerHandCursor } from "../../jarvis/explode";
@@ -2267,9 +2271,11 @@ function PromptInput({
 function MapTabContent({
   query,
   onSetQuery,
+  expanded,
 }: {
   query: string;
   onSetQuery: (q: string) => void;
+  expanded?: boolean;
 }) {
   const [imgs, setImgs] = useState<MapboxFlyImages | null>(null);
   // GEO scene grammar: "place | era" — the optional era becomes the
@@ -2293,6 +2299,16 @@ function MapTabContent({
   }, [place]);
 
   if (!query) return <PromptInput placeholder="Where? Type a place, hit enter…" onSubmit={onSetQuery} />;
+  // OPENED BIG → the real 3D globe dive (founder's video). Mounted only
+  // while expanded; unmounting frees the WebGL context. The small tab
+  // below stays on the cheap static image.
+  if (expanded && place) {
+    return (
+      <Suspense fallback={<div className="jarvis-map-status">SUMMONING GLOBE…</div>}>
+        <MapGlobe place={place} />
+      </Suspense>
+    );
+  }
   if (!imgs) return <div className="jarvis-map-status">LOCATING “{place.toUpperCase()}”…</div>;
   if (!imgs.city && !imgs.world)
     return <div className="jarvis-map-status">NO MAP SIGNAL FOR “{place.toUpperCase()}”</div>;
@@ -2614,7 +2630,7 @@ function HoloContent({
         </div>
       );
     case "map":
-      return <MapTabContent query={payload.query} onSetQuery={(q) => onPrompt?.(q)} />;
+      return <MapTabContent query={payload.query} onSetQuery={(q) => onPrompt?.(q)} expanded={expanded} />;
     case "pdf":
       return (
         <div className="jarvis-pdf">
