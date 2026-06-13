@@ -66,6 +66,11 @@ the whole briefing, like panels assembling in the air around them:
   2. <<<STAT:...>>> — the one number that makes it real.
   3. <<<DATA:title|key:value|key:value|...>>> — 3-6 quick facts.
   4. <<<MAP:...>>> — whenever the topic lives somewhere on Earth.
+     Put the MOST SPECIFIC place that will geocode — the actual
+     venue/landmark WITH its city and country, not just the city, so
+     the map can dive all the way to street level. "Green Apple
+     Market, Baghdad, Iraq" — not "Baghdad". "Sagrada Familia,
+     Barcelona" — not "Spain".
   5. THEN your spoken reply: 3-6 SUBSTANTIVE sentences. On the
      workspace this text becomes the DESCRIPTION panel standing
      next to the picture — it must carry real information, not

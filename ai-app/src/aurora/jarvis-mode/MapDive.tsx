@@ -47,7 +47,25 @@ export default function MapDive({ place }: { place: string }) {
           return;
         }
         const [lng, lat] = f.center;
-        const wide = !!f.place_type?.some((t) => ["country", "region", "place"].includes(t));
+        // Final zoom keyed to how SPECIFIC the place is, so we actually
+        // land ON it (founder: "I should see the actual place inside").
+        // A venue/address → street level; a city → neighbourhood; a
+        // country → region. (Static API pitch maxes at 60.)
+        const types = f.place_type || [];
+        const has = (t: string) => types.includes(t);
+        const target = has("address") || has("poi")
+          ? 16.5
+          : has("neighborhood") || has("locality") || has("district")
+            ? 14.5
+            : has("place")
+              ? 12.5
+              : has("region")
+                ? 6.5
+                : has("country")
+                  ? 5
+                  : 13;
+        const start = Math.max(2.4, Math.min(3.5, target - 9));
+        const mid = (start + target) / 2;
 
         // Static Images API supports pitch (0–60) + bearing, so each
         // frame is a tilted satellite shot at a tighter zoom — stacked
@@ -56,9 +74,7 @@ export default function MapDive({ place }: { place: string }) {
         const mk = (zoom: number, pitch: number, bearing: number) =>
           `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/` +
           `${lng},${lat},${zoom},${bearing},${pitch}/1000x640@2x?access_token=${TOKEN}`;
-        const fr = wide
-          ? [mk(2.6, 0, 0), mk(5, 35, 12), mk(7.5, 55, 20)]
-          : [mk(4, 0, 0), mk(9, 40, 14), mk(15, 60, 24)];
+        const fr = [mk(start, 0, 0), mk(mid, 40, 14), mk(target, 60, 24)];
 
         // Preload so the crossfade never flashes a half-loaded frame.
         await Promise.all(

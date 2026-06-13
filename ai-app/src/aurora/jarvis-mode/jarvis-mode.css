@@ -951,9 +951,9 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
 }
 /* 7s dive: orbit (f0) → approach (f1) → ground (f2), each fading in
    over the last with a gentle zoom push; the ground frame holds. */
-.jarvis-dive-frame.f0 { animation: jarvis-dive0 7s ease-in-out forwards; }
-.jarvis-dive-frame.f1 { animation: jarvis-dive1 7s ease-in-out forwards; }
-.jarvis-dive-frame.f2 { animation: jarvis-dive2 7s ease-in-out forwards; }
+.jarvis-dive-frame.f0 { animation: jarvis-dive0 3.5s ease-in-out forwards; }
+.jarvis-dive-frame.f1 { animation: jarvis-dive1 3.5s ease-in-out forwards; }
+.jarvis-dive-frame.f2 { animation: jarvis-dive2 3.5s ease-in-out forwards; }
 @keyframes jarvis-dive0 {
   0% { opacity: 1; transform: scale(1); }
   30% { opacity: 1; }
@@ -985,7 +985,7 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   border: 2px solid rgba(255, 176, 64, 0.85);
   border-radius: 50%;
   opacity: 0;
-  animation: jarvis-geo-pulse 1.7s ease-out 5.6s infinite;
+  animation: jarvis-geo-pulse 1.7s ease-out 2.8s infinite;
   pointer-events: none;
 }
 .jarvis-dive-mark {
@@ -999,7 +999,7 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   border-radius: 50%;
   box-shadow: 0 0 10px rgba(255, 176, 64, 0.7);
   opacity: 0;
-  animation: jarvis-dive-mark-in 0.6s ease 5.6s forwards;
+  animation: jarvis-dive-mark-in 0.5s ease 2.8s forwards;
   pointer-events: none;
 }
 @keyframes jarvis-dive-mark-in { to { opacity: 1; } }
