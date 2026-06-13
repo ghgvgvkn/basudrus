@@ -389,7 +389,7 @@ export function JarvisMode({
   }, []);
 
   const spawnWindow = useCallback(
-    (payload: HoloPayload, at?: { x: number; y: number }, scale0 = 1) => {
+    (payload: HoloPayload, at?: { x: number; y: number }, scale0 = 1, expanded0 = false) => {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       const slot = SPAWN_SLOTS[spawnRef.current % SPAWN_SLOTS.length];
@@ -414,7 +414,7 @@ export function JarvisMode({
         y: p.y,
         scale: s0,
         z: zRef.current,
-        expanded: false,
+        expanded: expanded0,
       };
       liveRef.current.set(id, { x: win.x, y: win.y, scale: s0, z: win.z });
       setWindows((ws) => {
@@ -625,7 +625,12 @@ export function JarvisMode({
     // the middle of the screen (the user's face) stays clear.
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const plan: Array<{ sig: string; payload: HoloPayload; at: { x: number; y: number } }> = [];
+    const plan: Array<{
+      sig: string;
+      payload: HoloPayload;
+      at: { x: number; y: number };
+      expanded?: boolean;
+    }> = [];
     // Separate tabs: the live satellite map and (rare) comparisons.
     if (presenting.compare) {
       const c = presenting.compare;
@@ -636,11 +641,16 @@ export function JarvisMode({
       });
     }
     if (presenting.map) {
+      // Founder: when Tony names a place, the map should open BIG and
+      // LIVE automatically (the 3D globe dive) — no manual create →
+      // pick map → type. Spawn it already EXPANDED and prominent, so
+      // the globe mounts straight away at a presentation size.
       const q = presenting.map.query;
       plan.push({
         sig: `map:${q}`,
         payload: { kind: "map", query: q },
-        at: { x: vw * 0.82, y: vh * 0.72 },
+        at: { x: vw * 0.66, y: vh * 0.5 },
+        expanded: true,
       });
     }
 
@@ -721,14 +731,14 @@ export function JarvisMode({
 
     // Cascade: panels land 160ms apart, each off its own emitter disc.
     let seq = 0;
-    const cascade = (payload: HoloPayload, at: { x: number; y: number }) => {
+    const cascade = (payload: HoloPayload, at: { x: number; y: number }, expanded = false) => {
       const delay = seq++ * 160;
-      if (delay === 0) spawnWindow(payload, at);
-      else setTimeout(() => spawnWindow(payload, at), delay);
+      if (delay === 0) spawnWindow(payload, at, 1, expanded);
+      else setTimeout(() => spawnWindow(payload, at, 1, expanded), delay);
     };
     for (const p of fresh) {
       sigs.add(p.sig);
-      cascade(p.payload, p.at);
+      cascade(p.payload, p.at, p.expanded);
     }
     if (noteAction) noteAction(cascade);
   }, [presenting, spawnWindow, sweepSpreadToDock]);

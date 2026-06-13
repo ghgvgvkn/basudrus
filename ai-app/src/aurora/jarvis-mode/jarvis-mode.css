@@ -918,6 +918,14 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   overflow: hidden;
   background: #02060e;
 }
+/* Auto-opened map = presentation size: a big globe so it reads on
+   camera (founder: "a very large screen, not small ones"). */
+.jarvis-win-map.is-expanded {
+  width: min(58vw, 840px);
+}
+.jarvis-win-map.is-expanded .jarvis-globe {
+  height: 62vh;
+}
 .jarvis-globe-canvas {
   position: absolute;
   inset: 0;
