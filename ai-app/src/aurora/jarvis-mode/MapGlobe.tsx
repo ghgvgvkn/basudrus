@@ -38,6 +38,7 @@ export default function MapGlobe({ place }: { place: string }) {
     let cancelled = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let map: any = null;
+    let ro: ResizeObserver | null = null;
 
     (async () => {
       // 1. Geocode the place → coordinates + how wide a view it needs.
@@ -116,6 +117,15 @@ export default function MapGlobe({ place }: { place: string }) {
         if (!cancelled) setPhase("error");
       });
 
+      // Re-fit when the expanded tab is resized by hand (two-hand
+      // scale). Without an explicit resize() the GL canvas stretches.
+      if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+        ro = new ResizeObserver(() => {
+          try { map.resize(); } catch { /* torn down */ }
+        });
+        ro.observe(containerRef.current);
+      }
+
       map.on("load", () => {
         if (cancelled) return;
         setPhase("diving");
@@ -147,6 +157,10 @@ export default function MapGlobe({ place }: { place: string }) {
 
     return () => {
       cancelled = true;
+      if (ro) {
+        try { ro.disconnect(); } catch { /* noop */ }
+        ro = null;
+      }
       if (map) {
         try {
           map.remove(); // free the WebGL context + tiles immediately
