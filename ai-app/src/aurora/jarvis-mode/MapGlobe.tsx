@@ -79,24 +79,44 @@ export default function MapGlobe({ place }: { place: string }) {
       }
       if (cancelled || !containerRef.current) return;
 
+      // WebGL guard: if the GPU/browser can't run Mapbox GL, say so
+      // LOUDLY instead of painting a silent black panel (founder: "it
+      // was nothing, literally — a black screen").
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sup = (mapboxgl as any).supported;
+      if (typeof sup === "function" && !sup()) {
+        if (!cancelled) setPhase("error");
+        return;
+      }
+
+      // The tab spawns EXPANDED, so the container may still be mid-
+      // layout (0 height) the instant we mount — Mapbox reads that size
+      // once and renders black forever. Wait for a real height first.
+      for (let tries = 0; tries < 20 && containerRef.current.clientHeight < 40; tries++) {
+        await new Promise((r) => requestAnimationFrame(r));
+        if (cancelled || !containerRef.current) return;
+      }
+
       mapboxgl.accessToken = TOKEN!;
-      // Cap the device pixel ratio (same rule as the gesture canvas): a
-      // full 3D globe at 2x retina is ~78% more pixels for no visible
-      // gain in a glowing holo tab.
-      map = new mapboxgl.Map({
-        container: containerRef.current,
-        style: "mapbox://styles/mapbox/satellite-streets-v12",
-        center: [lng, lat],
-        zoom: 1.35, // from space — the whole globe
-        pitch: 0,
-        bearing: 0,
-        projection: { name: "globe" },
-        antialias: false,
-        attributionControl: false,
-        interactive: true,
-        maxPitch: 75,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+      try {
+        map = new mapboxgl.Map({
+          container: containerRef.current,
+          style: "mapbox://styles/mapbox/satellite-streets-v12",
+          center: [lng, lat],
+          zoom: 1.35, // from space — the whole globe
+          pitch: 0,
+          bearing: 0,
+          projection: { name: "globe" },
+          antialias: false,
+          attributionControl: false,
+          interactive: true,
+          maxPitch: 75,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      } catch {
+        if (!cancelled) setPhase("error"); // WebGL context creation failed
+        return;
+      }
 
       map.on("style.load", () => {
         // Atmosphere halo — the blue rim of Earth from orbit.
@@ -129,6 +149,13 @@ export default function MapGlobe({ place }: { place: string }) {
       map.on("load", () => {
         if (cancelled) return;
         setPhase("diving");
+        // RESIZE KICKS — the cure for the black globe. Force Mapbox to
+        // re-measure the (now fully laid-out) container at load and a
+        // couple beats after, so it can't stay stuck on a stale 0-size.
+        const kick = () => { try { map.resize(); } catch { /* gone */ } };
+        kick();
+        window.setTimeout(kick, 120);
+        window.setTimeout(kick, 400);
         // Amber pin at the target.
         try {
           new mapboxgl.Marker({ color: "#ffcf40" }).setLngLat([lng, lat]).addTo(map);
