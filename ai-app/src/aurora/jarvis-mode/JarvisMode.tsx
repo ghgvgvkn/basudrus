@@ -501,7 +501,10 @@ export function JarvisMode({
   /** Chooser carousel: scroll (swipe / arrow buttons) and pick. Picking
    *  transforms the chooser IN PLACE into the chosen tab — same id,
    *  same position — except PDF, which opens the file picker. */
-  const cycleChooser = useCallback((id: number, dir: number) => {
+  // `delta` may be ±1, ±2, ±3 (velocity-proportional flick). Wrap
+  // robustly for any magnitude.
+  const cycleChooser = useCallback((id: number, delta: number) => {
+    const n = CHOOSER_OPTIONS.length;
     setWindows((ws) =>
       ws.map((w) =>
         w.id === id && w.payload.kind === "chooser"
@@ -509,7 +512,7 @@ export function JarvisMode({
               ...w,
               payload: {
                 kind: "chooser",
-                index: (w.payload.index + dir + CHOOSER_OPTIONS.length) % CHOOSER_OPTIONS.length,
+                index: (((w.payload.index + delta) % n) + n) % n,
               },
             }
           : w,
@@ -1233,11 +1236,15 @@ export function JarvisMode({
         case "finger-swipe": {
           // TWO-FINGER FLICK (founder's photo): the dedicated chooser-
           // scroll gesture — index+middle out, flick left or right.
+          // `steps` (1-3) is velocity-proportional — a harder flick
+          // scrolls further, momentum-style.
           const chooser = [...windowsRef.current].reverse().find((w) => w.payload.kind === "chooser");
           if (chooser) {
             // Flick left → the next option slides in from the right.
-            cycleChooser(chooser.id, e.dir === -1 ? 1 : -1);
-            blip(980, 50, 0.04);
+            const delta = (e.dir === -1 ? 1 : -1) * (e.steps || 1);
+            cycleChooser(chooser.id, delta);
+            // Pitch rises with the jump size — tactile momentum feedback.
+            blip(900 + (e.steps || 1) * 110, 50, 0.04);
           }
           break;
         }

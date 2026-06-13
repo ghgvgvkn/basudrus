@@ -1067,19 +1067,19 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
 /* Scroll animation — the chosen card slides in from the side the
    flick came from (transform/opacity only, composited). */
 .jarvis-chooser-card.slide-fwd {
-  animation: jarvis-chooser-fwd 0.22s ease-out;
+  animation: jarvis-chooser-fwd 0.15s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .jarvis-chooser-card.slide-back {
-  animation: jarvis-chooser-back 0.22s ease-out;
+  animation: jarvis-chooser-back 0.15s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 @keyframes jarvis-chooser-fwd {
-  from { opacity: 0.15; transform: translateX(32px); }
+  from { opacity: 0.2; transform: translateX(26px); }
 }
 @keyframes jarvis-chooser-back {
-  from { opacity: 0.15; transform: translateX(-32px); }
+  from { opacity: 0.2; transform: translateX(-26px); }
 }
 .jarvis-chooser-dots i {
-  transition: background 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.14s ease, box-shadow 0.14s ease;
 }
 
 .jarvis-chooser-card:hover {

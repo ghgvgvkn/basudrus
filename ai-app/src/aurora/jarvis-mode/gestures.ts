@@ -84,7 +84,7 @@ export type GestureEvent =
   /** TWO-FINGER FLICK (founder's photo: index+middle out, rest
    *  curled, quick horizontal sweep). dir -1 = left, 1 = right.
    *  Drives the chooser carousel. */
-  | { type: "finger-swipe"; hand: HandId; dir: -1 | 1 }
+  | { type: "finger-swipe"; hand: HandId; dir: -1 | 1; steps: number }
   | { type: "fist-open"; hand: HandId }
   /** Open palm held STILL facing the camera → quick menu at the palm
    *  (North Star "virtual wearables" style). */
@@ -138,10 +138,18 @@ export const FSWIPE_DOMINANCE = 0.85;
  *  blurs the fingers into a thumb-index "pinch", which grabbed the
  *  tab and dragged it — founder: "it's moving the whole tab". */
 export const FSWIPE_PINCH_GUARD_MS = 220;
-/** Consecutive qualifying frames before the flick fires. */
-export const FSWIPE_FRAMES = 2;
-/** Min ms between flicks per hand. */
-export const FSWIPE_COOLDOWN_MS = 550;
+/** EDGE-TRIGGERED flick: fires the instant fingertip speed crosses
+ *  FSWIPE_SPEED (no per-frame wait → no lag), then must slow below
+ *  the re-arm line before it can fire again (can't machine-gun). */
+export const FSWIPE_REARM_SPEED = 0.38;
+/** Tiny debounce so one physical flick can't double-fire. Much
+ *  shorter than the old 550ms cooldown — rapid flicks register. */
+export const FSWIPE_MIN_GAP_MS = 120;
+/** VELOCITY-PROPORTIONAL scroll (momentum): a flick this many ×
+ *  FSWIPE_SPEED jumps 2 options; double that jumps 3. A hard flick
+ *  crosses the carousel in one motion instead of N gated flicks. */
+export const FSWIPE_STEP2_MULT = 2.0;
+export const FSWIPE_STEP3_MULT = 3.2;
 /** Cursor smoothing is SPEED-ADAPTIVE (1€-filter style): a slow hand
  *  gets heavy smoothing (steady, no jitter) while a fast hand gets
  *  almost none — so a grabbed tab keeps up with a fast throw instead
@@ -267,8 +275,7 @@ interface PerHand {
   rt: number;
   swipeFramesLeft: number; // consecutive frames qualifying leftward
   swipeFramesRight: number;
-  fswipeLeft: number; // two-finger flick frame counters
-  fswipeRight: number;
+  fswipeArmed: boolean; // edge-trigger: ready for a new flick
   lastFSwipeT: number;
   twoFingerLastT: number; // last time the two-finger pose was seen
   fvx: number; // fingertip (index+middle midpoint) velocity EMA
@@ -321,8 +328,7 @@ function freshHand(): PerHand {
     swipeFramesLeft: 0,
     swipeFramesRight: 0,
     lastSwipeT: -1e9,
-    fswipeLeft: 0,
-    fswipeRight: 0,
+    fswipeArmed: true,
     lastFSwipeT: -1e9,
     twoFingerLastT: -1e9,
     fvx: 0,
@@ -498,8 +504,8 @@ export class GestureEngine {
         const tipY = (hand.landmarks[8].y + hand.landmarks[12].y) / 2;
         if (s.fpt >= 0 && t > s.fpt) {
           const fdt = (t - s.fpt) / 1000;
-          s.fvx += 0.6 * ((tipX - s.fpx) / fdt - s.fvx);
-          s.fvy += 0.6 * ((tipY - s.fpy) / fdt - s.fvy);
+          s.fvx += 0.7 * ((tipX - s.fpx) / fdt - s.fvx);
+          s.fvy += 0.7 * ((tipY - s.fpy) / fdt - s.fvy);
         }
         s.fpx = tipX;
         s.fpy = tipY;
@@ -600,26 +606,28 @@ export class GestureEngine {
         s.swipeFramesRight = 0;
       }
 
-      // ── Two-finger flick: the dedicated carousel-scroll gesture.
-      //    FINGERTIP velocity with horizontal dominance — palm speed
-      //    misses wrist flicks entirely. ──
-      const fHoriz = Math.abs(s.fvx) > FSWIPE_DOMINANCE * Math.abs(s.fvy);
-      if (warm && twoFinger && fHoriz) {
-        s.fswipeLeft = s.fvx < -FSWIPE_SPEED ? s.fswipeLeft + 1 : 0;
-        s.fswipeRight = s.fvx > FSWIPE_SPEED ? s.fswipeRight + 1 : 0;
-      } else {
-        s.fswipeLeft = 0;
-        s.fswipeRight = 0;
-      }
-      if (s.fswipeLeft >= FSWIPE_FRAMES && t - s.lastFSwipeT > FSWIPE_COOLDOWN_MS) {
-        events.push({ type: "finger-swipe", hand: hand.id, dir: -1 });
+      // ── Two-finger flick: edge-triggered, velocity-proportional
+      //    carousel scroll. Fingertip velocity (palm speed misses
+      //    wrist flicks); fires on the LEADING edge so there's no
+      //    per-frame lag; harder flick = more steps. ──
+      const fSpeed = Math.abs(s.fvx);
+      const fHoriz = fSpeed > FSWIPE_DOMINANCE * Math.abs(s.fvy);
+      if (
+        warm &&
+        twoFinger &&
+        fHoriz &&
+        s.fswipeArmed &&
+        fSpeed > FSWIPE_SPEED &&
+        t - s.lastFSwipeT > FSWIPE_MIN_GAP_MS
+      ) {
+        const ratio = fSpeed / FSWIPE_SPEED;
+        const steps = ratio > FSWIPE_STEP3_MULT ? 3 : ratio > FSWIPE_STEP2_MULT ? 2 : 1;
+        events.push({ type: "finger-swipe", hand: hand.id, dir: s.fvx < 0 ? -1 : 1, steps });
         s.lastFSwipeT = t;
-        s.fswipeLeft = 0;
-      } else if (s.fswipeRight >= FSWIPE_FRAMES && t - s.lastFSwipeT > FSWIPE_COOLDOWN_MS) {
-        events.push({ type: "finger-swipe", hand: hand.id, dir: 1 });
-        s.lastFSwipeT = t;
-        s.fswipeRight = 0;
+        s.fswipeArmed = false; // must slow down before the next flick
       }
+      // Re-arm once the fingertips settle back toward rest.
+      if (fSpeed < FSWIPE_REARM_SPEED) s.fswipeArmed = true;
 
       // ── Fist → open: crush-and-release closes the open page view ──
       // Uses the pose computed ABOVE the pinch machine (a real fist's
