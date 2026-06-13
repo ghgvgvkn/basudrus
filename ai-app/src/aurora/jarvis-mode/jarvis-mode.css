@@ -918,13 +918,117 @@ body.aurora-jarvis-mode .aurora-app .aurora-stage-text-wrap {
   overflow: hidden;
   background: #02060e;
 }
-/* Auto-opened map = presentation size: a big globe so it reads on
+/* Auto-opened map = presentation size: a big screen so it reads on
    camera (founder: "a very large screen, not small ones"). */
 .jarvis-win-map.is-expanded {
   width: min(58vw, 840px);
 }
-.jarvis-win-map.is-expanded .jarvis-globe {
+.jarvis-win-map.is-expanded .jarvis-globe,
+.jarvis-win-map.is-expanded .jarvis-dive {
   height: 62vh;
+}
+
+/* ── MAP DIVE (static-image cinematic dive — reliable, no WebGL) ──
+   Three satellite frames at rising zoom + tilt, crossfaded with a slow
+   push so it reads as flying down from orbit to the ground. */
+.jarvis-dive {
+  position: relative;
+  width: 100%;
+  height: 52vh;
+  border: 1px solid rgba(64, 224, 255, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  background: #02060e;
+}
+.jarvis-dive-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  will-change: opacity, transform;
+}
+/* 7s dive: orbit (f0) → approach (f1) → ground (f2), each fading in
+   over the last with a gentle zoom push; the ground frame holds. */
+.jarvis-dive-frame.f0 { animation: jarvis-dive0 7s ease-in-out forwards; }
+.jarvis-dive-frame.f1 { animation: jarvis-dive1 7s ease-in-out forwards; }
+.jarvis-dive-frame.f2 { animation: jarvis-dive2 7s ease-in-out forwards; }
+@keyframes jarvis-dive0 {
+  0% { opacity: 1; transform: scale(1); }
+  30% { opacity: 1; }
+  42% { opacity: 0; transform: scale(1.12); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+@keyframes jarvis-dive1 {
+  0% { opacity: 0; transform: scale(1); }
+  30% { opacity: 0; }
+  42% { opacity: 1; }
+  68% { opacity: 1; }
+  80% { opacity: 0; transform: scale(1.12); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+@keyframes jarvis-dive2 {
+  0% { opacity: 0; transform: scale(1); }
+  68% { opacity: 0; }
+  80% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1.05); }
+}
+/* Ring + pin appear once the dive lands (~5.6s into the 7s sequence). */
+.jarvis-dive-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border: 2px solid rgba(255, 176, 64, 0.85);
+  border-radius: 50%;
+  opacity: 0;
+  animation: jarvis-geo-pulse 1.7s ease-out 5.6s infinite;
+  pointer-events: none;
+}
+.jarvis-dive-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255, 208, 96, 0.95);
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255, 176, 64, 0.7);
+  opacity: 0;
+  animation: jarvis-dive-mark-in 0.6s ease 5.6s forwards;
+  pointer-events: none;
+}
+@keyframes jarvis-dive-mark-in { to { opacity: 1; } }
+.jarvis-dive-callout {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.jarvis-dive-callout i {
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(255, 207, 64, 0.9);
+  background: rgba(255, 207, 64, 0.5);
+}
+.jarvis-dive-callout span {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.8);
+  padding-bottom: 1px;
+  text-shadow: 0 0 12px rgba(64, 224, 255, 0.8);
 }
 .jarvis-globe-canvas {
   position: absolute;

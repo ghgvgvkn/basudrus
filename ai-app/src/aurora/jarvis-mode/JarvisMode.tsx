@@ -34,9 +34,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { fetchMapboxFlyImages, type MapboxFlyImages, type ParsedMessage } from "../auroraVisuals";
 import { renderMarkdown } from "../auroraMarkdown";
 
-// The real 3D globe (Mapbox GL / WebGL) is code-split: the heavy lib
-// only downloads the first time a map tab is opened big.
-const MapGlobe = lazy(() => import("./MapGlobe"));
+// The expanded map dive. Static-image cinematic dive (MapDive) is the
+// reliable default — the WebGL globe rendered black on weak hardware.
+// Lazy so it still code-splits out of the main bundle.
+const MapDive = lazy(() => import("./MapDive"));
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
 import type { ViewerHandCursor } from "../../jarvis/explode";
@@ -2314,8 +2315,8 @@ function MapTabContent({
   // below stays on the cheap static image.
   if (expanded && place) {
     return (
-      <Suspense fallback={<div className="jarvis-map-status">SUMMONING GLOBE…</div>}>
-        <MapGlobe place={place} />
+      <Suspense fallback={<div className="jarvis-map-status">SUMMONING MAP…</div>}>
+        <MapDive place={place} />
       </Suspense>
     );
   }
