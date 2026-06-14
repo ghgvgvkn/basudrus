@@ -2349,9 +2349,9 @@ body.aurora-rail-hidden .aurora-chat-rail {
   min-height: 54px;
   padding: 11px;
   border-radius: 14px;
-  background: #FFFFFF;
-  border: 1px solid #D1D0D0;
-  box-shadow: 0 4px 12px rgba(92,78,78,0.10);
+  background: #D1D0D0;
+  border: 1px solid rgba(92,78,78,0.22);
+  box-shadow: 0 4px 12px rgba(92,78,78,0.12);
   color: #000000;
   font-size: 12.5px;
   font-weight: 600;
@@ -2368,7 +2368,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   text-overflow: ellipsis;
 }
 .aurora-app .aurora-rail-tool:hover:not(:disabled) {
-  background: #F4F2F2;
+  background: #C7C5C5;
   border-color: #988686;
   transform: translateY(-2px);
 }
@@ -3662,8 +3662,8 @@ body.aurora-theme-bright .aurora-app .aurora-logo-mark .aurora-pip {
 
 /* Composer */
 body.aurora-theme-bright .aurora-app .aurora-chat-bar {
-  background: rgba(255,255,255,0.70);
-  border-color: rgba(var(--aurora-ink-rgb),0.14);
+  background: #D1D0D0;
+  border-color: rgba(92,78,78,0.30);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
     inset 0 -0.5px 0 rgba(var(--aurora-ink-rgb),0.06),
@@ -3671,8 +3671,8 @@ body.aurora-theme-bright .aurora-app .aurora-chat-bar {
     0 4px 12px rgba(var(--aurora-shadow-rgb),0.08);
 }
 body.aurora-theme-bright.aurora-typing .aurora-app .aurora-chat-bar {
-  background: rgba(255,255,255,0.85);
-  border-color: rgba(var(--aurora-accent-rgb),0.45);
+  background: #DAD9D9;
+  border-color: rgba(92,78,78,0.55);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,1),
     0 22px 60px rgba(var(--aurora-shadow-rgb),0.16),
@@ -3694,12 +3694,9 @@ body.aurora-theme-bright .aurora-app .aurora-cam-btn {
 /* Widgets + history rail */
 body.aurora-theme-bright .aurora-app .aurora-widget,
 body.aurora-theme-bright .aurora-app .aurora-rail-card {
-  background: rgba(255,255,255,0.75);
-  border-color: rgba(var(--aurora-ink-rgb),0.10);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.95),
-    0 12px 36px rgba(var(--aurora-shadow-rgb),0.10),
-    0 2px 8px rgba(var(--aurora-shadow-rgb),0.06);
+  background: #D1D0D0;
+  border-color: rgba(92,78,78,0.22);
+  box-shadow: 0 6px 18px rgba(92,78,78,0.10);
 }
 body.aurora-theme-bright .aurora-app .aurora-new-chat {
   background: linear-gradient(135deg, var(--aurora-accent-glow), var(--aurora-accent));
@@ -3717,18 +3714,17 @@ body.aurora-theme-bright .aurora-app .aurora-footer-info {
 /* Telemetry blocks — bright re-skin: white glass, ink text, accent
    ticks. The asymmetric geometry comes from the base rules. */
 body.aurora-theme-bright .aurora-app .aurora-msg .aurora-bubble {
-  background: rgba(255,255,255,0.66);
-  border-color: rgba(var(--aurora-ink-rgb),0.16);
+  background: #D1D0D0;
+  border-color: rgba(92,78,78,0.22);
   color: var(--aurora-text-primary);
-  box-shadow:
-    inset 0 0.5px 0 rgba(255,255,255,0.9),
-    0 10px 30px rgba(var(--aurora-shadow-rgb),0.10);
+  box-shadow: 0 6px 18px rgba(92,78,78,0.10);
 }
 body.aurora-theme-bright .aurora-app .aurora-msg.aurora-user .aurora-bubble {
-  background: var(--aurora-user-bubble);
+  background: #5C4E4E;
+  color: #FFFFFF;
 }
 body.aurora-theme-bright .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble {
-  background: rgba(255,255,255,0.66);
+  background: #D1D0D0;
 }
 body.aurora-theme-bright .aurora-app .aurora-msg.aurora-ai.aurora-typing .aurora-bubble i,
 body.aurora-theme-bright .aurora-app .aurora-bubble.aurora-typing-bubble i {
