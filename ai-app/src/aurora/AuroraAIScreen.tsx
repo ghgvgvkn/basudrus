@@ -2619,17 +2619,21 @@ export function AuroraAIScreen() {
           </button>
         )}
         <aside className="aurora-chat-rail">
+          {/* MODES + SHORTCUTS (founder's sketch) — the entry modes and
+              feature boxes live in the rail (where history is), matching
+              the rail-card sizing. Not-yet-built tools are placeholder
+              boxes for now, to be wired later. */}
           <div className="aurora-rail-card">
             <h3>
-              <span>Conversations</span>
+              <span>Tony</span>
               <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span className="aurora-count">{tutorSessions.length}</span>
                 <button
                   className="aurora-rail-close"
                   type="button"
                   onClick={() => setRailHidden(true)}
-                  title="Hide history"
-                  aria-label="Hide conversation history"
+                  title="Hide panel"
+                  aria-label="Hide side panel"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M15 6l-6 6 6 6" />
@@ -2637,12 +2641,51 @@ export function AuroraAIScreen() {
                 </button>
               </span>
             </h3>
+            <div className="aurora-rail-modes">
+              <button type="button" className="aurora-rail-mode" onClick={() => { void enterJarvis(); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </svg>
+                <span>Camera mode</span>
+              </button>
+              <button type="button" className="aurora-rail-mode" onClick={() => { void toggleVoiceMode(); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </svg>
+                <span>Voice command</span>
+              </button>
+            </div>
             <button className="aurora-new-chat" type="button" onClick={newChat}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
               New conversation
             </button>
+          </div>
+
+          {/* SHORTCUT BOXES — placeholders for features not built yet
+              (founder: "keep them as a box, redesign later"). The map +
+              quiz ones fire a real prompt today; exercise / AI bank /
+              hangouts are stubs that say "coming soon". */}
+          <div className="aurora-rail-card">
+            <h3><span>Shortcuts</span></h3>
+            <div className="aurora-rail-boxes">
+              <button type="button" className="aurora-rail-box" onClick={() => { void runSendForText("Show me a place on the map"); }}>
+                Map a place
+              </button>
+              <button type="button" className="aurora-rail-box" onClick={() => { void runSendForText("Quiz me on something I'm studying"); }}>
+                Quiz me
+              </button>
+              <button type="button" className="aurora-rail-box is-soon" disabled title="Coming soon">
+                Exercise<span className="aurora-soon">soon</span>
+              </button>
+              <button type="button" className="aurora-rail-box is-soon" disabled title="Coming soon">
+                AI Bank<span className="aurora-soon">soon</span>
+              </button>
+              <button type="button" className="aurora-rail-box is-soon" disabled title="Coming soon">
+                Hangouts<span className="aurora-soon">soon</span>
+              </button>
+            </div>
           </div>
           <div
             className="aurora-rail-card"
@@ -2720,52 +2763,6 @@ export function AuroraAIScreen() {
 
         {/* CHAT THREAD */}
         <div className="aurora-chat-thread" ref={threadRef}>
-          {/* HOME LAUNCHER (founder's sketch placement): on an empty
-              thread, lead with the two entry MODES (camera + voice) and
-              a cluster of starter prompts — so the camera/voice aren't
-              buried in the bottom bar and Tony's range is discoverable.
-              Disappears the moment a conversation starts. */}
-          {messages.length === 0 && !loading && (
-            <div className="aurora-launch">
-              <div className="aurora-launch-head">
-                <span className="aurora-launch-hi">Tony Starrk</span>
-                <span className="aurora-launch-sub">your AI — talk, show, or just ask</span>
-              </div>
-              <div className="aurora-launch-modes">
-                <button type="button" className="aurora-mode-tile" onClick={() => { void enterJarvis(); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                  </svg>
-                  <span className="aurora-mode-name">Camera mode</span>
-                  <span className="aurora-mode-desc">control Tony with your hands</span>
-                </button>
-                <button type="button" className="aurora-mode-tile" onClick={() => { void toggleVoiceMode(); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-                  </svg>
-                  <span className="aurora-mode-name">Voice command</span>
-                  <span className="aurora-mode-desc">just speak — Tony talks back</span>
-                </button>
-              </div>
-              <div className="aurora-launch-chips">
-                {[
-                  "Take me to Tokyo on the map",
-                  "Find good places to hang out near me",
-                  "Quiz me on something I'm studying",
-                  "Plan a workout for this week",
-                ].map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    className="aurora-launch-chip"
-                    onClick={() => { void runSendForText(q); }}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           {messages.map((m) => (
             <div
               key={m.id}
