@@ -2134,6 +2134,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   bottom: 110px;
   left: 28px;
   width: 248px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2141,6 +2142,15 @@ body.aurora-rail-hidden .aurora-chat-rail {
   animation: aurora-fadeIn 1.4s 0.9s forwards;
   transition: transform 400ms cubic-bezier(.2,.7,.2,1), opacity 360ms;
   z-index: 4;
+  /* Nothing in the rail may bleed into the chat — clip + scroll. This
+     is what stops the tool boxes overflowing across the thread. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.aurora-app .aurora-chat-rail::-webkit-scrollbar { width: 4px; }
+.aurora-app .aurora-chat-rail::-webkit-scrollbar-thumb {
+  background: rgba(14,22,34,0.2);
+  border-radius: 4px;
 }
 /* Apple Liquid Glass rail cards — same recipe as the widgets and
    chat bar. Frosted bright glass with luminous edges. Founder
@@ -2316,33 +2326,48 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-rail-tools {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  /* minmax(0,1fr) — NOT 1fr — so a box's content can never push its
+     track wider than half the rail (the overflow that smeared boxes
+     across the chat). */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
   flex-shrink: 0;
 }
-/* each box: its own border + fill + radius (its own "side and edge") */
+/* each box: its own border + fill + radius (its own "side and edge"),
+   strictly clamped so it stays inside its grid track. */
 .aurora-app .aurora-rail-tool {
   position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 6px;
-  min-height: 60px;
-  padding: 13px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.22);
+  gap: 5px;
+  min-height: 54px;
+  padding: 11px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.24);
   border: 0.5px solid rgba(255,255,255,0.55);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.6),
-    0 8px 22px rgba(0,0,0,0.28);
+    0 6px 16px rgba(0,0,0,0.22);
   color: #0E1622;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
   text-align: left;
   font-family: 'Urbanist', sans-serif;
   transition: background 160ms, transform 160ms, border-color 160ms;
+}
+.aurora-app .aurora-rail-tool > span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .aurora-app .aurora-rail-tool:hover:not(:disabled) {
   background: rgba(255,255,255,0.4);
