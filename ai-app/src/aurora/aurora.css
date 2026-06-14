@@ -1831,10 +1831,18 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
 /* ── Chat thread ────────────────────────────────────────────────── */
 .aurora-app .aurora-chat-thread {
   position: absolute;
-  left: 50%;
+  /* Aligned with the composer (.aurora-chat-bar), which is shifted
+     +170px right to clear the 360px rail. Without this match, the
+     conversation rendered centered at the true 50% — 170px to the
+     LEFT of the typing bar + its mic/cam circles. Now the thread sits
+     directly above the composer. translateX(-50%) preserved so the
+     voice-mode morph + rise animations still work; width uses the same
+     `100% - 440px` rail clearance the composer uses so it never slides
+     under the rail. */
+  left: calc(50% + 170px);
   bottom: 110px;
   transform: translateX(-50%);
-  width: min(780px, calc(100% - 56px));
+  width: min(780px, calc(100% - 440px));
   max-height: calc(100vh - 280px);
   display: flex;
   flex-direction: column;
@@ -2938,6 +2946,18 @@ body.aurora-rail-hidden .aurora-chat-rail {
   }
   .aurora-app .aurora-top-right .aurora-pro-pill {
     display: none;
+  }
+  /* The rail is gone at this width, so the +170px right shift that
+     cleared it now just pushes things off-center. Re-center the
+     composer AND the thread together (still aligned with each other)
+     and let them use the full width. */
+  .aurora-app .aurora-chat-bar {
+    left: 50%;
+    width: min(720px, calc(100% - 40px));
+  }
+  .aurora-app .aurora-chat-thread {
+    left: 50%;
+    width: min(780px, calc(100% - 40px));
   }
 }
 
