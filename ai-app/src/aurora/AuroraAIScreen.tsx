@@ -2656,8 +2656,27 @@ export function AuroraAIScreen() {
               className="aurora-rail-tool aurora-rail-tool-wide"
               onClick={() => { void runSendForText("Be the impartial judge between two people — I'll give you both sides, you call it fair."); }}
             >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v18M7 21h10M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+                <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+                <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+              </svg>
               <span>AI Judge</span>
               <small>settle it between 2 people</small>
+            </button>
+            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 20 7 4 7" /><line x1="3" y1="22" x2="21" y2="22" />
+                <line x1="6" y1="18" x2="6" y2="11" /><line x1="10" y1="18" x2="10" y2="11" />
+                <line x1="14" y1="18" x2="14" y2="11" /><line x1="18" y1="18" x2="18" y2="11" />
+              </svg>
+              <span>AI Bank</span><i className="aurora-soon">soon</i>
+            </button>
+            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6.5 6.5 11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M3 10l7-7M14 21l7-7" />
+              </svg>
+              <span>AI Exercise</span><i className="aurora-soon">soon</i>
             </button>
             <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newchat" onClick={newChat}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -2667,8 +2686,8 @@ export function AuroraAIScreen() {
             </button>
           </div>
           <div
-            className="aurora-rail-card"
-            style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, paddingBottom: "8px" }}
+            className="aurora-rail-card aurora-rail-history"
+            style={{ marginTop: "auto", display: "flex", flexDirection: "column", minHeight: 0, paddingBottom: "8px" }}
           >
             <h3>
               <span>History</span>

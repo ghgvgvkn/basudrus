@@ -2428,13 +2428,26 @@ body.aurora-rail-hidden .aurora-chat-rail {
 .aurora-app .aurora-widgets {
   position: absolute;
   top: 80px;
-  right: 28px;
+  /* Founder: move the two widgets to the LEFT — just past the 248px
+     rail (left:28 + 248 + 16 gap), clear of the centered chat. */
+  left: 292px;
   display: flex;
   gap: 12px;
   opacity: 0;
   animation: aurora-fadeIn 1.4s 0.7s forwards;
   transition: opacity 400ms;
   z-index: 2;
+}
+/* History sits small at the very end of the rail (founder: "really
+   small at the end") — the tool boxes take the top, history is a short
+   scrolling footer. */
+.aurora-app .aurora-rail-history {
+  flex: 0 0 auto;
+  max-height: 150px;
+}
+.aurora-app .aurora-rail-history .aurora-history {
+  max-height: 96px;
+  overflow-y: auto;
 }
 /* Apple Liquid Glass widget — frosted bright surface that feels like
    iOS 18 / macOS 15 control center tiles. Way whiter than the
