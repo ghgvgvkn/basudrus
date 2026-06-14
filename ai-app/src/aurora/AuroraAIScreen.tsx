@@ -2653,7 +2653,7 @@ export function AuroraAIScreen() {
             </button>
             <button
               type="button"
-              className="aurora-rail-tool aurora-rail-tool-wide"
+              className="aurora-rail-tool"
               onClick={() => { void runSendForText("Be the impartial judge between two people — I'll give you both sides, you call it fair."); }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2662,7 +2662,7 @@ export function AuroraAIScreen() {
                 <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
               </svg>
               <span>AI Judge</span>
-              <small>settle it between 2 people</small>
+              <small>between 2 people</small>
             </button>
             <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2687,7 +2687,7 @@ export function AuroraAIScreen() {
             {/* NEW WIDGET — founder's annotated button. Full-width dashed
                 "add" affordance for spinning up a custom box; the widget
                 builder isn't wired yet, so it's a placeholder for now. */}
-            <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newwidget" disabled title="Coming soon">
+            <button type="button" className="aurora-rail-tool is-newwidget" disabled title="Coming soon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
                 <rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M17.5 14.5v6M14.5 17.5h6" />
