@@ -2659,21 +2659,6 @@ export function AuroraAIScreen() {
               <span>AI Judge</span>
               <small>settle it between 2 people</small>
             </button>
-            <button type="button" className="aurora-rail-tool" onClick={() => { void runSendForText("Show me a place on the map"); }}>
-              <span>Map a place</span>
-            </button>
-            <button type="button" className="aurora-rail-tool" onClick={() => { void runSendForText("Quiz me on something I'm studying"); }}>
-              <span>Quiz me</span>
-            </button>
-            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
-              <span>Exercise</span><i className="aurora-soon">soon</i>
-            </button>
-            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
-              <span>AI Bank</span><i className="aurora-soon">soon</i>
-            </button>
-            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
-              <span>Hangouts</span><i className="aurora-soon">soon</i>
-            </button>
             <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newchat" onClick={newChat}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <path d="M12 5v14M5 12h14" />
