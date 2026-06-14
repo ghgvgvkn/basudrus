@@ -2684,6 +2684,16 @@ export function AuroraAIScreen() {
               </svg>
               <span>New conversation</span>
             </button>
+            {/* NEW WIDGET — founder's annotated button. Full-width dashed
+                "add" affordance for spinning up a custom box; the widget
+                builder isn't wired yet, so it's a placeholder for now. */}
+            <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newwidget" disabled title="Coming soon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M17.5 14.5v6M14.5 17.5h6" />
+              </svg>
+              <span>New widget</span><i className="aurora-soon">soon</i>
+            </button>
           </div>
           <div
             className="aurora-rail-card aurora-rail-history"

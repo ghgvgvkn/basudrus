@@ -2407,6 +2407,24 @@ body.aurora-rail-hidden .aurora-chat-rail {
   color: #fff;
 }
 .aurora-app .aurora-rail-tool.is-newchat svg { color: #fff; }
+/* New widget — dashed "add" affordance, distinct from the solid
+   New-conversation box; light-gray field so the dashed taupe edge reads. */
+.aurora-app .aurora-rail-tool.is-newwidget {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+  background: #D1D0D0;
+  border: 1.5px dashed #988686;
+  color: #5C4E4E;
+  opacity: 1;
+}
+.aurora-app .aurora-rail-tool.is-newwidget svg { color: #5C4E4E; }
+.aurora-app .aurora-rail-tool.is-newwidget .aurora-soon {
+  position: static;
+  margin-left: 2px;
+}
 .aurora-app .aurora-rail-tool.is-soon {
   cursor: default;
   opacity: 0.5;
