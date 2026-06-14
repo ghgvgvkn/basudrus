@@ -2455,6 +2455,30 @@ body.aurora-rail-hidden .aurora-chat-rail {
   transition: opacity 400ms;
   z-index: 2;
 }
+/* Stat widgets moved INTO the rail column (founder): in-flow, a tidy
+   2-col pair sitting under the tool boxes. Overrides the old absolute
+   top-right/left positioning. */
+.aurora-app .aurora-widgets.aurora-widgets-inrail {
+  position: static;
+  left: auto;
+  top: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  flex-shrink: 0;
+  animation: none;
+  opacity: 1;
+}
+.aurora-app .aurora-widgets-inrail .aurora-widget {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px;
+}
+.aurora-app .aurora-widgets-inrail .aurora-w-big {
+  font-size: 30px;
+}
+
 /* History sits small at the very end of the rail (founder: "really
    small at the end") — the tool boxes take the top, history is a short
    scrolling footer. */

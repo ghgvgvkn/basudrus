@@ -2695,6 +2695,31 @@ export function AuroraAIScreen() {
               <span>New widget</span><i className="aurora-soon">soon</i>
             </button>
           </div>
+          {/* The two stat widgets now live IN the rail column with the
+              boxes (founder: move them in with everything else). */}
+          <section className="aurora-widgets aurora-widgets-inrail">
+            <div className="aurora-widget aurora-w-quota">
+              <div className="aurora-w-label">
+                <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#988686", marginRight: "4px" }} />
+                Today · Tony
+              </div>
+              <div className="aurora-w-big">{isPro ? "∞" : (quotaCurrent ?? 0)}</div>
+              <div className="aurora-w-sub">{isPro ? "Pro — unlimited" : `of ${quotaCap ?? 0} left`}</div>
+              {!isPro && quotaCap && quotaCap > 0 && (
+                <div className="aurora-w-bar">
+                  <div className="aurora-w-bar-fill" style={{ width: `${Math.max(0, Math.min(100, ((quotaCurrent ?? 0) / quotaCap) * 100))}%` }} />
+                </div>
+              )}
+            </div>
+            <div className="aurora-widget aurora-w-streak">
+              <div className="aurora-w-label">
+                <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#5C4E4E", marginRight: "4px" }} />
+                Study streak
+              </div>
+              <div className="aurora-w-big">{streak.loading ? "—" : streak.current}</div>
+              <div className="aurora-w-sub">{streak.current === 1 ? "day" : "days"} · best {streak.longest}</div>
+            </div>
+          </section>
           <div
             className="aurora-rail-card aurora-rail-history"
             style={{ marginTop: "auto", display: "flex", flexDirection: "column", minHeight: 0, paddingBottom: "8px" }}
@@ -2722,52 +2747,6 @@ export function AuroraAIScreen() {
         </>
         )}
 
-        {/* TOP WIDGET SHELF — Quota + Streak (authed only). Anonymous
-            visitors see clean chrome; widgets appear after sign-up. */}
-        {isAuthed && (
-        <section className="aurora-widgets">
-          {/* Today's AI quota widget — pulled from useApp().subscription */}
-          <div className="aurora-widget aurora-w-quota">
-            <div className="aurora-w-label">
-              <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#988686", marginRight: "4px" }} />
-              Today · Tony
-            </div>
-            <div className="aurora-w-big">
-              {isPro ? "∞" : (quotaCurrent ?? 0)}
-            </div>
-            <div className="aurora-w-sub">
-              {isPro ? "Pro tier — unlimited" : `of ${quotaCap ?? 0} left today`}
-            </div>
-            {!isPro && quotaCap && quotaCap > 0 && (
-              <div className="aurora-w-bar">
-                <div
-                  className="aurora-w-bar-fill"
-                  style={{ width: `${Math.max(0, Math.min(100, ((quotaCurrent ?? 0) / quotaCap) * 100))}%` }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Streak widget — pulled from useStreak */}
-          <div className="aurora-widget aurora-w-streak">
-            <div className="aurora-w-label">
-              <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#5C4E4E", marginRight: "4px" }} />
-              Study streak
-            </div>
-            <div className="aurora-w-big">
-              {streak.loading ? "—" : streak.current}
-            </div>
-            <div className="aurora-w-sub">
-              {streak.current === 1 ? "day" : "days"} · best {streak.longest}
-            </div>
-            <div className="aurora-w-foot">
-              <span style={{ fontSize: "9px", letterSpacing: "0.24em", textTransform: "uppercase", fontFamily: "'Geist Mono', monospace", color: "rgba(255,255,255,0.45)" }}>
-                {streak.totalSessions} sessions
-              </span>
-            </div>
-          </div>
-        </section>
-        )}
 
         {/* CHAT THREAD */}
         <div className="aurora-chat-thread" ref={threadRef}>
