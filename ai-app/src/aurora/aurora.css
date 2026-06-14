@@ -2133,11 +2133,13 @@ body.aurora-rail-hidden .aurora-chat-rail {
   top: 80px;
   bottom: 110px;
   left: 28px;
-  width: 248px;
+  width: 264px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* Founder: let the boxes breathe — more space between them, not
+     packed together. */
+  gap: 16px;
   opacity: 0;
   animation: aurora-fadeIn 1.4s 0.9s forwards;
   transition: transform 400ms cubic-bezier(.2,.7,.2,1), opacity 360ms;
@@ -2330,7 +2332,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
      track wider than half the rail (the overflow that smeared boxes
      across the chat). */
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 11px;
   flex-shrink: 0;
 }
 /* each box: its own border + fill + radius (its own "side and edge"),
@@ -2458,13 +2460,15 @@ body.aurora-rail-hidden .aurora-chat-rail {
 /* Stat widgets moved INTO the rail column (founder): in-flow, a tidy
    2-col pair sitting under the tool boxes. Overrides the old absolute
    top-right/left positioning. */
+/* Stacked full-width so the labels never clip (the "STUDY STREAK" cut
+   the founder spotted) and each widget has room to breathe. */
 .aurora-app .aurora-widgets.aurora-widgets-inrail {
   position: static;
   left: auto;
   top: auto;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
   width: 100%;
   flex-shrink: 0;
   animation: none;
@@ -2472,8 +2476,9 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-widgets-inrail .aurora-widget {
   min-width: 0;
+  width: 100%;
   box-sizing: border-box;
-  padding: 12px;
+  padding: 14px 16px;
 }
 .aurora-app .aurora-widgets-inrail .aurora-w-big {
   font-size: 30px;
@@ -2484,10 +2489,10 @@ body.aurora-rail-hidden .aurora-chat-rail {
    scrolling footer. */
 .aurora-app .aurora-rail-history {
   flex: 0 0 auto;
-  max-height: 150px;
+  max-height: 210px;
 }
 .aurora-app .aurora-rail-history .aurora-history {
-  max-height: 96px;
+  max-height: 156px;
   overflow-y: auto;
 }
 /* Apple Liquid Glass widget — frosted bright surface that feels like
