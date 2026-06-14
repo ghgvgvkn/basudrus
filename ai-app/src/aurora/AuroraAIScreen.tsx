@@ -2720,6 +2720,52 @@ export function AuroraAIScreen() {
 
         {/* CHAT THREAD */}
         <div className="aurora-chat-thread" ref={threadRef}>
+          {/* HOME LAUNCHER (founder's sketch placement): on an empty
+              thread, lead with the two entry MODES (camera + voice) and
+              a cluster of starter prompts — so the camera/voice aren't
+              buried in the bottom bar and Tony's range is discoverable.
+              Disappears the moment a conversation starts. */}
+          {messages.length === 0 && !loading && (
+            <div className="aurora-launch">
+              <div className="aurora-launch-head">
+                <span className="aurora-launch-hi">Tony Starrk</span>
+                <span className="aurora-launch-sub">your AI — talk, show, or just ask</span>
+              </div>
+              <div className="aurora-launch-modes">
+                <button type="button" className="aurora-mode-tile" onClick={() => { void enterJarvis(); }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                  <span className="aurora-mode-name">Camera mode</span>
+                  <span className="aurora-mode-desc">control Tony with your hands</span>
+                </button>
+                <button type="button" className="aurora-mode-tile" onClick={() => { void toggleVoiceMode(); }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                  </svg>
+                  <span className="aurora-mode-name">Voice command</span>
+                  <span className="aurora-mode-desc">just speak — Tony talks back</span>
+                </button>
+              </div>
+              <div className="aurora-launch-chips">
+                {[
+                  "Take me to Tokyo on the map",
+                  "Find good places to hang out near me",
+                  "Quiz me on something I'm studying",
+                  "Plan a workout for this week",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className="aurora-launch-chip"
+                    onClick={() => { void runSendForText(q); }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {messages.map((m) => (
             <div
               key={m.id}
