@@ -2133,12 +2133,13 @@ body.aurora-rail-hidden .aurora-chat-rail {
   top: 80px;
   bottom: 110px;
   left: 28px;
-  width: 264px;
+  /* Founder: boxes should sit NEXT TO each other with room (his
+     sketch), not crammed in a narrow strip — so the panel is wide
+     enough for two real cards side by side without clipping. */
+  width: 360px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  /* Founder: let the boxes breathe — more space between them, not
-     packed together. */
   gap: 16px;
   opacity: 0;
   animation: aurora-fadeIn 1.4s 0.9s forwards;
@@ -2460,14 +2461,14 @@ body.aurora-rail-hidden .aurora-chat-rail {
 /* Stat widgets moved INTO the rail column (founder): in-flow, a tidy
    2-col pair sitting under the tool boxes. Overrides the old absolute
    top-right/left positioning. */
-/* Stacked full-width so the labels never clip (the "STUDY STREAK" cut
-   the founder spotted) and each widget has room to breathe. */
+/* Side by side (founder: "next to it, not up and down") — the wider
+   rail gives each enough room that "STUDY STREAK" no longer clips. */
 .aurora-app .aurora-widgets.aurora-widgets-inrail {
   position: static;
   left: auto;
   top: auto;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 11px;
   width: 100%;
   flex-shrink: 0;
@@ -2476,12 +2477,15 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-widgets-inrail .aurora-widget {
   min-width: 0;
-  width: 100%;
   box-sizing: border-box;
-  padding: 14px 16px;
+  padding: 14px;
 }
 .aurora-app .aurora-widgets-inrail .aurora-w-big {
   font-size: 30px;
+}
+.aurora-app .aurora-widgets-inrail .aurora-w-label {
+  letter-spacing: 0.12em;
+  white-space: nowrap;
 }
 
 /* History sits small at the very end of the rail (founder: "really
