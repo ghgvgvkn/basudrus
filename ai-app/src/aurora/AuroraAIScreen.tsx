@@ -2719,7 +2719,7 @@ export function AuroraAIScreen() {
           {/* Today's AI quota widget — pulled from useApp().subscription */}
           <div className="aurora-widget aurora-w-quota">
             <div className="aurora-w-label">
-              <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#b8f5d1", marginRight: "4px" }} />
+              <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#988686", marginRight: "4px" }} />
               Today · Tony
             </div>
             <div className="aurora-w-big">
@@ -2741,7 +2741,7 @@ export function AuroraAIScreen() {
           {/* Streak widget — pulled from useStreak */}
           <div className="aurora-widget aurora-w-streak">
             <div className="aurora-w-label">
-              <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#ff8aa6", marginRight: "4px" }} />
+              <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#5C4E4E", marginRight: "4px" }} />
               Study streak
             </div>
             <div className="aurora-w-big">

@@ -1478,7 +1478,7 @@ body.aurora-active .aurora-back-btn {
   border-radius: 50%;
   background:
     radial-gradient(circle at 30% 30%, rgba(255,138,166,0.7), rgba(196,184,255,0.3) 60%, transparent 100%),
-    linear-gradient(135deg, #ff8aa6, #c4b8ff);
+    linear-gradient(135deg, #5C4E4E, #c4b8ff);
   border: 0.5px solid rgba(255,255,255,0.24);
   box-shadow: 0 8px 24px rgba(196,184,255,0.18), inset 0 0.5px 0 rgba(255,255,255,0.3);
   display: grid;
@@ -1564,7 +1564,7 @@ body.aurora-typing .aurora-app .aurora-chat-bar {
   border-radius: 50%;
   /* Cyan core so the pip stays visible against the new bright
      Liquid Glass chat bar (was white-on-white before, invisible). */
-  background: #4a90e2;
+  background: #5C4E4E;
   box-shadow: 0 0 14px rgba(74,144,226,0.85);
   animation: aurora-breathePip 2.6s ease-in-out infinite;
 }
@@ -2283,7 +2283,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   flex-shrink: 0;
 }
 .aurora-app .aurora-h-item.aurora-h-active .aurora-dotmark {
-  background: #4a90e2;
+  background: #5C4E4E;
   box-shadow: 0 0 8px rgba(74,144,226,0.85);
 }
 .aurora-app .aurora-h-label {
@@ -2349,12 +2349,10 @@ body.aurora-rail-hidden .aurora-chat-rail {
   min-height: 54px;
   padding: 11px;
   border-radius: 14px;
-  background: rgba(255,255,255,0.24);
-  border: 0.5px solid rgba(255,255,255,0.55);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.6),
-    0 6px 16px rgba(0,0,0,0.22);
-  color: #0E1622;
+  background: #FFFFFF;
+  border: 1px solid #D1D0D0;
+  box-shadow: 0 4px 12px rgba(92,78,78,0.10);
+  color: #000000;
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1.2;
@@ -2370,18 +2368,19 @@ body.aurora-rail-hidden .aurora-chat-rail {
   text-overflow: ellipsis;
 }
 .aurora-app .aurora-rail-tool:hover:not(:disabled) {
-  background: rgba(255,255,255,0.4);
+  background: #F4F2F2;
+  border-color: #988686;
   transform: translateY(-2px);
 }
 .aurora-app .aurora-rail-tool svg {
   width: 18px;
   height: 18px;
-  color: #2b6cb0;
+  color: #5C4E4E;
 }
 .aurora-app .aurora-rail-tool small {
   font-size: 10.5px;
   font-weight: 500;
-  color: rgba(14,22,34,0.55);
+  color: #988686;
 }
 /* full-width boxes (AI Judge, New conversation) span both columns */
 .aurora-app .aurora-rail-tool-wide {
@@ -2389,22 +2388,22 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 /* the entry modes get the dark high-contrast fill (primary actions) */
 .aurora-app .aurora-rail-tool.is-mode {
-  background: rgba(14,22,34,0.85);
-  border-color: rgba(255,255,255,0.18);
+  background: #5C4E4E;
+  border-color: #5C4E4E;
   color: #fff;
 }
 .aurora-app .aurora-rail-tool.is-mode:hover {
-  background: rgba(24,38,56,0.92);
+  background: #4a3f3f;
 }
-.aurora-app .aurora-rail-tool.is-mode svg { color: #7fd8ff; }
+.aurora-app .aurora-rail-tool.is-mode svg { color: #D1D0D0; }
 .aurora-app .aurora-rail-tool.is-newchat {
   flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: 8px;
   min-height: 0;
-  background: rgba(14,22,34,0.85);
-  border-color: rgba(255,255,255,0.18);
+  background: #5C4E4E;
+  border-color: #5C4E4E;
   color: #fff;
 }
 .aurora-app .aurora-rail-tool.is-newchat svg { color: #fff; }
@@ -2525,7 +2524,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
 }
 .aurora-app .aurora-w-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #b8f5d1, #c4b8ff);
+  background: linear-gradient(90deg, #988686, #c4b8ff);
   border-radius: 2px;
   transition: width 600ms cubic-bezier(.2,.7,.2,1);
 }
@@ -2819,7 +2818,7 @@ body.aurora-rail-hidden .aurora-chat-rail {
   width: 100%;
   height: 44px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #ff8aa6 0%, #c4b8ff 100%);
+  background: linear-gradient(135deg, #5C4E4E 0%, #c4b8ff 100%);
   color: #0E1622;
   font-family: 'Urbanist', sans-serif;
   font-size: 14px;
@@ -3552,39 +3551,41 @@ body.aurora-presenting .aurora-app .aurora-infocard-hero::before {
    - body.aurora-theme-frost    → cobalt "lab monitor" tokens.
    The canvas dot field is themed in AuroraEngine (THEME_TINTS).      */
 
-/* ── Token block: STARK DAYLIGHT (gold) ── */
+/* ── Token block: STONE (founder's palette) ──
+   #000 black · #D1D0D0 light gray · #988686 mauve-gray · #5C4E4E
+   dark taupe — on a WHITE background, per the founder's spec. The
+   default "light" theme now carries this monochrome-warm palette. */
 body.aurora-theme-light .aurora-app {
-  --aurora-bg-base:      #FBFAF7;
+  --aurora-bg-base:      #FFFFFF;
   --aurora-bg-surface:   #FFFFFF;
   --aurora-bg-elevated:  #FFFFFF;
-  --aurora-text-primary:    #1A2333;
-  --aurora-text-secondary:  #5A6478;
-  --aurora-text-tertiary:   #8B94A6;
-  --aurora-text-dark:       #0E1622;
-  --aurora-accent:         #D97706;
-  --aurora-accent-glow:    #F59E0B;
-  --aurora-accent-deep:    #B45309;
-  --aurora-accent-rgb:      217,119,6;
-  --aurora-glow-rgb:        245,158,11;
-  --aurora-deep-rgb:        180,83,9;
-  --aurora-ink-rgb:         26,35,51;
-  --aurora-shadow-rgb:      86,60,10;
-  --aurora-grid-rgb:        180,130,40;
-  --aurora-tint-rgb:        205,160,70;
-  --aurora-user-bubble:     #FCF1DE;
-  --aurora-tick:            rgba(217,119,6,0.85);
-  --aurora-radar-filter:    hue-rotate(190deg) saturate(1.5) brightness(0.72);
-  --aurora-accent-08: rgba(217,119,6,0.08);
-  --aurora-accent-20: rgba(217,119,6,0.20);
-  --aurora-accent-35: rgba(217,119,6,0.35);
-  --aurora-accent-55: rgba(217,119,6,0.55);
-  --aurora-accent-75: rgba(217,119,6,0.75);
-  --aurora-state-idle:      #94A3B8;
-  --aurora-state-listening: #D97706;
-  --aurora-state-thinking:  #7C3AED;
-  --aurora-state-speaking:  #F59E0B;
-  background:
-    radial-gradient(ellipse at 50% 30%, #FFFFFF 0%, #FAF7F0 60%, #F1EBDD 100%);
+  --aurora-text-primary:    #000000;
+  --aurora-text-secondary:  #5C4E4E;
+  --aurora-text-tertiary:   #988686;
+  --aurora-text-dark:       #000000;
+  --aurora-accent:         #5C4E4E;
+  --aurora-accent-glow:    #988686;
+  --aurora-accent-deep:    #000000;
+  --aurora-accent-rgb:      92,78,78;
+  --aurora-glow-rgb:        152,134,134;
+  --aurora-deep-rgb:        0,0,0;
+  --aurora-ink-rgb:         0,0,0;
+  --aurora-shadow-rgb:      92,78,78;
+  --aurora-grid-rgb:        152,134,134;
+  --aurora-tint-rgb:        209,208,208;
+  --aurora-user-bubble:     #D1D0D0;
+  --aurora-tick:            rgba(92,78,78,0.85);
+  --aurora-radar-filter:    grayscale(1) brightness(0.8) contrast(1.05);
+  --aurora-accent-08: rgba(92,78,78,0.08);
+  --aurora-accent-20: rgba(92,78,78,0.20);
+  --aurora-accent-35: rgba(92,78,78,0.35);
+  --aurora-accent-55: rgba(92,78,78,0.55);
+  --aurora-accent-75: rgba(92,78,78,0.75);
+  --aurora-state-idle:      #988686;
+  --aurora-state-listening: #5C4E4E;
+  --aurora-state-thinking:  #5C4E4E;
+  --aurora-state-speaking:  #988686;
+  background: #FFFFFF;
 }
 
 /* ── Token block: FROSTED SILICON (cobalt) ── */

@@ -114,12 +114,14 @@ const DOT_TINTS: Record<DotTint, { fill: string; shadow: string }> = {
  * dot keeps its tint category across theme switches and only the
  * lookup table swaps.
  */
+// STONE palette (founder): warm monochrome dots that read on white —
+// mauve-gray bulk, dark-taupe punctuation. No more gold/orange.
 const DOT_TINTS_LIGHT: Record<DotTint, { fill: string; shadow: string }> = {
-  white:  { fill: "176,108,10",  shadow: "rgba(245,158,11,0.55)" },
-  pink:   { fill: "194,65,12",   shadow: "rgba(234,88,12,0.50)" },
-  cyan:   { fill: "146,64,14",   shadow: "rgba(180,83,9,0.50)" },
-  purple: { fill: "109,40,217",  shadow: "rgba(139,92,246,0.45)" },
-  gold:   { fill: "217,119,6",   shadow: "rgba(245,158,11,0.65)" },
+  white:  { fill: "152,134,134", shadow: "rgba(152,134,134,0.50)" },
+  pink:   { fill: "92,78,78",    shadow: "rgba(92,78,78,0.50)" },
+  cyan:   { fill: "152,134,134", shadow: "rgba(152,134,134,0.45)" },
+  purple: { fill: "92,78,78",    shadow: "rgba(92,78,78,0.45)" },
+  gold:   { fill: "92,78,78",    shadow: "rgba(92,78,78,0.60)" },
 };
 
 /**
@@ -163,11 +165,11 @@ const THEME_FX: Record<AuroraTheme, {
     planet: "255,220,235", planetShadow: "rgba(255,210,225,0.85)",
   },
   light: {
-    halo0: "245,158,11", halo0A: 0.08, halo1: "217,119,6", halo1A: 0.04,
-    ghost: "176,108,10", ghostShadow: "rgba(217,119,6,0.5)",
-    ring1: "194,65,12", ring1Shadow: "rgba(217,119,6,0.6)",
-    ring2: "109,40,217", ring2Shadow: "rgba(139,92,246,0.5)",
-    planet: "176,108,10", planetShadow: "rgba(217,119,6,0.55)",
+    halo0: "152,134,134", halo0A: 0.08, halo1: "92,78,78", halo1A: 0.04,
+    ghost: "92,78,78", ghostShadow: "rgba(92,78,78,0.5)",
+    ring1: "92,78,78", ring1Shadow: "rgba(92,78,78,0.6)",
+    ring2: "152,134,134", ring2Shadow: "rgba(152,134,134,0.5)",
+    planet: "92,78,78", planetShadow: "rgba(92,78,78,0.55)",
   },
   frost: {
     halo0: "59,130,246", halo0A: 0.08, halo1: "0,82,255", halo1A: 0.04,
