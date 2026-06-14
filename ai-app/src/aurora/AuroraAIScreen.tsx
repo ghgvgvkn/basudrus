@@ -2619,73 +2619,67 @@ export function AuroraAIScreen() {
           </button>
         )}
         <aside className="aurora-chat-rail">
-          {/* MODES + SHORTCUTS (founder's sketch) — the entry modes and
-              feature boxes live in the rail (where history is), matching
-              the rail-card sizing. Not-yet-built tools are placeholder
-              boxes for now, to be wired later. */}
-          <div className="aurora-rail-card">
-            <h3>
-              <span>Tony</span>
-              <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span className="aurora-count">{tutorSessions.length}</span>
-                <button
-                  className="aurora-rail-close"
-                  type="button"
-                  onClick={() => setRailHidden(true)}
-                  title="Hide panel"
-                  aria-label="Hide side panel"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 6l-6 6 6 6" />
-                  </svg>
-                </button>
-              </span>
-            </h3>
-            <div className="aurora-rail-modes">
-              <button type="button" className="aurora-rail-mode" onClick={() => { void enterJarvis(); }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                </svg>
-                <span>Camera mode</span>
-              </button>
-              <button type="button" className="aurora-rail-mode" onClick={() => { void toggleVoiceMode(); }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-                </svg>
-                <span>Voice command</span>
-              </button>
-            </div>
-            <button className="aurora-new-chat" type="button" onClick={newChat}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
+          {/* TOOL BOXES (founder's sketch) — EACH its own standalone box
+              with its own edge, in a 2-col grid with gaps. Camera + voice
+              are the live entry modes; AI Judge + Map + Quiz fire a real
+              prompt; Exercise / AI Bank / Hangouts are "soon" placeholders
+              to wire later. */}
+          <div className="aurora-rail-headbar">
+            <span>Tony</span>
+            <button
+              className="aurora-rail-close"
+              type="button"
+              onClick={() => setRailHidden(true)}
+              title="Hide panel"
+              aria-label="Hide side panel"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 6l-6 6 6 6" />
               </svg>
-              New conversation
             </button>
           </div>
-
-          {/* SHORTCUT BOXES — placeholders for features not built yet
-              (founder: "keep them as a box, redesign later"). The map +
-              quiz ones fire a real prompt today; exercise / AI bank /
-              hangouts are stubs that say "coming soon". */}
-          <div className="aurora-rail-card">
-            <h3><span>Shortcuts</span></h3>
-            <div className="aurora-rail-boxes">
-              <button type="button" className="aurora-rail-box" onClick={() => { void runSendForText("Show me a place on the map"); }}>
-                Map a place
-              </button>
-              <button type="button" className="aurora-rail-box" onClick={() => { void runSendForText("Quiz me on something I'm studying"); }}>
-                Quiz me
-              </button>
-              <button type="button" className="aurora-rail-box is-soon" disabled title="Coming soon">
-                Exercise<span className="aurora-soon">soon</span>
-              </button>
-              <button type="button" className="aurora-rail-box is-soon" disabled title="Coming soon">
-                AI Bank<span className="aurora-soon">soon</span>
-              </button>
-              <button type="button" className="aurora-rail-box is-soon" disabled title="Coming soon">
-                Hangouts<span className="aurora-soon">soon</span>
-              </button>
-            </div>
+          <div className="aurora-rail-tools">
+            <button type="button" className="aurora-rail-tool is-mode" onClick={() => { void enterJarvis(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+              <span>Camera mode</span>
+            </button>
+            <button type="button" className="aurora-rail-tool is-mode" onClick={() => { void toggleVoiceMode(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+              </svg>
+              <span>Voice command</span>
+            </button>
+            <button
+              type="button"
+              className="aurora-rail-tool aurora-rail-tool-wide"
+              onClick={() => { void runSendForText("Be the impartial judge between two people — I'll give you both sides, you call it fair."); }}
+            >
+              <span>AI Judge</span>
+              <small>settle it between 2 people</small>
+            </button>
+            <button type="button" className="aurora-rail-tool" onClick={() => { void runSendForText("Show me a place on the map"); }}>
+              <span>Map a place</span>
+            </button>
+            <button type="button" className="aurora-rail-tool" onClick={() => { void runSendForText("Quiz me on something I'm studying"); }}>
+              <span>Quiz me</span>
+            </button>
+            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
+              <span>Exercise</span><i className="aurora-soon">soon</i>
+            </button>
+            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
+              <span>AI Bank</span><i className="aurora-soon">soon</i>
+            </button>
+            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
+              <span>Hangouts</span><i className="aurora-soon">soon</i>
+            </button>
+            <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newchat" onClick={newChat}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              <span>New conversation</span>
+            </button>
           </div>
           <div
             className="aurora-rail-card"

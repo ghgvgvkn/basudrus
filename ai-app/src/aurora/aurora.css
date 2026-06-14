@@ -2299,77 +2299,101 @@ body.aurora-rail-hidden .aurora-chat-rail {
   padding: 12px 10px 6px;
 }
 
-/* ── Rail MODES (camera + voice) + SHORTCUT boxes (founder's sketch) ──
-   Same bright-glass language as the rail cards: dark text, light fill. */
-.aurora-app .aurora-rail-modes {
+/* ── Rail TOOL BOXES (founder's sketch) — EACH a standalone box with
+   its own edge, laid out in a 2-col grid with gaps. Bright-glass
+   language to match the rail. */
+.aurora-app .aurora-rail-headbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 0;
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(14,22,34,0.70);
+  font-weight: 600;
+}
+.aurora-app .aurora-rail-tools {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10px;
+  flex-shrink: 0;
 }
-.aurora-app .aurora-rail-mode {
+/* each box: its own border + fill + radius (its own "side and edge") */
+.aurora-app .aurora-rail-tool {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(14,22,34,0.85);
-  border: 0.5px solid rgba(255,255,255,0.18);
-  color: var(--aurora-text-primary, #fff);
-  font-size: 12.5px;
-  font-weight: 500;
+  justify-content: center;
+  gap: 6px;
+  min-height: 60px;
+  padding: 13px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.22);
+  border: 0.5px solid rgba(255,255,255,0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 8px 22px rgba(0,0,0,0.28);
+  color: #0E1622;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   text-align: left;
   font-family: 'Urbanist', sans-serif;
-  transition: background 160ms, transform 160ms;
+  transition: background 160ms, transform 160ms, border-color 160ms;
 }
-.aurora-app .aurora-rail-mode:hover {
-  background: rgba(24,38,56,0.92);
-  transform: translateY(-1px);
+.aurora-app .aurora-rail-tool:hover:not(:disabled) {
+  background: rgba(255,255,255,0.4);
+  transform: translateY(-2px);
 }
-.aurora-app .aurora-rail-mode svg {
+.aurora-app .aurora-rail-tool svg {
   width: 18px;
   height: 18px;
-  color: #7fd8ff;
+  color: #2b6cb0;
 }
-.aurora-app .aurora-rail-boxes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+.aurora-app .aurora-rail-tool small {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(14,22,34,0.55);
 }
-.aurora-app .aurora-rail-box {
-  position: relative;
-  display: flex;
+/* full-width boxes (AI Judge, New conversation) span both columns */
+.aurora-app .aurora-rail-tool-wide {
+  grid-column: 1 / -1;
+}
+/* the entry modes get the dark high-contrast fill (primary actions) */
+.aurora-app .aurora-rail-tool.is-mode {
+  background: rgba(14,22,34,0.85);
+  border-color: rgba(255,255,255,0.18);
+  color: #fff;
+}
+.aurora-app .aurora-rail-tool.is-mode:hover {
+  background: rgba(24,38,56,0.92);
+}
+.aurora-app .aurora-rail-tool.is-mode svg { color: #7fd8ff; }
+.aurora-app .aurora-rail-tool.is-newchat {
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  min-height: 46px;
-  padding: 10px 8px;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.34);
-  border: 0.5px solid rgba(255,255,255,0.5);
-  color: #0E1622;
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: center;
-  font-family: 'Urbanist', sans-serif;
-  transition: background 160ms, transform 160ms;
+  gap: 8px;
+  min-height: 0;
+  background: rgba(14,22,34,0.85);
+  border-color: rgba(255,255,255,0.18);
+  color: #fff;
 }
-.aurora-app .aurora-rail-box:hover:not(:disabled) {
-  background: rgba(255,255,255,0.5);
-  transform: translateY(-1px);
-}
-.aurora-app .aurora-rail-box.is-soon {
+.aurora-app .aurora-rail-tool.is-newchat svg { color: #fff; }
+.aurora-app .aurora-rail-tool.is-soon {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 .aurora-app .aurora-soon {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 6px;
+  right: 8px;
   font-family: 'Geist Mono', monospace;
   font-size: 7.5px;
+  font-style: normal;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: rgba(14,22,34,0.5);
