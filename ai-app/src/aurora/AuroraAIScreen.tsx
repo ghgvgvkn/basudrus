@@ -2722,7 +2722,7 @@ export function AuroraAIScreen() {
           </section>
           <div
             className="aurora-rail-card aurora-rail-history"
-            style={{ marginTop: "auto", display: "flex", flexDirection: "column", minHeight: 0, paddingBottom: "8px" }}
+            style={{ flex: "1 1 0", display: "flex", flexDirection: "column", minHeight: 0, paddingBottom: "8px" }}
           >
             <h3>
               <span>History</span>

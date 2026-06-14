@@ -1517,9 +1517,13 @@ body.aurora-active .aurora-back-btn {
 .aurora-app .aurora-chat-bar {
   position: absolute;
   bottom: 28px;
-  left: 50%;
+  /* Shifted RIGHT past the 360px rail (founder: move the typing part
+     to the right). Keeps translateX(-50%) so the rise + voice-mode
+     morph animations still work; width clamps to stay clear of the
+     rail and never overflow. */
+  left: calc(50% + 170px);
   transform: translateX(-50%);
-  width: min(780px, calc(100% - 56px));
+  width: min(720px, calc(100% - 440px));
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2491,12 +2495,18 @@ body.aurora-rail-hidden .aurora-chat-rail {
 /* History sits small at the very end of the rail (founder: "really
    small at the end") — the tool boxes take the top, history is a short
    scrolling footer. */
+/* History fills the rail space left under the boxes and ends exactly
+   at the rail's bottom edge — a full box (all edges visible), with the
+   list scrolling INSIDE it (founder: not cut off; scroll within). */
 .aurora-app .aurora-rail-history {
-  flex: 0 0 auto;
-  max-height: 210px;
+  flex: 1 1 0;
+  min-height: 130px;
+  overflow: hidden;
 }
 .aurora-app .aurora-rail-history .aurora-history {
-  max-height: 156px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
 }
 /* Apple Liquid Glass widget — frosted bright surface that feels like
