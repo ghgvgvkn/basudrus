@@ -28,6 +28,13 @@ import {
   type Landmarks,
 } from "./exercises";
 import { createRepCounter, type RepCounter } from "./repCounter";
+import {
+  loadProfile,
+  caloriesForSeconds,
+  DEFAULT_WEIGHT_KG,
+  type FitnessProfile,
+} from "./fitnessProfile";
+import { ExerciseOnboarding } from "./ExerciseOnboarding";
 import "./exercise-mode.css";
 
 interface ExerciseModeProps {
@@ -60,6 +67,10 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   const [cue, setCue] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [totalReps, setTotalReps] = useState(0);
+  const [kcal, setKcal] = useState(0);
+  // Profile (goal / body stats / injuries) — gates the routine on first use.
+  const [profile, setProfile] = useState<FitnessProfile | null>(() => loadProfile());
+  const [editingProfile, setEditingProfile] = useState(false);
 
   const step = ROUTINE[stepIndex];
   const exercise: ExerciseDef = EXERCISES[step.id];
@@ -72,9 +83,13 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   stepIndexRef.current = stepIndex;
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
 
   const repCounterRef = useRef<RepCounter | null>(null);
   const holdMsRef = useRef(0);
+  const caloriesRef = useRef(0);
+  const displayedKcalRef = useRef(0);
   const lastNowRef = useRef(0);
   const stepDoneRef = useRef(false);
   const lastSpokenRepRef = useRef(0);
@@ -167,6 +182,17 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
         const visible =
           lm && avgVisibility(ex.requiredJoints.map((i) => lm[i])) > 0.55;
 
+        // Burn calories only while actually moving in frame (MET × kg × time).
+        if (visible) {
+          const weightKg = profileRef.current?.weightKg ?? DEFAULT_WEIGHT_KG;
+          caloriesRef.current += caloriesForSeconds(ex.met, weightKg, dt / 1000);
+          const kc = Math.round(caloriesRef.current);
+          if (kc !== displayedKcalRef.current) {
+            displayedKcalRef.current = kc;
+            setKcal(kc);
+          }
+        }
+
         if (!visible) {
           showCue("Step back so I can see your whole body");
           maybeCue("Step back so I can see your whole body", now);
@@ -179,6 +205,14 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
             // over the spoken count (speak() is last-wins, so never both).
             let faultCue: string | null = null;
             for (const f of ex.form) {
+              // Injury safety (from form research): never coach a knee-pain
+              // user DEEPER into a squat/lunge — that pushes them into the
+              // exact range that aggravates the knee. Suppress the depth cue.
+              if (
+                f.id === "depth" &&
+                (ex.id === "squat" || ex.id === "lunge") &&
+                profileRef.current?.injuries.includes("knees")
+              ) continue;
               const c = f.evaluate({ lm, measure: angle, minAngle: st.minAngle });
               if (c) { faultCue = c; break; }
             }
@@ -242,11 +276,13 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
 
   // ── kick off the routine once the camera is live ──
   useEffect(() => {
-    if (status === "running" && !started) {
+    // Don't begin the routine until the camera is live AND we know the user
+    // (first run shows onboarding; once saved, profile is set and we start).
+    if (status === "running" && !started && profile) {
       setStarted(true);
       setStage("intro");
     }
-  }, [status, started]);
+  }, [status, started, profile]);
 
   // ── stage timers ──
   useEffect(() => {
@@ -320,6 +356,9 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   const restart = () => {
     setTotalReps(0);
     setReps(0);
+    caloriesRef.current = 0;
+    displayedKcalRef.current = 0;
+    setKcal(0);
     setStepIndex(0);
     setStage("intro");
   };
@@ -371,11 +410,17 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
               ⏭
             </button>
           )}
+          <button className="exr-btn" onClick={() => setEditingProfile(true)} title="Edit goals & profile">
+            ⚙
+          </button>
           <button className="exr-btn exr-btn-exit" onClick={handleExit} title="Exit">
             ✕ Exit
           </button>
         </div>
       </div>
+
+      {/* Live calorie counter */}
+      {kcal > 0 && stage !== "done" && <div className="exr-kcal">🔥 {kcal} kcal</div>}
 
       {/* Main HUD */}
       {!loading && !denied && !errored && stage !== "done" && (
@@ -445,11 +490,20 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
           <div className="exr-done-emoji">🎉</div>
           <div className="exr-overlay-title">Workout complete!</div>
           <div className="exr-overlay-sub">
-            {totalReps + reps} reps across {ROUTINE.length} exercises. Great work — same time tomorrow?
+            {totalReps + reps} reps across {ROUTINE.length} exercises · 🔥 {kcal} kcal burned. Great work — same time tomorrow?
           </div>
           <button className="exr-cta" onClick={restart}>Go again</button>
           <button className="exr-cta exr-cta-ghost" onClick={handleExit}>Done</button>
         </div>
+      )}
+
+      {/* One-time profile / goals (or editing it later via the gear) */}
+      {(!profile || editingProfile) && (
+        <ExerciseOnboarding
+          initial={editingProfile ? profile : null}
+          onComplete={(p) => { setProfile(p); setEditingProfile(false); }}
+          onCancel={editingProfile ? () => setEditingProfile(false) : undefined}
+        />
       )}
     </div>
   );

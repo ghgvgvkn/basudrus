@@ -54,6 +54,9 @@ export interface ExerciseDef {
   name: string;
   emoji: string;
   kind: "rep" | "hold";
+  /** MET value for calorie burn (kcal = MET × bodyweight_kg × hours).
+   *  First-pass values; the research batch refines these per exercise. */
+  met: number;
   /** Landmarks that must be visible to coach this safely. */
   requiredJoints: number[];
   rep?: RepConfig;
@@ -102,6 +105,7 @@ const SQUAT: ExerciseDef = {
   name: "Squats",
   emoji: "🏋️",
   kind: "rep",
+  met: 5.0,
   requiredJoints: [POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE, POSE.L_ANKLE, POSE.R_ANKLE],
   rep: {
     // A rep ARMS once the knee bends past ~110° (a real squat, not a dip) and
@@ -146,6 +150,7 @@ const PUSHUP: ExerciseDef = {
   name: "Push-ups",
   emoji: "💪",
   kind: "rep",
+  met: 8.0,
   requiredJoints: [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_ELBOW, POSE.R_ELBOW, POSE.L_WRIST, POSE.R_WRIST],
   rep: {
     measure: (lm) =>
@@ -185,6 +190,7 @@ const LUNGE: ExerciseDef = {
   name: "Lunges",
   emoji: "🦵",
   kind: "rep",
+  met: 4.5,
   requiredJoints: [POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE, POSE.L_ANKLE, POSE.R_ANKLE],
   rep: {
     // The forward leg bends most — track the MORE bent knee so it works for
@@ -226,6 +232,7 @@ const PLANK: ExerciseDef = {
   name: "Plank",
   emoji: "🧘",
   kind: "hold",
+  met: 3.3,
   requiredJoints: [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_HIP, POSE.R_HIP, POSE.L_ANKLE, POSE.R_ANKLE],
   hold: {
     inPosition: (lm) => {

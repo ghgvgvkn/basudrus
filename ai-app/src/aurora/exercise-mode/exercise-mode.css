@@ -260,3 +260,146 @@
   box-shadow: none;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
+.exr-cta:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: none;
+}
+
+/* ── Live calorie chip ── */
+.exr-kcal {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffd9a8;
+  background: rgba(40, 18, 8, 0.5);
+  border: 1px solid rgba(255, 160, 80, 0.35);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+
+/* ── Onboarding / profile card ── */
+.exr-onboard {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: radial-gradient(ellipse at 50% 40%, rgba(6, 12, 20, 0.7), rgba(3, 6, 12, 0.92));
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.exr-onboard-card {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(20, 30, 44, 0.96), rgba(12, 20, 32, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 26px;
+  padding: 26px 26px 22px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+}
+.exr-onboard-head {
+  margin-bottom: 18px;
+}
+.exr-onboard-title {
+  font-size: 24px;
+  font-weight: 800;
+}
+.exr-onboard-sub {
+  font-size: 14px;
+  color: rgba(200, 222, 255, 0.75);
+  margin-top: 5px;
+}
+.exr-q {
+  margin-bottom: 18px;
+}
+.exr-q-row {
+  display: flex;
+  gap: 12px;
+}
+.exr-field {
+  flex: 1;
+}
+.exr-q-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(210, 228, 255, 0.9);
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+.exr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.exr-chip {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaf4ff;
+  border-radius: 999px;
+  padding: 9px 15px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.exr-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.exr-chip.is-on {
+  background: linear-gradient(180deg, #5aaaff, #2f7bff);
+  border-color: rgba(120, 200, 255, 0.8);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(47, 123, 255, 0.4);
+}
+.exr-input,
+.exr-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: #fff;
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.exr-input:focus,
+.exr-textarea:focus {
+  border-color: rgba(120, 200, 255, 0.7);
+}
+.exr-textarea {
+  margin-top: 10px;
+  resize: vertical;
+  font-size: 14px;
+}
+.exr-safety {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 210, 150, 0.85);
+  background: rgba(60, 40, 10, 0.35);
+  border: 1px solid rgba(255, 180, 90, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.exr-onboard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
