@@ -49,7 +49,7 @@ type Stage = "intro" | "countdown" | "active" | "rest" | "done";
 const CUE_THROTTLE_MS = 4000;
 /** Form-check ids evaluated LIVE every frame (mid-movement coaching) vs at
  *  the END of a rep (depth / lockout, judged on the finished rep). */
-const LIVE_RULES = new Set(["trunk-lean", "body-line", "knee-cave", "over-extend", "knees-straight"]);
+const LIVE_RULES = new Set(["trunk-lean", "body-line", "knee-cave", "over-extend", "knees-straight", "arms-straight"]);
 const END_RULES = new Set(["depth", "lockout"]);
 
 export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps) {

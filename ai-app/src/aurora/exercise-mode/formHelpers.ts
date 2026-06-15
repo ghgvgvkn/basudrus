@@ -149,3 +149,16 @@ export function kneesStraightCue(minStraight: number, cue: string): FormCheck {
     },
   };
 }
+
+/** Live ARM-BEND CHEAT (straight-arm pulldown): fault if the elbow bends below
+ *  `minStraight` (the lift should stay long-armed). */
+export function elbowStraightCue(minStraight: number, cue: string): FormCheck {
+  return {
+    id: "arms-straight",
+    evaluate: ({ lm }) => {
+      const a = (angleAt(lm[POSE.L_SHOULDER], lm[POSE.L_ELBOW], lm[POSE.L_WRIST]) +
+        angleAt(lm[POSE.R_SHOULDER], lm[POSE.R_ELBOW], lm[POSE.R_WRIST])) / 2;
+      return a < minStraight ? cue : null;
+    },
+  };
+}
