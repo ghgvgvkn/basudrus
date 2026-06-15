@@ -9,7 +9,7 @@
  * unit-testable in Node against a recorded angle array.
  */
 import { ema } from "./angles";
-import type { RepConfig } from "./exercises";
+import type { RepConfig } from "./types";
 
 export type RepPhase = "up" | "down";
 

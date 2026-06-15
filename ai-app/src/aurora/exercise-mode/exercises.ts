@@ -1,290 +1,290 @@
 /**
- * exercises.ts — the AI Exercise "playbook": one data-driven definition per
- * exercise. Pure logic (no DOM/React/MediaPipe) so the rep + form rules are
- * unit-testable in Node, in the spirit of gestures.ts.
+ * exercises.ts — the AI Exercise CATALOG. Each exercise is data: rep-angle
+ * config + a list of reusable, orientation-aware form checks (from
+ * formHelpers) + calorie MET + injury contraindications. Adding an exercise
+ * is just adding an entry — the engine (ExerciseMode + repCounter + formHelpers)
+ * stays unchanged.
  *
- * Each exercise is EITHER:
- *   - kind "rep":  a primary joint angle swings between a contracted (down)
- *                  and extended (up) threshold; one full down→up is a rep.
- *   - kind "hold": the body holds a position (plank); we time how long the
- *                  form stays valid.
- *
- * COORDINATES: landmarks are MediaPipe-normalized 0..1, already mirrored to
- * screen space (x: 1 - x), y down. Form thresholds were chosen to be forgiving
- * (webcam landmarks are noisy) and should be tuned against real footage.
+ * Source: founder-supplied researched catalog (batch 1), encoded for the
+ * exercises the webcam can judge reliably ("high"/usable detectability). Angles
+ * tuned so the rep-arm threshold is shallower than the "good form" line, so a
+ * short rep still counts but still earns a correction. Tune on real footage.
  */
-import { angleAt, avgVisibility, type Pt } from "./angles";
+import { angleAt } from "./angles";
 import { POSE } from "./poseConstants";
+import type { ExerciseDef, Landmarks } from "./types";
+import {
+  bilateral,
+  moreBent,
+  depthCue,
+  lockoutCue,
+  trunkLeanCue,
+  bodyLineCue,
+  kneesCavingCue,
+  overExtensionCue,
+  kneesStraightCue,
+} from "./formHelpers";
 
-export type ExerciseId = "squat" | "pushup" | "lunge" | "plank";
-export type Landmarks = Pt[]; // 33 MediaPipe pose points
+const LEGS = [POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE, POSE.L_ANKLE, POSE.R_ANKLE];
+const ARMS = [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_ELBOW, POSE.R_ELBOW, POSE.L_WRIST, POSE.R_WRIST];
+const BODY = [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_HIP, POSE.R_HIP, POSE.L_ANKLE, POSE.R_ANKLE];
 
-export interface RepConfig {
-  /** Primary angle (0..180) whose swing defines a rep. */
-  measure: (lm: Landmarks) => number;
-  /** At or below this the movement has reached the bottom (contracted). */
-  downAngle: number;
-  /** At or above this the movement is fully extended → a rep completes. */
-  upAngle: number;
-}
+const KNEE_L: [number, number, number] = [POSE.L_HIP, POSE.L_KNEE, POSE.L_ANKLE];
+const KNEE_R: [number, number, number] = [POSE.R_HIP, POSE.R_KNEE, POSE.R_ANKLE];
+const ELBOW_L: [number, number, number] = [POSE.L_SHOULDER, POSE.L_ELBOW, POSE.L_WRIST];
+const ELBOW_R: [number, number, number] = [POSE.R_SHOULDER, POSE.R_ELBOW, POSE.R_WRIST];
+const ANKLE_L: [number, number, number] = [POSE.L_KNEE, POSE.L_ANKLE, POSE.L_FOOT];
+const ANKLE_R: [number, number, number] = [POSE.R_KNEE, POSE.R_ANKLE, POSE.R_FOOT];
 
-export interface FormContext {
-  lm: Landmarks;
-  /** Current primary angle. */
-  measure: number;
-  /** Deepest (smallest) primary angle reached during this rep. */
-  minAngle: number;
-}
+const kneeAvg = bilateral(KNEE_L, KNEE_R);
+const elbowAvg = bilateral(ELBOW_L, ELBOW_R);
+const frontKnee = moreBent(KNEE_L, KNEE_R);
 
-export interface FormCheck {
-  id: string;
-  /** Return a short spoken/printed cue if form is off, else null. */
-  evaluate: (ctx: FormContext) => string | null;
-}
-
-export interface HoldConfig {
-  /** Is the body currently in a valid hold? Drives the timer. */
-  inPosition: (lm: Landmarks) => boolean;
-  /** Per-second form cue while holding (e.g. "lift your hips"), or null. */
-  cue: (lm: Landmarks) => string | null;
-}
-
-export interface ExerciseDef {
-  id: ExerciseId;
-  name: string;
-  emoji: string;
-  kind: "rep" | "hold";
-  /** MET value for calorie burn (kcal = MET × bodyweight_kg × hours).
-   *  First-pass values; the research batch refines these per exercise. */
-  met: number;
-  /** Landmarks that must be visible to coach this safely. */
-  requiredJoints: number[];
-  rep?: RepConfig;
-  hold?: HoldConfig;
-  /** Form checks evaluated at the bottom of each rep (rep kind only). */
-  form: FormCheck[];
-  /** Spoken line when the exercise begins. */
-  intro: string;
-  /** Short on-screen "how to stand" hint. */
-  setupHint: string;
-}
-
-// ── helpers ────────────────────────────────────────────────────────────
-/** Angle at joint b using indices into the landmark array. */
-function jAngle(lm: Landmarks, a: number, b: number, c: number): number {
-  return angleAt(lm[a], lm[b], lm[c]);
-}
-
-/**
- * Pick the more reliable side for a single-limb measure: average both sides
- * when both are clearly visible, else use whichever side the camera sees best.
- * Front-on the user may angle their body, so one side is often cleaner.
- */
-function sideAware(
-  lm: Landmarks,
-  left: [number, number, number],
-  right: [number, number, number],
-): number {
-  const visL = avgVisibility([lm[left[0]], lm[left[1]], lm[left[2]]]);
-  const visR = avgVisibility([lm[right[0]], lm[right[1]], lm[right[2]]]);
-  const angL = jAngle(lm, left[0], left[1], left[2]);
-  const angR = jAngle(lm, right[0], right[1], right[2]);
-  if (visL > 0.5 && visR > 0.5) return (angL + angR) / 2;
-  return visL >= visR ? angL : angR;
-}
-
-/** Horizontal gap between two landmarks (normalized). */
-function hGap(a: Pt, b: Pt): number {
-  return Math.abs(a.x - b.x);
-}
-
-// ── exercise definitions ────────────────────────────────────────────────
-
-const SQUAT: ExerciseDef = {
-  id: "squat",
-  name: "Squats",
-  emoji: "🏋️",
-  kind: "rep",
-  met: 5.0,
-  requiredJoints: [POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE, POSE.L_ANKLE, POSE.R_ANKLE],
-  rep: {
-    // A rep ARMS once the knee bends past ~110° (a real squat, not a dip) and
-    // COMPLETES on standing back up (>160). The depth cue below then fires for
-    // any counted rep that didn't reach parallel (≤100°) — so the arm
-    // threshold MUST be shallower (higher angle) than the depth line.
-    measure: (lm) =>
-      sideAware(lm, [POSE.L_HIP, POSE.L_KNEE, POSE.L_ANKLE], [POSE.R_HIP, POSE.R_KNEE, POSE.R_ANKLE]),
-    downAngle: 110,
-    upAngle: 160,
+const CATALOG: ExerciseDef[] = [
+  {
+    id: "bodyweight-squat", name: "Squats", emoji: "🏋️", kind: "rep", met: 5.0,
+    category: "home", equipment: "none", primaryMuscles: ["quads", "glutes", "hamstrings"],
+    difficulty: "beginner", goalFit: ["muscle", "weight-loss", "strength", "mobility"], detectable: "high",
+    requiredJoints: LEGS,
+    rep: { measure: kneeAvg, downAngle: 110, upAngle: 160 },
+    form: [depthCue(100, "Go a little deeper"), trunkLeanCue(45, "Chest up"), kneesCavingCue(0.7, "Push your knees out")],
+    intro: "Squats. Stand facing me, feet shoulder-width apart.",
+    setupHint: "Step back so I see your hips, knees and feet.",
+    contraindications: [
+      { condition: "knee osteoarthritis", modification: "stay in a pain-free depth, squat to a chair" },
+      { condition: "lower-back pain", modification: "keep the range shallow, limit forward lean" },
+    ],
   },
-  form: [
-    {
-      id: "depth",
-      evaluate: ({ minAngle }) =>
-        minAngle > 100 ? "Go a little deeper next time" : null,
-    },
-    {
-      id: "knee-cave",
-      // Knees collapsing inward: the knee gap shrinks well below the ankle gap.
-      evaluate: ({ lm }) =>
-        hGap(lm[POSE.L_KNEE], lm[POSE.R_KNEE]) <
-        hGap(lm[POSE.L_ANKLE], lm[POSE.R_ANKLE]) * 0.7
-          ? "Push your knees out"
-          : null,
-    },
-    {
-      id: "symmetry",
-      evaluate: ({ lm }) => {
-        const l = jAngle(lm, POSE.L_HIP, POSE.L_KNEE, POSE.L_ANKLE);
-        const r = jAngle(lm, POSE.R_HIP, POSE.R_KNEE, POSE.R_ANKLE);
-        return Math.abs(l - r) > 22 ? "Keep it even, left and right" : null;
+  {
+    id: "goblet-squat", name: "Goblet Squats", emoji: "🏋️", kind: "rep", met: 5.0,
+    category: "gym", equipment: "dumbbell", primaryMuscles: ["quads", "glutes", "core"],
+    difficulty: "beginner", goalFit: ["muscle", "strength", "weight-loss"], detectable: "high",
+    requiredJoints: LEGS,
+    rep: { measure: kneeAvg, downAngle: 110, upAngle: 160 },
+    form: [depthCue(100, "Hips lower"), trunkLeanCue(40, "Stay tall"), kneesCavingCue(0.7, "Knees out")],
+    intro: "Goblet squats. Hold the weight at your chest, facing me.",
+    setupHint: "Side-on or front both work; show your knees and hips.",
+    contraindications: [
+      { condition: "knee osteoarthritis", modification: "shallow box squat, lighter load" },
+      { condition: "wrists", modification: "cradle the weight in your forearms, not your wrists" },
+    ],
+  },
+  {
+    id: "sumo-squat", name: "Sumo Squats", emoji: "🦵", kind: "rep", met: 5.0,
+    category: "home", equipment: "none", primaryMuscles: ["glutes", "adductors", "quads"],
+    difficulty: "beginner", goalFit: ["muscle", "mobility", "weight-loss"], detectable: "high",
+    requiredJoints: LEGS,
+    rep: { measure: kneeAvg, downAngle: 120, upAngle: 160 },
+    form: [kneesCavingCue(0.85, "Push your knees out"), depthCue(105, "Drop your hips lower")],
+    intro: "Sumo squats. Wide stance, toes out, face me.",
+    setupHint: "Face the camera so I can see your knees track out.",
+    contraindications: [
+      { condition: "hips", modification: "narrow the stance, reduce depth" },
+      { condition: "knee osteoarthritis", modification: "limit depth to comfort" },
+    ],
+  },
+  {
+    id: "split-squat", name: "Split Squats", emoji: "🦵", kind: "rep", met: 5.0,
+    category: "home", equipment: "none", primaryMuscles: ["quads", "glutes", "hamstrings"],
+    difficulty: "intermediate", goalFit: ["muscle", "strength", "mobility"], detectable: "high",
+    requiredJoints: LEGS,
+    rep: { measure: frontKnee, downAngle: 120, upAngle: 160 },
+    form: [depthCue(110, "Drop the back knee"), trunkLeanCue(25, "Chest tall")],
+    intro: "Split squats. One foot forward, one back, and lower straight down.",
+    setupHint: "Turn side-on so I can see the front knee bend.",
+    contraindications: [
+      { condition: "knee osteoarthritis", modification: "reduce depth, shorten range" },
+      { condition: "balance", modification: "hold a wall or chair" },
+    ],
+  },
+  {
+    id: "reverse-lunge", name: "Reverse Lunges", emoji: "🦵", kind: "rep", met: 5.0,
+    category: "home", equipment: "none", primaryMuscles: ["quads", "glutes", "hamstrings"],
+    difficulty: "intermediate", goalFit: ["muscle", "strength", "weight-loss", "mobility"], detectable: "high",
+    requiredJoints: LEGS,
+    rep: { measure: frontKnee, downAngle: 120, upAngle: 160 },
+    form: [depthCue(110, "Lower the back knee"), trunkLeanCue(30, "Stand tall")],
+    intro: "Reverse lunges. Step back and lower, alternating legs.",
+    setupHint: "Side-on shows your depth best.",
+    contraindications: [
+      { condition: "knee osteoarthritis", modification: "shorten the range, hold support" },
+      { condition: "balance", modification: "use a wall for support" },
+    ],
+  },
+  {
+    id: "forward-lunge", name: "Lunges", emoji: "🦵", kind: "rep", met: 5.0,
+    category: "home", equipment: "none", primaryMuscles: ["quads", "glutes", "hamstrings"],
+    difficulty: "intermediate", goalFit: ["muscle", "strength", "weight-loss"], detectable: "high",
+    requiredJoints: LEGS,
+    rep: { measure: frontKnee, downAngle: 120, upAngle: 160 },
+    form: [depthCue(110, "Drop deeper"), trunkLeanCue(30, "Chest tall")],
+    intro: "Lunges. Step forward and lower, alternating legs.",
+    setupHint: "Give yourself room to step forward; side-on is best.",
+    contraindications: [
+      { condition: "knee osteoarthritis", modification: "use reverse lunges instead, reduce depth" },
+      { condition: "knees", modification: "limit how far the knee travels, shorten range" },
+    ],
+  },
+  {
+    id: "wall-sit", name: "Wall Sit", emoji: "🧱", kind: "hold", met: 4.0,
+    category: "home", equipment: "none", primaryMuscles: ["quads", "glutes"],
+    difficulty: "beginner", goalFit: ["strength", "muscle"], detectable: "high",
+    requiredJoints: LEGS,
+    hold: {
+      inPosition: (lm: Landmarks) => {
+        const k = (angleAt(lm[POSE.L_HIP], lm[POSE.L_KNEE], lm[POSE.L_ANKLE]) +
+          angleAt(lm[POSE.R_HIP], lm[POSE.R_KNEE], lm[POSE.R_ANKLE])) / 2;
+        return k > 70 && k < 115;
+      },
+      cue: (lm: Landmarks) => {
+        const k = (angleAt(lm[POSE.L_HIP], lm[POSE.L_KNEE], lm[POSE.L_ANKLE]) +
+          angleAt(lm[POSE.R_HIP], lm[POSE.R_KNEE], lm[POSE.R_ANKLE])) / 2;
+        if (k > 105) return "Slide a little lower";
+        return null;
       },
     },
-  ],
-  intro: "Squats. Stand facing me, feet shoulder-width apart.",
-  setupHint: "Stand back so I can see your hips, knees and feet.",
-};
-
-const PUSHUP: ExerciseDef = {
-  id: "pushup",
-  name: "Push-ups",
-  emoji: "💪",
-  kind: "rep",
-  met: 8.0,
-  requiredJoints: [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_ELBOW, POSE.R_ELBOW, POSE.L_WRIST, POSE.R_WRIST],
-  rep: {
-    measure: (lm) =>
-      sideAware(
-        lm,
-        [POSE.L_SHOULDER, POSE.L_ELBOW, POSE.L_WRIST],
-        [POSE.R_SHOULDER, POSE.R_ELBOW, POSE.R_WRIST],
-      ),
-    downAngle: 115,
-    upAngle: 155,
+    form: [],
+    intro: "Wall sit. Back on the wall, thighs parallel, and hold.",
+    setupHint: "Side-on so I can see your knee bend to 90°.",
+    contraindications: [
+      { condition: "knees", modification: "hold at a higher angle (shallower), shorter holds" },
+      { condition: "high blood pressure", modification: "don't hold your breath — breathe steadily" },
+    ],
   },
-  form: [
-    {
-      id: "depth",
-      evaluate: ({ minAngle }) =>
-        minAngle > 100 ? "Lower your chest more" : null,
-    },
-    {
-      id: "body-line",
-      // Shoulder–hip–ankle should be a straight line (~180). Sag or pike breaks it.
-      evaluate: ({ lm }) => {
-        const straight = sideAware(
-          lm,
-          [POSE.L_SHOULDER, POSE.L_HIP, POSE.L_ANKLE],
-          [POSE.R_SHOULDER, POSE.R_HIP, POSE.R_ANKLE],
-        );
-        return straight < 150 ? "Keep your body in a straight line" : null;
+  {
+    id: "glute-bridge", name: "Glute Bridge", emoji: "🌉", kind: "rep", met: 3.5,
+    category: "home", equipment: "none", primaryMuscles: ["glutes", "hamstrings"],
+    difficulty: "beginner", goalFit: ["muscle", "strength", "mobility"], detectable: "high",
+    requiredJoints: [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE],
+    // Hip EXTENSION rep: rests low (~120°), squeezes high (~175°). Arm low, complete high.
+    rep: { measure: (lm) => angleAt(lm[POSE.L_SHOULDER], lm[POSE.L_HIP], lm[POSE.L_KNEE]), downAngle: 135, upAngle: 158 },
+    form: [
+      lockoutCue(165, "Squeeze your hips all the way up"),
+      overExtensionCue(POSE.L_SHOULDER, POSE.L_HIP, POSE.L_KNEE, 188, "Ribs down, don't over-arch"),
+    ],
+    intro: "Glute bridges. Lie on your back, knees bent, and drive your hips up.",
+    setupHint: "Lie side-on to the camera so I see your hips rise.",
+    contraindications: [
+      { condition: "lower-back pain", modification: "stop at neutral, don't over-arch the top" },
+      { condition: "pregnancy", modification: "avoid prolonged lying on your back" },
+    ],
+  },
+  {
+    id: "hip-thrust", name: "Hip Thrust", emoji: "🍑", kind: "rep", met: 4.0,
+    category: "home", equipment: "none", primaryMuscles: ["glutes", "hamstrings"],
+    difficulty: "intermediate", goalFit: ["muscle", "strength"], detectable: "high",
+    requiredJoints: [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE],
+    rep: { measure: (lm) => angleAt(lm[POSE.L_SHOULDER], lm[POSE.L_HIP], lm[POSE.L_KNEE]), downAngle: 130, upAngle: 160 },
+    form: [
+      lockoutCue(168, "Full hip extension at the top"),
+      overExtensionCue(POSE.L_SHOULDER, POSE.L_HIP, POSE.L_KNEE, 192, "Ribs down"),
+    ],
+    intro: "Hip thrusts. Upper back on a bench or couch, drive your hips up.",
+    setupHint: "Side-on so I can see your hips lock out.",
+    contraindications: [
+      { condition: "lower-back pain", modification: "stop at neutral, avoid over-extending" },
+    ],
+  },
+  {
+    id: "push-up", name: "Push-ups", emoji: "💪", kind: "rep", met: 4.0,
+    category: "home", equipment: "none", primaryMuscles: ["chest", "triceps", "shoulders"],
+    difficulty: "intermediate", goalFit: ["muscle", "strength", "weight-loss"], detectable: "high",
+    requiredJoints: ARMS,
+    rep: { measure: elbowAvg, downAngle: 110, upAngle: 150 },
+    form: [depthCue(100, "Lower your chest more"), bodyLineCue(16, "Keep a flat body line")],
+    intro: "Push-ups. Side-on to me works best.",
+    setupHint: "Turn side-on so I can see your elbow bend and body line.",
+    contraindications: [
+      { condition: "shoulders", modification: "narrower hands, reduce depth" },
+      { condition: "wrists", modification: "use push-up handles or fists" },
+      { condition: "lower-back pain", modification: "drop to your knees to keep a neutral line" },
+    ],
+  },
+  {
+    id: "knee-push-up", name: "Knee Push-ups", emoji: "💪", kind: "rep", met: 3.5,
+    category: "home", equipment: "none", primaryMuscles: ["chest", "triceps", "shoulders"],
+    difficulty: "beginner", goalFit: ["muscle", "strength"], detectable: "high",
+    requiredJoints: ARMS,
+    rep: { measure: elbowAvg, downAngle: 110, upAngle: 150 },
+    form: [depthCue(100, "Chest closer to the floor")],
+    intro: "Knee push-ups. On your knees, side-on to me.",
+    setupHint: "Side-on so I can see your elbows bend.",
+    contraindications: [
+      { condition: "wrists", modification: "use handles or fists" },
+      { condition: "knees", modification: "pad your knees, or do incline push-ups instead" },
+    ],
+  },
+  {
+    id: "incline-push-up", name: "Incline Push-ups", emoji: "💪", kind: "rep", met: 3.5,
+    category: "home", equipment: "none", primaryMuscles: ["chest", "triceps", "shoulders"],
+    difficulty: "beginner", goalFit: ["muscle", "strength"], detectable: "high",
+    requiredJoints: ARMS,
+    rep: { measure: elbowAvg, downAngle: 115, upAngle: 150 },
+    form: [depthCue(105, "Lower all the way"), bodyLineCue(16, "Straight line")],
+    intro: "Incline push-ups. Hands on a raised surface, side-on.",
+    setupHint: "Side-on so I can see your arm bend.",
+    contraindications: [
+      { condition: "shoulders", modification: "raise the surface higher to reduce load" },
+      { condition: "wrists", modification: "grip the edge or use handles" },
+    ],
+  },
+  {
+    id: "diamond-push-up", name: "Diamond Push-ups", emoji: "💎", kind: "rep", met: 4.0,
+    category: "home", equipment: "none", primaryMuscles: ["triceps", "chest", "shoulders"],
+    difficulty: "advanced", goalFit: ["muscle", "strength"], detectable: "high",
+    requiredJoints: ARMS,
+    rep: { measure: elbowAvg, downAngle: 105, upAngle: 150 },
+    form: [depthCue(95, "Chest to your hands"), bodyLineCue(16, "Flat body")],
+    intro: "Diamond push-ups. Hands together under your chest, side-on.",
+    setupHint: "Side-on so I can see your elbows bend.",
+    contraindications: [
+      { condition: "wrists", modification: "widen to a standard push-up" },
+      { condition: "elbows", modification: "avoid — high elbow stress; do standard push-ups" },
+    ],
+  },
+  {
+    id: "calf-raise", name: "Calf Raises", emoji: "🦶", kind: "rep", met: 3.0,
+    category: "home", equipment: "none", primaryMuscles: ["calves"],
+    difficulty: "beginner", goalFit: ["muscle", "strength"], detectable: "medium",
+    requiredJoints: [POSE.L_KNEE, POSE.R_KNEE, POSE.L_ANKLE, POSE.R_ANKLE, POSE.L_FOOT, POSE.R_FOOT],
+    // Ankle plantarflexion: flat (~95°) → up on toes (~120°). Extension rep.
+    rep: { measure: bilateral(ANKLE_L, ANKLE_R), downAngle: 100, upAngle: 115 },
+    form: [lockoutCue(120, "Rise up higher"), kneesStraightCue(165, "Keep your legs straight")],
+    intro: "Calf raises. Stand tall and rise onto your toes.",
+    setupHint: "Side-on so I can see your heels lift.",
+    contraindications: [
+      { condition: "ankles", modification: "reduce range, avoid a deep stretch under load" },
+      { condition: "balance", modification: "hold a wall for support" },
+    ],
+  },
+  {
+    id: "plank", name: "Plank", emoji: "🧘", kind: "hold", met: 3.3,
+    category: "home", equipment: "none", primaryMuscles: ["core", "shoulders"],
+    difficulty: "beginner", goalFit: ["strength", "mobility"], detectable: "high",
+    requiredJoints: BODY,
+    hold: {
+      inPosition: (lm: Landmarks) => {
+        const a = angleAt(lm[POSE.L_SHOULDER], lm[POSE.L_HIP], lm[POSE.L_ANKLE]);
+        return a > 150;
+      },
+      cue: (lm: Landmarks) => {
+        const a = angleAt(lm[POSE.L_SHOULDER], lm[POSE.L_HIP], lm[POSE.L_ANKLE]);
+        if (a > 155) return null;
+        const midY = (lm[POSE.L_SHOULDER].y + lm[POSE.L_ANKLE].y) / 2;
+        return lm[POSE.L_HIP].y > midY ? "Lift your hips" : "Lower your hips, flat back";
       },
     },
-  ],
-  intro: "Push-ups. Get into a push-up position, side-on to me works best.",
-  setupHint: "Turn side-on so I can see your arm bend.",
-};
-
-const LUNGE: ExerciseDef = {
-  id: "lunge",
-  name: "Lunges",
-  emoji: "🦵",
-  kind: "rep",
-  met: 4.5,
-  requiredJoints: [POSE.L_HIP, POSE.R_HIP, POSE.L_KNEE, POSE.R_KNEE, POSE.L_ANKLE, POSE.R_ANKLE],
-  rep: {
-    // The forward leg bends most — track the MORE bent knee so it works for
-    // either leg, alternating.
-    measure: (lm) => {
-      const l = jAngle(lm, POSE.L_HIP, POSE.L_KNEE, POSE.L_ANKLE);
-      const r = jAngle(lm, POSE.R_HIP, POSE.R_KNEE, POSE.R_ANKLE);
-      return Math.min(l, r);
-    },
-    downAngle: 130,
-    upAngle: 160,
+    form: [],
+    intro: "Plank. Hold a straight line from shoulders to heels.",
+    setupHint: "Turn side-on so I can see your back line.",
+    contraindications: [
+      { condition: "lower-back pain", modification: "drop to your knees, shorter holds" },
+      { condition: "high blood pressure", modification: "breathe steadily, don't hold your breath" },
+    ],
   },
-  form: [
-    {
-      id: "depth",
-      evaluate: ({ minAngle }) =>
-        minAngle > 115 ? "Drop your back knee lower" : null,
-    },
-    {
-      id: "upright",
-      // Torso should stay roughly upright: shoulders above hips, not tipped far forward.
-      evaluate: ({ lm }) => {
-        const shoulder = (lm[POSE.L_SHOULDER].visibility ?? 0) > (lm[POSE.R_SHOULDER].visibility ?? 0)
-          ? lm[POSE.L_SHOULDER]
-          : lm[POSE.R_SHOULDER];
-        const hip = (lm[POSE.L_HIP].visibility ?? 0) > (lm[POSE.R_HIP].visibility ?? 0)
-          ? lm[POSE.L_HIP]
-          : lm[POSE.R_HIP];
-        return hGap(shoulder, hip) > 0.18 ? "Keep your chest up" : null;
-      },
-    },
-  ],
-  intro: "Lunges. Step one foot forward and lower down, alternating legs.",
-  setupHint: "Give yourself room to step forward, facing me.",
-};
-
-const PLANK: ExerciseDef = {
-  id: "plank",
-  name: "Plank",
-  emoji: "🧘",
-  kind: "hold",
-  met: 3.3,
-  requiredJoints: [POSE.L_SHOULDER, POSE.R_SHOULDER, POSE.L_HIP, POSE.R_HIP, POSE.L_ANKLE, POSE.R_ANKLE],
-  hold: {
-    inPosition: (lm) => {
-      const straight = sideAware(
-        lm,
-        [POSE.L_SHOULDER, POSE.L_HIP, POSE.L_ANKLE],
-        [POSE.R_SHOULDER, POSE.R_HIP, POSE.R_ANKLE],
-      );
-      return straight > 150;
-    },
-    cue: (lm) => {
-      // Decide sag vs pike by where the hip sits relative to the line from
-      // shoulder to ankle (mid-y). Hip lower on screen (greater y) = sagging.
-      const shoulder = lm[POSE.L_SHOULDER];
-      const hip = lm[POSE.L_HIP];
-      const ankle = lm[POSE.L_ANKLE];
-      const straight = sideAware(
-        lm,
-        [POSE.L_SHOULDER, POSE.L_HIP, POSE.L_ANKLE],
-        [POSE.R_SHOULDER, POSE.R_HIP, POSE.R_ANKLE],
-      );
-      if (straight > 155) return null; // good line
-      const midY = (shoulder.y + ankle.y) / 2;
-      return hip.y > midY ? "Lift your hips" : "Lower your hips, flat back";
-    },
-  },
-  form: [],
-  intro: "Plank. Hold a straight line from your shoulders to your heels. I'll time you.",
-  setupHint: "Turn side-on so I can see your back line.",
-};
-
-export const EXERCISES: Record<ExerciseId, ExerciseDef> = {
-  squat: SQUAT,
-  pushup: PUSHUP,
-  lunge: LUNGE,
-  plank: PLANK,
-};
-
-export interface RoutineStep {
-  id: ExerciseId;
-  /** Target reps (rep kind) — ignored for holds. */
-  reps?: number;
-  /** Target seconds (hold kind). */
-  seconds?: number;
-  /** Rest after this step, seconds. */
-  rest: number;
-}
-
-/** The default guided workout the founder picked: all four, sensible volume. */
-export const DEFAULT_ROUTINE: RoutineStep[] = [
-  { id: "squat", reps: 10, rest: 15 },
-  { id: "pushup", reps: 8, rest: 15 },
-  { id: "lunge", reps: 10, rest: 15 },
-  { id: "plank", seconds: 30, rest: 0 },
 ];
+
+export const EXERCISES: Record<string, ExerciseDef> = Object.fromEntries(
+  CATALOG.map((e) => [e.id, e]),
+);
+export const EXERCISE_LIST: ExerciseDef[] = CATALOG;

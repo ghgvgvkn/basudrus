@@ -17,17 +17,15 @@
  * Privacy: pose frames never leave the device (usePoseTracking has no upload
  * path). Only the visible coaching is computed here.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePoseTracking, type PoseFrame } from "./usePoseTracking";
 import { avgVisibility } from "./angles";
 import { POSE_BONES, POSE_JOINTS } from "./poseConstants";
-import {
-  EXERCISES,
-  DEFAULT_ROUTINE,
-  type ExerciseDef,
-  type Landmarks,
-} from "./exercises";
+import { EXERCISES } from "./exercises";
+import { buildRoutine } from "./routine";
+import { facingOf } from "./formHelpers";
 import { createRepCounter, type RepCounter } from "./repCounter";
+import type { ExerciseDef, Landmarks } from "./types";
 import {
   loadProfile,
   caloriesForSeconds,
@@ -47,9 +45,12 @@ interface ExerciseModeProps {
 
 type Stage = "intro" | "countdown" | "active" | "rest" | "done";
 
-const ROUTINE = DEFAULT_ROUTINE;
 /** Min ms between spoken form cues so corrections don't stutter. */
 const CUE_THROTTLE_MS = 4000;
+/** Form-check ids evaluated LIVE every frame (mid-movement coaching) vs at
+ *  the END of a rep (depth / lockout, judged on the finished rep). */
+const LIVE_RULES = new Set(["trunk-lean", "body-line", "knee-cave", "over-extend", "knees-straight"]);
+const END_RULES = new Set(["depth", "lockout"]);
 
 export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps) {
   const pose = usePoseTracking(true);
@@ -72,7 +73,14 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   const [profile, setProfile] = useState<FitnessProfile | null>(() => loadProfile());
   const [editingProfile, setEditingProfile] = useState(false);
 
-  const step = ROUTINE[stepIndex];
+  // Personalized routine from the profile (goal / place / injuries). The ref
+  // lets the long-lived rAF read the current routine without resubscribing.
+  const routine = useMemo(() => buildRoutine(profile), [profile]);
+  const routineRef = useRef(routine);
+  routineRef.current = routine;
+
+  const safeIndex = Math.min(stepIndex, routine.length - 1);
+  const step = routine[safeIndex];
   const exercise: ExerciseDef = EXERCISES[step.id];
   const target = exercise.kind === "rep" ? step.reps ?? 0 : step.seconds ?? 0;
 
@@ -119,13 +127,13 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
     if (stepDoneRef.current) return;
     stepDoneRef.current = true;
     const idx = stepIndexRef.current;
-    const ex = EXERCISES[ROUTINE[idx].id];
+    const ex = EXERCISES[routineRef.current[idx].id];
     if (ex.kind === "rep") {
-      speakSafe(`Nice! That's ${ROUTINE[idx].reps}.`);
+      speakSafe(`Nice! That's ${routineRef.current[idx].reps}.`);
     } else {
-      speakSafe(`Time! ${ROUTINE[idx].seconds} second hold. Strong.`);
+      speakSafe(`Time! ${routineRef.current[idx].seconds} second hold. Strong.`);
     }
-    if (idx + 1 >= ROUTINE.length) {
+    if (idx + 1 >= routineRef.current.length) {
       setStage("done");
     } else {
       setStage("rest");
@@ -138,7 +146,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
 
   // ── begin a set (called when entering "active") ──
   const startActive = useCallback(() => {
-    const ex = EXERCISES[ROUTINE[stepIndexRef.current].id];
+    const ex = EXERCISES[routineRef.current[stepIndexRef.current].id];
     stepDoneRef.current = false;
     lastSpokenRepRef.current = 0;
     holdMsRef.current = 0;
@@ -175,7 +183,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
       if (ctx && canvas) drawSkeleton(ctx, canvas, lm, videoRef.current, flashRef);
 
       if (stageRef.current === "active" && !stepDoneRef.current) {
-        const ex = EXERCISES[ROUTINE[stepIndexRef.current].id];
+        const ex = EXERCISES[routineRef.current[stepIndexRef.current].id];
         const dt = lastNowRef.current ? now - lastNowRef.current : 0;
         lastNowRef.current = now;
 
@@ -198,38 +206,54 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
           maybeCue("Step back so I can see your whole body", now);
         } else if (ex.kind === "rep" && ex.rep && repCounterRef.current) {
           const angle = ex.rep.measure(lm);
+          const facing = facingOf(lm);
           const st = repCounterRef.current.update(angle, now);
+
+          // LIVE mid-rep correction — the "coach standing next to you" feel.
+          // View-aware rules silently skip when the camera can't see the fault.
+          let liveCue: string | null = null;
+          for (const f of ex.form) {
+            if (!LIVE_RULES.has(f.id)) continue;
+            const c = f.evaluate({ lm, measure: angle, minAngle: angle, facing });
+            if (c) { liveCue = c; break; }
+          }
+          if (liveCue) {
+            showCue(liveCue);
+            maybeCue(liveCue, now);
+          }
+
           if (st.justCompleted) {
             flashRef.current = now;
-            // Form check on the completed rep — a fault cue takes priority
-            // over the spoken count (speak() is last-wins, so never both).
-            let faultCue: string | null = null;
+            // END-of-rep checks (depth / lockout) — judged on the finished rep,
+            // priority over the spoken count.
+            let endCue: string | null = null;
             for (const f of ex.form) {
-              // Injury safety (from form research): never coach a knee-pain
-              // user DEEPER into a squat/lunge — that pushes them into the
-              // exact range that aggravates the knee. Suppress the depth cue.
+              if (!END_RULES.has(f.id)) continue;
+              // Injury safety (research): don't coach a knee-flagged user DEEPER.
               if (
                 f.id === "depth" &&
-                (ex.id === "squat" || ex.id === "lunge") &&
-                profileRef.current?.injuries.includes("knees")
+                profileRef.current?.injuries.includes("knees") &&
+                ex.contraindications.some((c) => /knee/i.test(c.condition))
               ) continue;
-              const c = f.evaluate({ lm, measure: angle, minAngle: st.minAngle });
-              if (c) { faultCue = c; break; }
+              const c = f.evaluate({ lm, measure: angle, minAngle: st.minAngle, facing });
+              if (c) { endCue = c; break; }
             }
             setReps(st.reps);
-            if (faultCue) {
-              showCue(faultCue);
-              maybeCue(faultCue, now, true);
-            } else {
-              showCue(null);
-              speakSafe(String(st.reps));
+            if (endCue) {
+              showCue(endCue);
+              maybeCue(endCue, now, true);
+            } else if (!liveCue) {
+              speakSafe(String(st.reps)); // count aloud only if no correction this rep
             }
             lastSpokenRepRef.current = st.reps;
-            if (st.reps >= (ROUTINE[stepIndexRef.current].reps ?? 0)) {
+            if (st.reps >= (routineRef.current[stepIndexRef.current].reps ?? 0)) {
               completeStepRef.current();
             }
+          } else if (!liveCue) {
+            showCue(null); // clear a stale correction between reps
           }
         } else if (ex.kind === "hold" && ex.hold) {
+          const facing = facingOf(lm);
           if (ex.hold.inPosition(lm)) {
             holdMsRef.current += dt;
             const sec = Math.floor(holdMsRef.current / 1000);
@@ -237,17 +261,18 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
               displayedHoldRef.current = sec;
               setHoldSec(sec);
             }
-            showCue(ex.hold.cue(lm));
-            const targetSec = ROUTINE[stepIndexRef.current].seconds ?? 0;
-            // Encourage at the halfway mark.
+            const hc = ex.hold.cue(lm, facing);
+            showCue(hc);
+            if (hc) maybeCue(hc, now);
+            const targetSec = routineRef.current[stepIndexRef.current].seconds ?? 0;
             if (sec === Math.floor(targetSec / 2) && lastSpokenRepRef.current < sec) {
               lastSpokenRepRef.current = sec;
               speakSafe("Halfway, hold strong");
             }
             if (sec >= targetSec) completeStepRef.current();
           } else {
-            showCue("Get into a straight plank");
-            maybeCue("Get into a straight plank", now);
+            showCue("Get into position");
+            maybeCue("Get into position", now);
           }
         }
       } else {
@@ -317,7 +342,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
 
   useEffect(() => {
     if (stage !== "rest") return;
-    let left = ROUTINE[stepIndex].rest;
+    let left = routineRef.current[stepIndex]?.rest ?? 0;
     setRestLeft(left);
     if (left <= 0) {
       goNextStep();
@@ -345,7 +370,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   }, [stage]);
 
   const goNextStep = () => {
-    if (stepIndex + 1 >= ROUTINE.length) {
+    if (stepIndex + 1 >= routine.length) {
       setStage("done");
       return;
     }
@@ -386,7 +411,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
       {/* Top bar: routine progress + controls */}
       <div className="exr-topbar">
         <div className="exr-progress">
-          {ROUTINE.map((s, i) => (
+          {routine.map((s, i) => (
             <span
               key={i}
               className={`exr-dot ${i === stepIndex ? "is-current" : ""} ${i < stepIndex || stage === "done" ? "is-done" : ""}`}
@@ -449,7 +474,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
           {stage === "rest" && (
             <div className="exr-bignum-wrap">
               <div className="exr-bignum">{restLeft}</div>
-              <div className="exr-bignum-sub">rest — next: {EXERCISES[ROUTINE[Math.min(stepIndex + 1, ROUTINE.length - 1)].id].name}</div>
+              <div className="exr-bignum-sub">rest — next: {EXERCISES[routine[Math.min(stepIndex + 1, routine.length - 1)].id].name}</div>
             </div>
           )}
 
@@ -490,7 +515,7 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
           <div className="exr-done-emoji">🎉</div>
           <div className="exr-overlay-title">Workout complete!</div>
           <div className="exr-overlay-sub">
-            {totalReps + reps} reps across {ROUTINE.length} exercises · 🔥 {kcal} kcal burned. Great work — same time tomorrow?
+            {totalReps + reps} reps across {routine.length} exercises · 🔥 {kcal} kcal burned. Great work — same time tomorrow?
           </div>
           <button className="exr-cta" onClick={restart}>Go again</button>
           <button className="exr-cta exr-cta-ghost" onClick={handleExit}>Done</button>
@@ -501,7 +526,12 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
       {(!profile || editingProfile) && (
         <ExerciseOnboarding
           initial={editingProfile ? profile : null}
-          onComplete={(p) => { setProfile(p); setEditingProfile(false); }}
+          onComplete={(p) => {
+            setProfile(p);
+            setEditingProfile(false);
+            // Changing goals/injuries rebuilds the routine — restart it cleanly.
+            if (started) { setStepIndex(0); setStage("intro"); }
+          }}
           onCancel={editingProfile ? () => setEditingProfile(false) : undefined}
         />
       )}
