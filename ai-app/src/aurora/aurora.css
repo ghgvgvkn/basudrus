@@ -3709,10 +3709,10 @@ body.aurora-theme-frost .aurora-app {
    Fully REVERSIBLE: it only adds rules under body.aurora-theme-liquid,
    so switching to any other theme restores the previous design exactly.
    It rides the shared bright re-skins (token block below) and then
-   layers the real glass material — translucent fills, heavy blur +
-   saturation, a bright SPECULAR top-edge highlight, soft depth shadow,
-   and rounder pill geometry.
-   FIRST PASS — to be refined against the founder's incoming reference.
+   layers the visionOS "inset widget" material — soft frames with their
+   content RECESSED below a raised rim, a bright top-edge highlight, a
+   muted dusty-blue/periwinkle palette, gentle float shadows, and very
+   round geometry. Tuned to the founder's Apple visionOS reference photo.
    ════════════════════════════════════════════════════════════════ */
 body.aurora-theme-liquid .aurora-app {
   --aurora-bg-base:      #EEF3FA;
@@ -3720,59 +3720,62 @@ body.aurora-theme-liquid .aurora-app {
   --aurora-bg-elevated:  #FFFFFF;
   --aurora-text-primary:    #0B1830;
   --aurora-text-secondary:  #3E4D68;
-  --aurora-text-tertiary:   #74809A;
+  --aurora-text-tertiary:   #545E79;
   --aurora-text-dark:       #0B1830;
-  --aurora-accent:         #2B6CF6;
-  --aurora-accent-glow:    #5B93FF;
-  --aurora-accent-deep:    #1B4ED8;
-  --aurora-accent-rgb:      43,108,246;
-  --aurora-glow-rgb:        91,147,255;
-  --aurora-deep-rgb:        27,78,216;
-  --aurora-ink-rgb:         11,24,48;
-  --aurora-shadow-rgb:      40,70,130;
-  --aurora-grid-rgb:        120,150,210;
-  --aurora-tint-rgb:        160,185,230;
-  --aurora-user-bubble:     rgba(43,108,246,0.92);
-  --aurora-tick:            rgba(43,108,246,0.85);
-  --aurora-radar-filter:    saturate(1.3) brightness(0.95);
-  --aurora-accent-08: rgba(43,108,246,0.08);
-  --aurora-accent-20: rgba(43,108,246,0.20);
-  --aurora-accent-35: rgba(43,108,246,0.35);
-  --aurora-accent-55: rgba(43,108,246,0.55);
-  --aurora-accent-75: rgba(43,108,246,0.75);
-  --aurora-state-idle:      #74809A;
-  --aurora-state-listening: #2B6CF6;
-  --aurora-state-thinking:  #6E62E6;
-  --aurora-state-speaking:  #5B93FF;
+  --aurora-accent:         #5F78B4;
+  --aurora-accent-glow:    #8EA2CF;
+  --aurora-accent-deep:    #46598E;
+  --aurora-accent-rgb:      95,120,180;
+  --aurora-glow-rgb:        142,162,207;
+  --aurora-deep-rgb:        70,89,142;
+  --aurora-ink-rgb:         28,38,60;
+  --aurora-shadow-rgb:      70,90,130;
+  --aurora-grid-rgb:        150,165,205;
+  --aurora-tint-rgb:        180,198,230;
+  --aurora-user-bubble:     rgba(95,120,180,0.92);
+  --aurora-tick:            rgba(95,120,180,0.85);
+  --aurora-radar-filter:    saturate(1.15) brightness(0.98);
+  --aurora-accent-08: rgba(95,120,180,0.08);
+  --aurora-accent-20: rgba(95,120,180,0.20);
+  --aurora-accent-35: rgba(95,120,180,0.35);
+  --aurora-accent-55: rgba(95,120,180,0.55);
+  --aurora-accent-75: rgba(95,120,180,0.75);
+  --aurora-state-idle:      #828DA6;
+  --aurora-state-listening: #5F78B4;
+  --aurora-state-thinking:  #7E74C8;
+  --aurora-state-speaking:  #8EA2CF;
   /* Soft, light, slightly cool wash — the canvas the glass floats on. */
   background:
     radial-gradient(120% 90% at 30% 0%, #FFFFFF 0%, #EAF1FB 45%, #DCE7F7 100%);
 }
 
-/* The glass material — one mixin applied to every surface. Reusable
-   custom props let each surface tune only what differs. */
-body.aurora-theme-liquid .aurora-app .aurora-rail-tool,
-body.aurora-theme-liquid .aurora-app .aurora-widget,
-body.aurora-theme-liquid .aurora-app .aurora-rail-card,
-body.aurora-theme-liquid .aurora-app .aurora-chat-bar,
-body.aurora-theme-liquid .aurora-app .aurora-msg .aurora-bubble {
+/* ── Liquid "inset widget" material (Apple visionOS reference) ──
+   Each tile is a soft frame with its content RECESSED below a raised rim
+   (carved-in depth), floating on a gentle shadow. One mixin on every
+   surface; per-surface rules below tune only what differs. */
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-rail-tool,
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-widget,
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-rail-card,
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-chat-bar,
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-msg .aurora-bubble {
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.18) 36%, rgba(255,255,255,0.30) 100%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
-  backdrop-filter: blur(28px) saturate(200%);
-  border: 1px solid rgba(255,255,255,0.65);
+    linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(238,243,251,0.86) 58%, rgba(225,233,247,0.90) 100%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.75);
   box-shadow:
-    /* bright specular top-edge — the signature Liquid Glass highlight */
-    inset 0 1px 0 rgba(255,255,255,0.95),
-    inset 0 0 0 1px rgba(255,255,255,0.22),
-    /* faint inner cool shadow at the base for thickness */
-    inset 0 -8px 18px rgba(40,70,130,0.06),
-    /* soft floating depth shadow */
-    0 12px 34px rgba(40,70,130,0.16),
-    0 2px 6px rgba(40,70,130,0.10);
+    /* recessed content: shadow at the top inner edge, light at the bottom */
+    inset 0 6px 14px rgba(70,90,130,0.13),
+    inset 0 -5px 12px rgba(255,255,255,0.60),
+    /* bright rim highlight along the very top edge */
+    inset 0 1.5px 0 rgba(255,255,255,0.92),
+    inset 0 0 0 1px rgba(255,255,255,0.30),
+    /* soft floating drop — the tile sits off the surface */
+    0 16px 34px rgba(70,90,130,0.16),
+    0 3px 8px rgba(70,90,130,0.10);
   color: var(--aurora-text-primary);
 }
-/* Specular sheen sweep across the top of each glass tile. */
+/* Soft specular sheen across the upper third of each tile. */
 body.aurora-theme-liquid .aurora-app .aurora-rail-tool,
 body.aurora-theme-liquid .aurora-app .aurora-widget {
   position: relative;
@@ -3783,47 +3786,90 @@ body.aurora-theme-liquid .aurora-app .aurora-widget::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 55%;
-  background: linear-gradient(180deg, rgba(255,255,255,0.5), rgba(255,255,255,0) 100%);
+  height: 46%;
+  background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0) 100%);
   pointer-events: none;
   border-radius: inherit;
 }
-/* Rounder, pill-leaning geometry (Apple Liquid Glass capsules). */
-body.aurora-theme-liquid .aurora-app .aurora-rail-tool { border-radius: 20px; }
-body.aurora-theme-liquid .aurora-app .aurora-rail-card { border-radius: 26px; }
-body.aurora-theme-liquid .aurora-app .aurora-widget { border-radius: 22px; }
+/* Very round, soft visionOS geometry. */
+body.aurora-theme-liquid .aurora-app .aurora-rail-tool { border-radius: 28px; }
+body.aurora-theme-liquid .aurora-app .aurora-rail-card { border-radius: 30px; }
+body.aurora-theme-liquid .aurora-app .aurora-widget { border-radius: 28px; }
 
-/* Primary (dark) boxes become tinted blue glass instead of solid taupe. */
+/* Primary boxes = the solid dusty-blue inset "tray" (the calendar widget). */
 body.aurora-theme-liquid .aurora-app .aurora-rail-tool.is-mode,
 body.aurora-theme-liquid .aurora-app .aurora-rail-tool.is-newchat {
   background:
-    linear-gradient(180deg, rgba(91,147,255,0.92) 0%, rgba(43,108,246,0.92) 100%);
-  border-color: rgba(255,255,255,0.5);
+    linear-gradient(180deg, rgba(86,108,166,1) 0%, rgba(70,90,142,1) 100%);
+  border-color: rgba(255,255,255,0.40);
   color: #FFFFFF;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.6),
-    0 12px 30px rgba(43,108,246,0.34);
+    /* recessed face inside the colored tray */
+    inset 0 7px 16px rgba(40,55,95,0.28),
+    inset 0 -5px 12px rgba(255,255,255,0.20),
+    inset 0 1.5px 0 rgba(255,255,255,0.50),
+    0 16px 32px rgba(70,90,140,0.30),
+    0 3px 8px rgba(70,90,140,0.18);
 }
 body.aurora-theme-liquid .aurora-app .aurora-rail-tool.is-mode svg,
 body.aurora-theme-liquid .aurora-app .aurora-rail-tool.is-newchat svg { color: #FFFFFF; }
 
-/* The composer becomes a long glass capsule. */
+/* The composer becomes a long soft capsule. */
 body.aurora-theme-liquid .aurora-app .aurora-chat-bar { border-radius: 999px; }
-/* User bubble = blue glass; Tony bubble = clear glass (above). */
-body.aurora-theme-liquid .aurora-app .aurora-msg.aurora-user .aurora-bubble {
-  background: linear-gradient(180deg, rgba(91,147,255,0.95), rgba(43,108,246,0.95));
+/* User bubble = dusty-blue tray; Tony bubble = soft glass (mixin above). */
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-msg.aurora-user .aurora-bubble {
+  background: linear-gradient(180deg, rgba(86,108,166,1), rgba(70,90,142,1));
   color: #FFFFFF;
-  border-color: rgba(255,255,255,0.5);
+  border-color: rgba(255,255,255,0.40);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.40),
+    0 10px 22px rgba(70,90,140,0.22);
 }
-/* Top-bar pills + icon buttons get the glass too. */
-body.aurora-theme-liquid .aurora-app .aurora-icon-btn,
-body.aurora-theme-liquid .aurora-app .aurora-pro-pill,
-body.aurora-theme-liquid .aurora-app .aurora-signin-pill {
-  background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.25));
+/* Top-bar pills + icon buttons = small frosted capsules (the "Done" pill).
+   Qualified with both body classes so they win over the shared bright re-skin. */
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-icon-btn,
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-pro-pill,
+body.aurora-theme-liquid.aurora-theme-bright .aurora-app .aurora-signin-pill {
+  background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0.55));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255,255,255,0.7);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 6px 16px rgba(40,70,130,0.14);
+  border: 1px solid rgba(255,255,255,0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 0 -2px 6px rgba(70,90,130,0.06),
+    0 6px 16px rgba(70,90,130,0.14);
+}
+
+/* "Soon" disabled tiles: the base 0.5 opacity × 0.5-alpha label collapses to
+   ~1.7:1 on glass. Lift both so the placeholder is legible but still muted. */
+body.aurora-theme-liquid .aurora-app .aurora-rail-tool.is-soon { opacity: 0.72; }
+body.aurora-theme-liquid .aurora-app .aurora-soon { color: rgba(14,22,34,0.78); }
+
+/* Caption text under the tool boxes (e.g. "between 2 people") — the base
+   #988686 taupe is only ~3:1 on cool glass; use the readable secondary ink. */
+body.aurora-theme-liquid .aurora-app .aurora-rail-tool small {
+  color: var(--aurora-text-secondary);
+}
+
+/* Composer keeps its glass capsule WHILE typing. The shared bright typing rule
+   (body.aurora-theme-bright.aurora-typing …, later in file) repaints the bar
+   stone #DAD9D9; the triple-class selector here outranks it so it stays glass. */
+body.aurora-theme-liquid.aurora-theme-bright.aurora-typing .aurora-app .aurora-chat-bar {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(238,243,251,0.88) 58%, rgba(225,233,247,0.92) 100%);
+  border-color: rgba(255,255,255,0.85);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.95),
+    inset 0 0 0 1px rgba(255,255,255,0.30),
+    0 22px 60px rgba(70,90,130,0.16),
+    0 0 0 3px rgba(95,120,180,0.10);
+}
+
+/* Send button: the base hard-coded maroon (#871A11) reads as a warm dot against
+   cool liquid glass; restyle it to the same dusty-blue tray, white glyph. */
+body.aurora-theme-liquid .aurora-app .aurora-send-btn {
+  background: linear-gradient(180deg, rgba(86,108,166,1), rgba(70,90,142,1));
+  color: #FFFFFF;
 }
 
 /* ── Shared bright re-skins (token-driven) ── */
