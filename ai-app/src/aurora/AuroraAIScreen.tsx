@@ -468,32 +468,17 @@ export function AuroraAIScreen() {
   // aurora-theme-bright marker (component re-skins common to both
   // bright themes); the canvas engine gets the value as a prop.
   const [theme, setTheme] = useState<AuroraTheme>(() => {
-    // Liquid Glass is being trialled as the DEFAULT look. Force every visitor
-    // onto it ONCE (so a previously-saved theme from tapping the toggle doesn't
-    // hide it), then respect their choice from then on. To revert: set
-    // DEFAULT_THEME back to "light" and bump TRIAL_KEY so everyone re-defaults.
-    const DEFAULT_THEME: AuroraTheme = "liquid";
-    const TRIAL_KEY = "aurora-theme-trial-liquid";
     try {
       const saved = localStorage.getItem("aurora-theme");
-      if (!localStorage.getItem(TRIAL_KEY)) {
-        localStorage.setItem(TRIAL_KEY, "1");
-        localStorage.setItem("aurora-theme", DEFAULT_THEME);
-        return DEFAULT_THEME;
-      }
-      return saved === "dark" || saved === "light" || saved === "frost" || saved === "liquid" ? saved : DEFAULT_THEME;
+      return saved === "dark" || saved === "light" || saved === "frost" ? saved : "light";
     } catch {
-      return DEFAULT_THEME;
+      return "light";
     }
   });
   useEffect(() => {
     const cls = document.body.classList;
     cls.toggle("aurora-theme-light", theme === "light");
     cls.toggle("aurora-theme-frost", theme === "frost");
-    // Liquid Glass (experimental). It's a BRIGHT theme too, so it also
-    // gets the shared aurora-theme-bright re-skins as a base, then the
-    // liquid block layers the glass material on top.
-    cls.toggle("aurora-theme-liquid", theme === "liquid");
     cls.toggle("aurora-theme-bright", theme !== "dark");
     try {
       localStorage.setItem("aurora-theme", theme);
@@ -501,13 +486,10 @@ export function AuroraAIScreen() {
       /* private mode — theme just won't persist */
     }
     return () => {
-      cls.remove("aurora-theme-light", "aurora-theme-frost", "aurora-theme-liquid", "aurora-theme-bright");
+      cls.remove("aurora-theme-light", "aurora-theme-frost", "aurora-theme-bright");
     };
   }, [theme]);
-  // Cycle: light → dark → frost → liquid → light. Reverting the Liquid
-  // Glass experiment is just tapping through to another theme.
-  const nextTheme: AuroraTheme =
-    theme === "light" ? "dark" : theme === "dark" ? "frost" : theme === "frost" ? "liquid" : "light";
+  const nextTheme: AuroraTheme = theme === "light" ? "dark" : theme === "dark" ? "frost" : "light";
 
   // ── JARVIS MODE (camera + hand gestures) ──
   // Founder spec: an ADDITIVE option inside voice mode — "we're not gonna
@@ -2467,7 +2449,7 @@ export function AuroraAIScreen() {
             className="aurora-icon-btn"
             type="button"
             onClick={() => setTheme(nextTheme)}
-            title={`Switch to ${nextTheme === "dark" ? "dark" : nextTheme === "frost" ? "frost (cool blue)" : nextTheme === "liquid" ? "Liquid Glass (experimental)" : "light"} theme`}
+            title={`Switch to ${nextTheme === "dark" ? "dark" : nextTheme === "frost" ? "frost (cool blue)" : "light"} theme`}
             aria-label={`Switch to ${nextTheme} theme`}
           >
             {nextTheme === "dark" ? (
@@ -2477,11 +2459,6 @@ export function AuroraAIScreen() {
             ) : nextTheme === "frost" ? (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2v20M4 6l16 12M20 6L4 18M12 6l-2.5-2.5M12 6l2.5-2.5M12 18l-2.5 2.5M12 18l2.5 2.5M6.4 7.8 3 6.9M6.4 16.2 3 17.1M17.6 7.8 21 6.9M17.6 16.2l3.4.9" />
-              </svg>
-            ) : nextTheme === "liquid" ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3c3.5 4 6 7 6 10a6 6 0 0 1-12 0c0-3 2.5-6 6-10Z" />
-                <path d="M9.5 13.5a2.5 2.5 0 0 0 2.5 2.5" />
               </svg>
             ) : (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

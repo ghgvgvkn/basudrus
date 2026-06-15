@@ -137,23 +137,12 @@ const DOT_TINTS_FROST: Record<DotTint, { fill: string; shadow: string }> = {
   gold:   { fill: "0,82,255",    shadow: "rgba(59,130,246,0.60)" },
 };
 
-export type AuroraTheme = "dark" | "light" | "frost" | "liquid";
-
-// LIQUID GLASS (experimental, reversible theme): soft cool-blue glass
-// dots on a near-white field — clean and airy, like Apple's material.
-const DOT_TINTS_LIQUID: Record<DotTint, { fill: string; shadow: string }> = {
-  white:  { fill: "150,170,200", shadow: "rgba(120,150,200,0.40)" },
-  pink:   { fill: "90,130,210",  shadow: "rgba(90,130,210,0.40)" },
-  cyan:   { fill: "120,160,220", shadow: "rgba(120,160,220,0.40)" },
-  purple: { fill: "120,120,210", shadow: "rgba(120,120,210,0.35)" },
-  gold:   { fill: "70,110,200",  shadow: "rgba(70,110,200,0.45)" },
-};
+export type AuroraTheme = "dark" | "light" | "frost";
 
 const THEME_TINTS: Record<AuroraTheme, Record<DotTint, { fill: string; shadow: string }>> = {
   dark: DOT_TINTS,
   light: DOT_TINTS_LIGHT,
   frost: DOT_TINTS_FROST,
-  liquid: DOT_TINTS_LIQUID,
 };
 
 /**
@@ -188,13 +177,6 @@ const THEME_FX: Record<AuroraTheme, {
     ring1: "204,72,0", ring1Shadow: "rgba(255,90,0,0.5)",
     ring2: "91,33,182", ring2Shadow: "rgba(139,92,246,0.5)",
     planet: "30,58,112", planetShadow: "rgba(0,82,255,0.5)",
-  },
-  liquid: {
-    halo0: "150,180,230", halo0A: 0.10, halo1: "90,130,210", halo1A: 0.05,
-    ghost: "120,150,210", ghostShadow: "rgba(120,150,210,0.5)",
-    ring1: "90,130,210", ring1Shadow: "rgba(90,130,210,0.55)",
-    ring2: "150,170,220", ring2Shadow: "rgba(150,170,220,0.5)",
-    planet: "120,150,210", planetShadow: "rgba(120,150,210,0.5)",
   },
 };
 
