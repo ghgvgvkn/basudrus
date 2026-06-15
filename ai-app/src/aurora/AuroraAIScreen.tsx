@@ -468,11 +468,22 @@ export function AuroraAIScreen() {
   // aurora-theme-bright marker (component re-skins common to both
   // bright themes); the canvas engine gets the value as a prop.
   const [theme, setTheme] = useState<AuroraTheme>(() => {
+    // Liquid Glass is being trialled as the DEFAULT look. Force every visitor
+    // onto it ONCE (so a previously-saved theme from tapping the toggle doesn't
+    // hide it), then respect their choice from then on. To revert: set
+    // DEFAULT_THEME back to "light" and bump TRIAL_KEY so everyone re-defaults.
+    const DEFAULT_THEME: AuroraTheme = "liquid";
+    const TRIAL_KEY = "aurora-theme-trial-liquid";
     try {
       const saved = localStorage.getItem("aurora-theme");
-      return saved === "dark" || saved === "light" || saved === "frost" || saved === "liquid" ? saved : "light";
+      if (!localStorage.getItem(TRIAL_KEY)) {
+        localStorage.setItem(TRIAL_KEY, "1");
+        localStorage.setItem("aurora-theme", DEFAULT_THEME);
+        return DEFAULT_THEME;
+      }
+      return saved === "dark" || saved === "light" || saved === "frost" || saved === "liquid" ? saved : DEFAULT_THEME;
     } catch {
-      return "light";
+      return DEFAULT_THEME;
     }
   });
   useEffect(() => {
