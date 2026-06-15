@@ -1,0 +1,262 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AI EXERCISE MODE — full-screen camera coach.
+   A clean takeover (z-index above the app): mirrored selfie video, a
+   glowing pose skeleton on the canvas above it, and a bold HUD.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.exr-root {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  overflow: hidden;
+  background: #05080d;
+  font-family: "Geist", system-ui, -apple-system, sans-serif;
+  color: #eaf4ff;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Layer 1 — mirrored selfie feed */
+.exr-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* selfie mirror — landmarks are pre-flipped to match */
+  background: #05080d;
+}
+
+/* Layer 2 — skeleton overlay (NOT mirrored: landmarks already in screen space) */
+.exr-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Layer 3 — cinematic dim so the white HUD reads over any room */
+.exr-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(3, 8, 14, 0.05) 0%, rgba(3, 8, 14, 0.5) 100%),
+    linear-gradient(to top, rgba(3, 8, 14, 0.78) 0%, transparent 30%),
+    linear-gradient(to bottom, rgba(3, 8, 14, 0.55) 0%, transparent 22%);
+}
+
+/* ── Top bar ── */
+.exr-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  z-index: 3;
+}
+.exr-progress {
+  display: flex;
+  gap: 10px;
+}
+.exr-dot {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  filter: grayscale(0.6) opacity(0.6);
+  transition: all 0.3s ease;
+}
+.exr-dot.is-current {
+  background: rgba(90, 170, 255, 0.28);
+  border-color: rgba(120, 200, 255, 0.85);
+  filter: none;
+  box-shadow: 0 0 22px rgba(90, 170, 255, 0.5);
+  transform: scale(1.08);
+}
+.exr-dot.is-done {
+  filter: grayscale(0) opacity(0.95);
+  border-color: rgba(120, 230, 170, 0.6);
+}
+.exr-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.exr-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 18, 28, 0.55);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #eaf4ff;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+.exr-btn:hover {
+  background: rgba(20, 34, 50, 0.7);
+}
+.exr-btn:active {
+  transform: scale(0.95);
+}
+.exr-btn-exit {
+  background: rgba(60, 16, 20, 0.55);
+  border-color: rgba(255, 120, 120, 0.4);
+}
+
+/* ── Main HUD ── */
+.exr-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px 40px;
+  text-align: center;
+  z-index: 3;
+  pointer-events: none;
+}
+.exr-ex-name {
+  font-size: clamp(20px, 3vw, 30px);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
+  margin-bottom: 6px;
+}
+.exr-ex-emoji {
+  margin-right: 6px;
+}
+.exr-bignum-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 4px;
+}
+.exr-bignum {
+  font-size: clamp(72px, 15vw, 168px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: #fff;
+  text-shadow: 0 0 40px rgba(90, 180, 255, 0.55), 0 4px 30px rgba(0, 0, 0, 0.6);
+}
+.exr-bignum-sub {
+  font-size: clamp(14px, 2vw, 20px);
+  font-weight: 600;
+  color: rgba(180, 215, 255, 0.85);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.exr-countdown {
+  font-size: clamp(120px, 28vw, 320px);
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 60px rgba(90, 180, 255, 0.7);
+  animation: exr-pop 1s ease;
+}
+@keyframes exr-pop {
+  0% { transform: scale(1.4); opacity: 0.2; }
+  30% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.exr-hint {
+  margin-top: 14px;
+  font-size: clamp(14px, 2vw, 18px);
+  color: rgba(210, 230, 255, 0.85);
+  background: rgba(8, 14, 22, 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  padding: 9px 18px;
+  border-radius: 999px;
+}
+.exr-cue {
+  margin-top: 16px;
+  font-size: clamp(18px, 2.6vw, 26px);
+  font-weight: 700;
+  color: #0a1018;
+  background: linear-gradient(180deg, #ffe27a, #ffc94d);
+  padding: 10px 22px;
+  border-radius: 999px;
+  box-shadow: 0 8px 30px rgba(255, 190, 60, 0.4);
+  animation: exr-cue-in 0.25s ease;
+}
+@keyframes exr-cue-in {
+  from { transform: translateY(8px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* ── Overlays (loading / denied / done) ── */
+.exr-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 32px;
+  background: radial-gradient(ellipse at 50% 45%, rgba(5, 10, 18, 0.55), rgba(3, 6, 12, 0.9));
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.exr-overlay-title {
+  font-size: clamp(22px, 3.5vw, 34px);
+  font-weight: 800;
+}
+.exr-overlay-sub {
+  font-size: clamp(14px, 2vw, 18px);
+  color: rgba(200, 222, 255, 0.85);
+  max-width: 420px;
+}
+.exr-done-emoji {
+  font-size: 72px;
+}
+.exr-spinner {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 4px solid rgba(120, 200, 255, 0.2);
+  border-top-color: rgba(120, 200, 255, 0.95);
+  animation: exr-spin 0.9s linear infinite;
+}
+@keyframes exr-spin {
+  to { transform: rotate(360deg); }
+}
+.exr-cta {
+  appearance: none;
+  border: none;
+  background: linear-gradient(180deg, #5aaaff, #2f7bff);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 13px 30px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(47, 123, 255, 0.4);
+  transition: transform 0.1s ease, filter 0.2s ease;
+}
+.exr-cta:hover { filter: brightness(1.08); }
+.exr-cta:active { transform: scale(0.96); }
+.exr-cta-ghost {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}

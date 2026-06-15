@@ -66,6 +66,12 @@ const GeneratedView = lazy(() => import("../jarvis/GeneratedView").then((m) => (
 const JarvisMode = lazy(() =>
   import("./jarvis-mode/JarvisMode").then((m) => ({ default: m.JarvisMode })),
 );
+// AI EXERCISE — the camera workout coach (pose tracking + rep counting + form
+// cues in Tony's voice). Lazy like JARVIS so MediaPipe + the pose model never
+// load unless the user turns it on.
+const ExerciseMode = lazy(() =>
+  import("./exercise-mode/ExerciseMode").then((m) => ({ default: m.ExerciseMode })),
+);
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -503,6 +509,11 @@ export function AuroraAIScreen() {
     // the layer's unmount cleanup).
     if (!voiceModeActive && jarvisActive) setJarvisActive(false);
   }, [voiceModeActive, jarvisActive]);
+
+  // AI EXERCISE mode — its own full-screen camera coach. Independent of
+  // voice mode (it only needs Tony's voice OUT, not the mic/STT), so it is
+  // NOT tied to voiceModeActive. Mutually exclusive with JARVIS (one camera).
+  const [exerciseActive, setExerciseActive] = useState(false);
 
   // ── JARVIS camera-only mode (mic mute) ──
   // Founder: "add a mute if I only want to use the video without AI."
@@ -1436,8 +1447,24 @@ export function AuroraAIScreen() {
     if (!voiceModeActiveRef.current) {
       await toggleVoiceMode();
     }
+    setExerciseActive(false); // one camera at a time
     setJarvisActive(true);
   }, [isAuthed, toggleVoiceMode]);
+
+  // One-tap entry into AI EXERCISE (the camera workout coach). Unlike JARVIS
+  // it does NOT need the mic/STT — only Tony's voice OUT — so instead of
+  // opening voice mode (which starts the listening loop) we just prime the
+  // audio pipeline on this user gesture so TTS playback is unlocked, then open
+  // the coach. Mutually exclusive with JARVIS (they share the camera).
+  const enterExercise = useCallback(() => {
+    if (!isAuthed) {
+      setSignUpOpen(true);
+      return;
+    }
+    voice.primeAudio();
+    setJarvisActive(false);
+    setExerciseActive(true);
+  }, [isAuthed, voice]);
 
   // Belt-and-braces cleanup: if Aurora unmounts mid-conversation,
   // tear down voice mode so the mic releases and TTS stops. useVoice
@@ -1920,6 +1947,19 @@ export function AuroraAIScreen() {
     <div className="aurora-app">
       <AuroraCanvas ref={auroraRef} theme={theme} />
       <div className="aurora-vignette" />
+
+      {/* AI EXERCISE — full-screen camera coach takeover (z-index above the
+          app). Mounted at the root so it cleanly covers everything; unmounting
+          releases the camera + MediaPipe. */}
+      {exerciseActive && (
+        <Suspense fallback={null}>
+          <ExerciseMode
+            onExit={() => setExerciseActive(false)}
+            speak={(t) => { void voice.speak(t); }}
+            stopSpeaking={voice.stopSpeaking}
+          />
+        </Suspense>
+      )}
 
       {/* ── @huwprosser JARVIS arc-reactor — appears in VOICE MODE
           only. Layered with the existing dot orb so users get both
@@ -2672,11 +2712,11 @@ export function AuroraAIScreen() {
               </svg>
               <span>AI Bank</span><i className="aurora-soon">soon</i>
             </button>
-            <button type="button" className="aurora-rail-tool is-soon" disabled title="Coming soon">
+            <button type="button" className="aurora-rail-tool" onClick={() => { void enterExercise(); }} title="Camera workout coach — Tony watches your form">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m6.5 6.5 11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M3 10l7-7M14 21l7-7" />
               </svg>
-              <span>AI Exercise</span><i className="aurora-soon">soon</i>
+              <span>AI Exercise</span>
             </button>
             <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newchat" onClick={newChat}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
