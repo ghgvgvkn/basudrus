@@ -14,6 +14,8 @@ import { angleAt } from "./angles";
 import { POSE } from "./poseConstants";
 import type { ExerciseDef, Landmarks } from "./types";
 import { BATCH_23 } from "./catalogBatch23";
+import { BATCH_4 } from "./catalogBatch4";
+import { BATCH_5 } from "./catalogBatch5";
 import {
   bilateral,
   moreBent,
@@ -288,7 +290,7 @@ const CATALOG: ExerciseDef[] = [
 // Verified additions from the founder's researched catalog (batches 2 & 3,
 // plus the safe kettlebell moves from batch 4). Kept in their own file; merged
 // here so adding more batches is a one-line append.
-const ALL: ExerciseDef[] = [...CATALOG, ...BATCH_23];
+const ALL: ExerciseDef[] = [...CATALOG, ...BATCH_23, ...BATCH_4, ...BATCH_5];
 
 export const EXERCISES: Record<string, ExerciseDef> = Object.fromEntries(
   ALL.map((e) => [e.id, e]),

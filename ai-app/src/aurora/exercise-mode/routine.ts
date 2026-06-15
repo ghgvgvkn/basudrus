@@ -52,6 +52,7 @@ function goalScore(e: ExerciseDef, goal: Goal | undefined): number {
   let s = goal && e.goalFit.includes(GOAL_FIT[goal]) ? 100 : 0;
   if (goal === "weight") s += e.met; // weight-loss → high-MET cardio rises
   else if (goal === "mobility") s += e.difficulty === "beginner" ? 5 : 0;
+  else if (goal === "strength") s += e.difficulty === "advanced" ? 4 : e.difficulty === "intermediate" ? 2 : 0;
   return s;
 }
 
