@@ -29,6 +29,14 @@ const TABLES_BY_USER_ID = [
   "tutor_saved_messages", "wellbeing_sessions", "mh_screen_results", "ai_usage",
   "chat_history", "match_quiz", "study_plans", "user_study_plans",
   "subject_history", "help_requests", "user_integrations",
+  // client_errors.user_id is an ON DELETE NO ACTION foreign key to auth.users:
+  // if any of the user's rows survive, the final auth.users admin-delete is
+  // REJECTED with a FK violation, leaving a half-deleted account (data gone,
+  // login orphaned). `events` has no FK at all, so its rows would orphan with
+  // the user's id attached. Both must be wiped here for a complete, working
+  // erasure. (Every other user-owned table CASCADEs or SET NULLs on auth
+  // delete; these two are the only ones that need an explicit purge.)
+  "client_errors", "events",
 ];
 
 /** Verify the caller's bearer token → their own user id (or null). */
@@ -88,6 +96,10 @@ export default async function handler(req: Request) {
   const failed: string[] = [];
   for (const t of TABLES_BY_ID) if (!(await svcDelete(t, "id", userId))) failed.push(t);
   for (const t of TABLES_BY_USER_ID) if (!(await svcDelete(t, "user_id", userId))) failed.push(t);
+  // Surface partial row-delete failures for support follow-up (no PII beyond the
+  // user id, which is not a secret). A non-cascading table that fails here can
+  // block the auth.users delete below.
+  if (failed.length) console.warn(`[account/delete] row-delete failed for: ${failed.join(", ")} (user ${userId})`);
 
   // 2. Delete the auth.users row — the step the browser cannot do.
   let authDeleted = false;
