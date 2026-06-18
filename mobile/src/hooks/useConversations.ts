@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase, PROFILE_COLUMNS } from '@/lib/supabase';
 import type { Profile } from '@/lib/supabase';
 
 export interface ConversationRow {
@@ -33,7 +33,7 @@ export function useConversations() {
         .from('connections')
         .select(`
           partner_id,
-          partner:profiles!connections_partner_id_fkey(*)
+          partner:profiles!connections_partner_id_fkey(${PROFILE_COLUMNS})
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })

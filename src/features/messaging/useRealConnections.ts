@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { supabase, PROFILE_COLUMNS } from "@/lib/supabase";
 import type { Profile } from "@/lib/supabase";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 
@@ -59,7 +59,7 @@ export function useRealConnections() {
     try {
       const { data, error: err } = await supabase
         .from("connections")
-        .select("partner_id, rating, partner:profiles!connections_partner_id_fkey(*)")
+        .select(`partner_id, rating, partner:profiles!connections_partner_id_fkey(${PROFILE_COLUMNS})`)
         .eq("user_id", user.id);
       if (err) throw err;
       // Filter out rows where the partner profile didn't join

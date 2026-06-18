@@ -12,7 +12,8 @@
  */
 import { useState } from "react";
 import { Download, Trash2, Loader2, ShieldCheck } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { supabase, PROFILE_COLUMNS } from "@/lib/supabase";
+import { apiUrl } from "@/lib/apiBase";
 import { useSupabaseSession, signOutEverywhere } from "@/features/auth/useSupabaseSession";
 import { Group, Row, PrimaryButton, GhostButton, Note } from "./parts";
 
@@ -57,9 +58,12 @@ export function DataSection() {
       };
       const summary: string[] = [];
       for (const table of TABLES_TO_EXPORT) {
+        // `profiles` reads must use explicit columns — the email column's
+        // SELECT is revoked from authenticated, so `*` would 400. The user's
+        // own email is already captured above as `user_email`.
         const { data, error } = await supabase
           .from(table)
-          .select("*")
+          .select(table === "profiles" ? PROFILE_COLUMNS : "*")
           .eq(userIdCol(table), user.id);
         if (error) {
           // Some tables might not have rows or might be RLS-blocked
@@ -92,14 +96,19 @@ export function DataSection() {
     setDeletePhase("deleting");
     setDeleteErr("");
     try {
-      // Phase 1 (this codebase): cascade-delete everything the user OWNS
-      // via RLS-friendly DELETEs. Phase 2 (TODO): call a server endpoint
-      // that uses the service role key to delete the auth.users row,
-      // which can't be done from the client.
-      for (const table of TABLES_TO_EXPORT) {
-        const userIdCol = table === "profiles" ? "id" : "user_id";
-        await supabase.from(table).delete().eq(userIdCol, user.id);
-      }
+      // Real deletion runs server-side: /api/account/delete uses the service
+      // role to wipe every owned row (bypassing RLS, so it actually happens)
+      // AND deletes the auth.users row — neither of which the browser can do.
+      // We only proceed (sign out) if the server confirms success.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Your session expired — please sign in again.");
+      const res = await fetch(apiUrl("/api/account/delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body?.error || "Deletion failed. Please contact support.");
       await signOutEverywhere();
     } catch (e) {
       setDeleteErr(e instanceof Error ? e.message : "Deletion failed");
@@ -180,7 +189,7 @@ export function DataSection() {
               </div>
               {deleteErr && <p className="text-xs text-red-600">{deleteErr}</p>}
               <p className="text-[11px] text-ink-3">
-                Note: this clears all your row-level data. To also remove the underlying auth account, contact support — that step needs a server-side admin key we'll wire next.
+                This permanently erases all your data and your sign-in account. It can't be undone.
               </p>
             </div>
           )}

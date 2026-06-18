@@ -24,7 +24,7 @@
  */
 export const config = { runtime: "edge" };
 
-import { ALLOWED_ORIGINS, securityHeaders, sanitizeLine } from "../_lib/ai-guard";
+import { ALLOWED_ORIGINS, securityHeaders, sanitizeLine, checkRateLimit } from "../_lib/ai-guard";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -186,6 +186,21 @@ export default async function handler(req: Request) {
     const authHeader = req.headers.get("authorization");
     const userId = await getUserIdFromBearer(authHeader);
     if (!userId) return okResponse({ skipped: "no-auth" });
+
+    // Rate-limit (fail-closed). This endpoint can fire up to TWO Anthropic
+    // calls per request, so cap it like every other AI endpoint to stop an
+    // authed user from amplifying cost. Stay silent (200) so the user never
+    // sees an error — we just skip the analysis when over the limit.
+    const rate = await checkRateLimit({
+      supabaseUrl: SUPABASE_URL,
+      supabaseAnonKey: SUPABASE_ANON_KEY,
+      authHeader,
+      endpoint: "analyze-session",
+      daily: 60,
+      hourly: 30,
+      minute: 6,
+    });
+    if (!rate.allowed) return okResponse({ skipped: "rate-limited" });
 
     // 1. Pull the session row. RLS filters by auth.uid — but we use
     //    the user's own JWT here, not the service role, so a stolen

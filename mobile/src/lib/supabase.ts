@@ -94,6 +94,17 @@ export type Profile = {
   created_at?: string | null;
 };
 
+/**
+ * Explicit column list for EVERY `profiles` read — deliberately OMITS `email`.
+ * The `email` column's SELECT is revoked from the anon/authenticated roles in
+ * the live DB (migration `revoke_profiles_email_select`), so a `select('*')`
+ * here would 400 AND no signed-in user could harvest other users' emails. Use
+ * this in place of `select('*')`. (`pro` is intentionally excluded — it may not
+ * exist in the DB yet and the query treats its absence as false.)
+ */
+export const PROFILE_COLUMNS =
+  "id, name, uni, major, year, course, meet_type, bio, avatar_emoji, avatar_color, photo_mode, photo_url, streak, xp, badges, online, sessions, rating, subjects, can_post, last_seen_at, created_at";
+
 export type GroupRoom = {
   id: string;
   host_id: string;

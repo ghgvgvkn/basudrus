@@ -40,12 +40,13 @@ export const PAYMENTS_LIVE = false;
  *  DO NOT add a user here unless they are testing the product and
  *  you trust them. This list is shipped in the public bundle. */
 export const PRO_OVERRIDE_USER_IDS: readonly string[] = [
-  // Ahmed Al Dulaimi — founder. All known signup emails.
-  "23a1bd67-2113-40c1-be19-e14aaecfc381", // ahmedfahad9000@gmail.com (PSUT)
-  "8e9400ed-359d-4b25-9a88-c5c5d9efe236", // basudrusjo@gmail.com (PSUT)
-  "551230d5-fe14-4f74-afb0-756db837fcd2", // a7medaldulaimi@icloud.com
-  "5ccb365b-4376-4513-928f-8551d86a6f08", // ahmedfahad9000@gmail.c (test signup)
-  "8547f447-ee4f-46ac-8fb7-6b2484c56801", // ahmedfahad9@ytjtk.ghhkj (test signup)
+  // Founder + trusted testers (opaque auth user-ids only — no PII here; the
+  // matching emails are intentionally NOT shipped in the client bundle).
+  "23a1bd67-2113-40c1-be19-e14aaecfc381",
+  "8e9400ed-359d-4b25-9a88-c5c5d9efe236",
+  "551230d5-fe14-4f74-afb0-756db837fcd2",
+  "5ccb365b-4376-4513-928f-8551d86a6f08",
+  "8547f447-ee4f-46ac-8fb7-6b2484c56801",
 ];
 
 /** True if the given auth user id should auto-receive Pro tier. */

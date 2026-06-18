@@ -21,7 +21,7 @@
  */
 import { useEffect, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { supabase, PROFILE_COLUMNS } from "@/lib/supabase";
 import type { Profile, HelpRequest } from "@/lib/supabase";
 import { computeMatch } from "@/features/match/computeScore";
 import type { PersonalityAnswers } from "@/features/match/personalityQuestions";
@@ -192,7 +192,7 @@ export function useDiscoverFeed(opts: {
         // promotes help-askers into tier 1.
         const profilesReq = supabase
           .from("profiles")
-          .select("*")
+          .select(PROFILE_COLUMNS)
           .neq("id", viewerId ?? "00000000-0000-0000-0000-000000000000")
           .order("last_seen_at", { ascending: false, nullsFirst: false })
           .order("created_at", { ascending: false })
@@ -204,7 +204,7 @@ export function useDiscoverFeed(opts: {
           .from("help_requests")
           .select(`
             id, user_id, subject, detail, meet_type, created_at,
-            profile:profiles!fk_help_requests_user(*)
+            profile:profiles!fk_help_requests_user(${PROFILE_COLUMNS})
           `)
           .order("created_at", { ascending: false })
           .limit(30);

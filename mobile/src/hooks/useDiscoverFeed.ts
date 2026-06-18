@@ -40,7 +40,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase, PROFILE_COLUMNS } from '@/lib/supabase';
 import type { HelpRequest, Profile } from '@/lib/supabase';
 
 export type FeedItem = {
@@ -85,7 +85,7 @@ export function useDiscoverFeed(filters: DiscoverFilters | string | null = null)
       // ── Profiles ────────────────────────────────────────────────
       let pQuery = supabase
         .from('profiles')
-        .select('*')
+        .select(PROFILE_COLUMNS)
         .order('last_seen_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false, nullsFirst: false })
         .limit(1000); // Match the web cap so we pull every real user.
@@ -111,7 +111,7 @@ export function useDiscoverFeed(filters: DiscoverFilters | string | null = null)
         .from('help_requests')
         .select(`
           id, user_id, subject, detail, meet_type, created_at,
-          profile:profiles!fk_help_requests_user(*)
+          profile:profiles!fk_help_requests_user(${PROFILE_COLUMNS})
         `)
         .order('created_at', { ascending: false })
         .limit(30);

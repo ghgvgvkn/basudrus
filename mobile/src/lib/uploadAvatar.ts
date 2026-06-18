@@ -81,7 +81,7 @@ async function patchProfilePhoto(
     .from('profiles')
     .update(patch)
     .eq('id', userId)
-    .select()
+    .select('id')
     .single();
   if (!upErr) return { ok: true };
 
@@ -91,7 +91,7 @@ async function patchProfilePhoto(
     const { error: seedErr } = await supabase
       .from('profiles')
       .upsert({ id: userId, ...patch }, { onConflict: 'id' })
-      .select()
+      .select('id')
       .single();
     if (seedErr) return { ok: false, error: seedErr.message };
     return { ok: true };

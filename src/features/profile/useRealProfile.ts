@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { supabase, PROFILE_COLUMNS } from "@/lib/supabase";
 import type { Profile as SupaProfile } from "@/lib/supabase";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 
@@ -60,7 +60,7 @@ export function useRealProfile(): UseRealProfileState {
       // Try to fetch the existing row first.
       const { data: existing, error: selErr } = await supabase
         .from("profiles")
-        .select("*")
+        .select(PROFILE_COLUMNS)
         .eq("id", user.id)
         .maybeSingle();
       if (selErr) throw selErr;
@@ -106,7 +106,7 @@ export function useRealProfile(): UseRealProfileState {
         const { data: inserted, error: insErr } = await supabase
           .from("profiles")
           .insert(seed)
-          .select()
+          .select(PROFILE_COLUMNS)
           .single();
         if (insErr) throw insErr;
         setProfile(inserted as SupaProfile);
@@ -156,7 +156,7 @@ export function useRealProfile(): UseRealProfileState {
         .from("profiles")
         .update(patch)
         .eq("id", user.id)
-        .select()
+        .select(PROFILE_COLUMNS)
         .single();
       if (err) throw err;
       const next = data as SupaProfile;

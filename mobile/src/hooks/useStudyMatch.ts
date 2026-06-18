@@ -24,7 +24,7 @@
  * leaves the edge function.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { supabase, type Profile } from '@/lib/supabase';
+import { supabase, PROFILE_COLUMNS, type Profile } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { authedFetch } from '@/lib/api';
 
@@ -153,7 +153,7 @@ export function useStudyMatch(): UseStudyMatchResult {
     (async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('*')
+        .select(PROFILE_COLUMNS)
         .eq('id', userId)
         .maybeSingle();
       if (!cancelled) setViewerProfile((data as Profile | null) ?? null);

@@ -132,16 +132,15 @@ export type Profile = {
   id: string;
   name: string;
   /**
-   * NOTE: privacy of this field is currently best-effort only — every
-   * authenticated user can SELECT email cross-user. A previous
-   * column-level revoke broke `select("*")` queries app-wide and was
-   * rolled back (see migration `restore_profiles_select_grant`). The
-   * fix needs to come back as a public-facing view or a SECURITY
-   * DEFINER getter, with all `.select("*")` queries migrated to use
-   * the explicit-columns list. Until then, prefer reading the user's
-   * own email from `session.user.email` rather than this field.
+   * The user's email. NO LONGER readable cross-user: SELECT on this column
+   * is revoked from the anon/authenticated roles (migration
+   * `revoke_profiles_email_select`), and every profiles read now uses the
+   * explicit PROFILE_COLUMNS list below, which OMITS email. So on a fetched
+   * Profile this is usually absent — read the signed-in user's own email
+   * from `session.user.email`. A service-role function (notify/message)
+   * still reads it server-side for new-user notification emails.
    */
-  email: string;
+  email?: string;
   uni: string;
   major: string;
   year: string;
@@ -167,6 +166,15 @@ export type Profile = {
    *  Discover. Nullable for users who haven't been seen yet. */
   last_seen_at?: string | null;
 };
+
+/**
+ * Explicit column list for EVERY `profiles` read — deliberately omits `email`.
+ * The email column's SELECT is revoked from the anon/authenticated roles, so a
+ * stray `select("*")` would error AND no signed-in user can harvest other
+ * users' emails. Use this in place of `select("*")` on profiles.
+ */
+export const PROFILE_COLUMNS =
+  "id, name, uni, major, year, course, meet_type, bio, avatar_emoji, avatar_color, photo_mode, photo_url, streak, xp, badges, online, sessions, rating, subjects, created_at, can_post, updated_at, photo_updated_at, last_seen_at, letter_unsubscribed, study_match_opt_in, discoverable_by_email";
 
 export type Connection = {
   id: string;

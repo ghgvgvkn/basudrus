@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { supabase, PROFILE_COLUMNS } from "@/lib/supabase";
 import type { GroupRoom, Profile } from "@/lib/supabase";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 
@@ -47,7 +47,7 @@ export function useRealRooms() {
              { data: memberRows, error: mErr }] = await Promise.all([
         supabase
           .from("group_rooms")
-          .select("*, host:profiles!fk_group_rooms_host(*)")
+          .select(`*, host:profiles!fk_group_rooms_host(${PROFILE_COLUMNS})`)
           .order("created_at", { ascending: false })
           .limit(50),
         user
@@ -145,7 +145,7 @@ export function useRealRooms() {
         link: payload.link ?? "",
         location: payload.location ?? "",
       })
-        .select("*, host:profiles!fk_group_rooms_host(*)")
+        .select(`*, host:profiles!fk_group_rooms_host(${PROFILE_COLUMNS})`)
         .single();
       if (error) return { ok: false, error: error.message };
       setRooms(prev => [{ ...(data as GroupRoom & { host?: Profile }), joined: false }, ...prev]);
