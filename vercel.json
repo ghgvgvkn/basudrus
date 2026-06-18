@@ -12,7 +12,7 @@
   "crons": [
     {
       "path": "/api/monitor/health",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/sunday-letter",
