@@ -72,6 +72,9 @@ const JarvisMode = lazy(() =>
 const ExerciseMode = lazy(() =>
   import("./exercise-mode/ExerciseMode").then((m) => ({ default: m.ExerciseMode })),
 );
+const StylistMode = lazy(() =>
+  import("./stylist-mode/StylistMode").then((m) => ({ default: m.StylistMode })),
+);
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -514,6 +517,7 @@ export function AuroraAIScreen() {
   // voice mode (it only needs Tony's voice OUT, not the mic/STT), so it is
   // NOT tied to voiceModeActive. Mutually exclusive with JARVIS (one camera).
   const [exerciseActive, setExerciseActive] = useState(false);
+  const [stylistActive, setStylistActive] = useState(false);
 
   // ── JARVIS camera-only mode (mic mute) ──
   // Founder: "add a mute if I only want to use the video without AI."
@@ -1466,6 +1470,17 @@ export function AuroraAIScreen() {
     setExerciseActive(true);
   }, [isAuthed, voice]);
 
+  const enterStylist = useCallback(() => {
+    if (!isAuthed) {
+      setSignUpOpen(true);
+      return;
+    }
+    voice.primeAudio();
+    setJarvisActive(false);
+    setExerciseActive(false);
+    setStylistActive(true);
+  }, [isAuthed, voice]);
+
   // Belt-and-braces cleanup: if Aurora unmounts mid-conversation,
   // tear down voice mode so the mic releases and TTS stops. useVoice
   // also has its own unmount cleanup; this just clears the loop flag
@@ -1955,6 +1970,16 @@ export function AuroraAIScreen() {
         <Suspense fallback={null}>
           <ExerciseMode
             onExit={() => setExerciseActive(false)}
+            speak={(t) => { void voice.speak(t); }}
+            stopSpeaking={voice.stopSpeaking}
+          />
+        </Suspense>
+      )}
+
+      {stylistActive && (
+        <Suspense fallback={null}>
+          <StylistMode
+            onExit={() => setStylistActive(false)}
             speak={(t) => { void voice.speak(t); }}
             stopSpeaking={voice.stopSpeaking}
           />
@@ -2717,6 +2742,12 @@ export function AuroraAIScreen() {
                 <path d="m6.5 6.5 11 11M21 21l-1-1M3 3l1 1M18 22l4-4M2 6l4-4M3 10l7-7M14 21l7-7" />
               </svg>
               <span>AI Exercise</span>
+            </button>
+            <button type="button" className="aurora-rail-tool" onClick={() => { void enterStylist(); }} title="AI Stylist — Tony checks your outfit, colors & fit">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15.5 3 12 5 8.5 3 4 6 6 10 8 9 8 21 16 21 16 9 18 10 20 6Z" />
+              </svg>
+              <span>AI Stylist</span>
             </button>
             <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newchat" onClick={newChat}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

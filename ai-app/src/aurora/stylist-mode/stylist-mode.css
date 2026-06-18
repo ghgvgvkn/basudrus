@@ -1,0 +1,273 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AI STYLIST MODE — full-screen camera takeover (mirrors AI Exercise).
+   Dark, cinematic, above the app. Class prefix: sty-*
+   ═══════════════════════════════════════════════════════════════════ */
+
+.sty-root {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  overflow: hidden;
+  background: #05080d;
+  font-family: "Geist", system-ui, -apple-system, sans-serif;
+  color: #eaf4ff;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sty-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #05080d;
+}
+.sty-video.is-mirror { transform: scaleX(-1); } /* selfie mirror */
+
+/* readability gradient top + bottom */
+.sty-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(5, 8, 13, 0.72) 0%, rgba(5, 8, 13, 0) 22%),
+    linear-gradient(0deg, rgba(5, 8, 13, 0.86) 0%, rgba(5, 8, 13, 0) 42%);
+}
+
+/* ── top bar ── */
+.sty-topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(14px, env(safe-area-inset-top)) 16px 12px;
+}
+.sty-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+.sty-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #7ce0b6;
+  box-shadow: 0 0 10px #7ce0b6;
+}
+.sty-top-actions { display: inline-flex; gap: 8px; }
+.sty-icon {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 16, 26, 0.55);
+  color: #eaf4ff;
+  font-size: 17px;
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.sty-icon:active { transform: scale(0.94); }
+.sty-exit { font-size: 15px; }
+
+/* ── camera failure ── */
+.sty-camfail {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  background: rgba(5, 8, 13, 0.92);
+}
+.sty-camfail-title { font-size: 19px; font-weight: 600; }
+.sty-camfail-sub { font-size: 14px; color: #9fb3c8; max-width: 300px; }
+
+/* ── bottom controls ── */
+.sty-controls {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 16px max(18px, env(safe-area-inset-bottom));
+}
+.sty-modes {
+  display: flex;
+  gap: 8px;
+  background: rgba(10, 16, 26, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 5px;
+  backdrop-filter: blur(10px);
+}
+.sty-mode {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: #c6d6e6;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.sty-mode.is-active {
+  background: #eaf4ff;
+  color: #07101c;
+}
+
+.sty-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #c6d6e6;
+}
+.sty-seg-label { opacity: 0.8; }
+.sty-seg {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 16, 26, 0.55);
+  color: #eaf4ff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sty-seg.is-active { background: #7ce0b6; color: #062018; border-color: transparent; }
+
+.sty-hint { font-size: 13px; color: #9fb3c8; text-align: center; }
+
+.sty-row { display: flex; gap: 8px; }
+.sty-input {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 16, 26, 0.55);
+  color: #eaf4ff;
+  padding: 0 14px;
+  font-size: 14px;
+  backdrop-filter: blur(8px);
+}
+.sty-input::placeholder { color: #7e93a8; }
+.sty-modest {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(10, 16, 26, 0.55);
+  color: #c6d6e6;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sty-modest.is-on { background: #8a5cf7; color: #fff; border-color: transparent; }
+
+.sty-cta {
+  height: 52px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #7ce0b6, #3bc79e);
+  color: #04140e;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgba(60, 199, 158, 0.35);
+}
+.sty-cta:disabled { opacity: 0.55; cursor: default; box-shadow: none; }
+.sty-cta:active:not(:disabled) { transform: scale(0.99); }
+.sty-cta-sm { height: 44px; font-size: 14px; flex: 1; }
+
+.sty-error { font-size: 13px; color: #ff9aa6; text-align: center; }
+
+/* ── result card ── */
+.sty-result {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 14px;
+}
+.sty-result-card {
+  width: 100%;
+  max-width: 460px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: rgba(8, 13, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+  backdrop-filter: blur(18px);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+}
+.sty-headline { font-size: 18px; font-weight: 700; line-height: 1.3; margin: 0 0 10px; }
+
+.sty-score-total { display: flex; align-items: baseline; gap: 4px; margin-bottom: 12px; }
+.sty-score-num { font-size: 44px; font-weight: 800; color: #7ce0b6; line-height: 1; }
+.sty-score-den { font-size: 16px; color: #9fb3c8; }
+
+.sty-bars { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.sty-bar { display: grid; grid-template-columns: 92px 1fr 34px; align-items: center; gap: 10px; font-size: 12px; }
+.sty-bar-label { color: #c6d6e6; }
+.sty-bar-track { height: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.sty-bar-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3bc79e, #7ce0b6); }
+.sty-bar-val { color: #9fb3c8; text-align: right; }
+
+.sty-winner { font-size: 16px; margin: 0 0 12px; }
+.sty-winner strong { color: #7ce0b6; }
+
+.sty-swatches { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.sty-swatch { display: flex; align-items: center; gap: 12px; }
+.sty-chip { width: 38px; height: 38px; border-radius: 10px; flex: 0 0 auto; border: 1px solid rgba(255, 255, 255, 0.25); }
+.sty-swatch-text { display: flex; flex-direction: column; }
+.sty-swatch-name { font-weight: 600; font-size: 14px; }
+.sty-swatch-why { font-size: 12px; color: #9fb3c8; line-height: 1.35; }
+
+.sty-reason { font-size: 14px; line-height: 1.5; color: #d4e2f0; margin: 0 0 10px; }
+.sty-fix {
+  font-size: 14px; line-height: 1.5;
+  background: rgba(124, 224, 182, 0.1);
+  border: 1px solid rgba(124, 224, 182, 0.25);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+}
+.sty-fix-tag {
+  display: inline-block;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  color: #7ce0b6;
+  margin-right: 8px;
+  text-transform: uppercase;
+}
+.sty-recs { margin: 0 0 10px; padding-left: 18px; font-size: 13.5px; line-height: 1.55; color: #d4e2f0; }
+.sty-recs li { margin-bottom: 4px; }
+.sty-caveat { font-size: 12px; color: #8aa0b6; font-style: italic; margin: 0 0 12px; }
+
+.sty-result-actions { display: flex; gap: 10px; }
+.sty-btn-ghost {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #eaf4ff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
