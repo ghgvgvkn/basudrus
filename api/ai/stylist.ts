@@ -11,14 +11,16 @@
  *   complete — given one shown piece, recommend the other piece's colors.
  *   compare  — given two options, say which is the better pick.
  *
- * Auth + fail-closed rate limit mirror api/ai/aurora.ts. Runs on the NODE
- * runtime with a longer maxDuration (like api/ai/bank/extract.ts) — a vision +
- * structured-output call is slow and would exceed the edge runtime's short
- * non-streaming timeout, which surfaced to users as "Network hiccup — try
- * again." The rate-limit endpoint key reuses "aurora" because
- * check_ai_rate_limit fails closed on an unknown key.
+ * Auth + fail-closed rate limit mirror api/ai/aurora.ts. Runs on the EDGE
+ * runtime: this is a Web-standard Request→Response handler, which is the shape
+ * the edge runtime expects (the Node runtime rejects it →
+ * FUNCTION_INVOCATION_FAILED). To stay under the edge gateway timeout we default
+ * to the FAST Haiku model and abort the upstream call early, so a slow model
+ * never gets the function killed (which surfaced to users as "Network hiccup").
+ * The rate-limit endpoint key reuses "aurora" because check_ai_rate_limit fails
+ * closed on an unknown key.
  */
-export const config = { maxDuration: 60 };
+export const config = { runtime: "edge" };
 
 import {
   ALLOWED_ORIGINS,
@@ -196,7 +198,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const callModel = async (model: string): Promise<Response> => {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 28_000);
+    const t = setTimeout(() => ctl.abort(), 20_000);
     try {
       return await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
