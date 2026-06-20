@@ -216,11 +216,14 @@
   backdrop-filter: blur(18px);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
 }
-.sty-headline { font-size: 18px; font-weight: 700; line-height: 1.3; margin: 0 0 10px; }
-
-.sty-score-total { display: flex; align-items: baseline; gap: 4px; margin-bottom: 12px; }
-.sty-score-num { font-size: 44px; font-weight: 800; color: #7ce0b6; line-height: 1; }
-.sty-score-den { font-size: 16px; color: #9fb3c8; }
+/* SUMMARY (hero) — the simple answer at a glance */
+.sty-hero { margin-bottom: 4px; }
+.sty-hero-score { display: flex; align-items: baseline; gap: 4px; margin-bottom: 6px; }
+.sty-score-num { font-size: 52px; font-weight: 800; color: #7ce0b6; line-height: 1; }
+.sty-score-den { font-size: 18px; color: #9fb3c8; }
+.sty-hero-winner { display: inline-block; font-size: 22px; font-weight: 800; color: #7ce0b6; margin-bottom: 4px; }
+.sty-headline { font-size: 19px; font-weight: 700; line-height: 1.3; margin: 0 0 6px; }
+.sty-hero-sub { font-size: 14px; color: #c6d6e6; line-height: 1.45; margin: 0 0 8px; }
 
 .sty-bars { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .sty-bar { display: grid; grid-template-columns: 92px 1fr 34px; align-items: center; gap: 10px; font-size: 12px; }
@@ -229,15 +232,35 @@
 .sty-bar-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3bc79e, #7ce0b6); }
 .sty-bar-val { color: #9fb3c8; text-align: right; }
 
-.sty-winner { font-size: 16px; margin: 0 0 12px; }
-.sty-winner strong { color: #7ce0b6; }
+/* COMPLETE — recommended pieces (design + colour, the main content) */
+.sty-pieces { display: flex; flex-direction: column; gap: 12px; margin: 4px 0 12px; }
+.sty-piece { display: flex; align-items: flex-start; gap: 12px; }
+.sty-chip { width: 40px; height: 40px; border-radius: 10px; flex: 0 0 auto; border: 1px solid rgba(255, 255, 255, 0.25); margin-top: 1px; }
+.sty-piece-text { display: flex; flex-direction: column; }
+.sty-piece-name { font-weight: 700; font-size: 15px; text-transform: capitalize; }
+.sty-piece-why { font-size: 12.5px; color: #9fb3c8; line-height: 1.4; margin-top: 2px; }
 
-.sty-swatches { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
-.sty-swatch { display: flex; align-items: center; gap: 12px; }
-.sty-chip { width: 38px; height: 38px; border-radius: 10px; flex: 0 0 auto; border: 1px solid rgba(255, 255, 255, 0.25); }
-.sty-swatch-text { display: flex; flex-direction: column; }
-.sty-swatch-name { font-weight: 600; font-size: 14px; }
-.sty-swatch-why { font-size: 12px; color: #9fb3c8; line-height: 1.35; }
+/* DETAILS (tap to open the full breakdown) */
+.sty-details { margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.sty-details-summary {
+  list-style: none; cursor: pointer;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #9fb3c8; padding: 12px 0 10px;
+}
+.sty-details-summary::-webkit-details-marker { display: none; }
+.sty-details-summary::after { content: " ↓"; }
+.sty-details[open] .sty-details-summary::after { content: " ↑"; }
+
+.sty-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+.sty-tag {
+  font-size: 11px; font-weight: 600;
+  color: #c6d6e6;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 4px 10px;
+  text-transform: capitalize;
+}
 
 .sty-reason { font-size: 14px; line-height: 1.5; color: #d4e2f0; margin: 0 0 10px; }
 .sty-fix {

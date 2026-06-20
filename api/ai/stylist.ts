@@ -63,36 +63,42 @@ const STYLIST_SCHEMA = {
     season_guess: { type: "string" },
     detected_upper: { type: "string" },
     detected_lower: { type: "string" },
+    face_shape: { type: "string" },
     aesthetic: { type: "string" },
     skin_harmony: { type: "integer" },
+    fit: { type: "integer" },
     coordination: { type: "integer" },
     style_coherence: { type: "integer" },
     total_score: { type: "integer" },
+    fit_note: { type: "string" },
     reasoning: { type: "string" },
     top_fix: { type: "string" },
     recommendations: { type: "array", items: { type: "string" } },
-    recommended_colors: {
+    recommended_pieces: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          name: { type: "string" },
+          piece: { type: "string" },
+          color: { type: "string" },
           hex: { type: "string" },
           why: { type: "string" },
         },
-        required: ["name", "hex", "why"],
+        required: ["piece", "color", "hex", "why"],
       },
     },
     winner: { type: "string", enum: ["A", "B", "tie", "none"] },
+    winner_reason: { type: "string" },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     caveat: { type: "string" },
   },
   required: [
     "headline", "undertone", "depth", "season_guess", "detected_upper",
-    "detected_lower", "aesthetic", "skin_harmony", "coordination",
-    "style_coherence", "total_score", "reasoning", "top_fix",
-    "recommendations", "recommended_colors", "winner", "confidence", "caveat",
+    "detected_lower", "face_shape", "aesthetic", "skin_harmony", "fit",
+    "coordination", "style_coherence", "total_score", "fit_note", "reasoning",
+    "top_fix", "recommendations", "recommended_pieces", "winner",
+    "winner_reason", "confidence", "caveat",
   ],
 } as const;
 
@@ -180,16 +186,16 @@ export default async function handler(req: Request): Promise<Response> {
   const content: Array<Record<string, unknown>> = [imageBlock(media, frameA)];
   if (mode === "complete") {
     const shown = known === "lower" ? "BOTTOM / lower piece" : known === "upper" ? "TOP / upper piece" : "single garment";
-    instruction = `MODE: complete. The photo shows the wearer's ${shown}. Recommend colors for the OTHER piece (fill recommended_colors; leave the 0-5 scores at 0).${genderHint}${modestyHint}${targetHint}`;
+    instruction = `MODE: complete. The photo shows the wearer's ${shown}. Fill recommended_pieces with 2-4 garment OPTIONS for the OTHER piece — each with piece (the shape/cut/design), color, hex, and a why tying design+color to the shown piece and the wearer. Recommend design, not color alone. Leave the 0-5 scores at 0.${genderHint}${modestyHint}${targetHint}`;
   } else if (mode === "compare") {
     if (frameB) {
       content.push(imageBlock(media, frameB));
-      instruction = `MODE: compare. The FIRST image is option A and the SECOND image is option B. Say which is the better pick (set winner A/B/tie; leave the 0-5 scores at 0).${genderHint}${modestyHint}${targetHint}`;
+      instruction = `MODE: compare. The FIRST image is option A and the SECOND image is option B. Set winner A/B/tie + a clear winner_reason; judge fit + flattery + coordination + aesthetic, not color alone. Leave the 0-5 scores at 0.${genderHint}${modestyHint}${targetHint}`;
     } else {
-      instruction = `MODE: compare. The photo shows two options — treat the LEFT item as A and the RIGHT item as B. Say which is the better pick (set winner A/B/tie; leave the 0-5 scores at 0).${genderHint}${modestyHint}${targetHint}`;
+      instruction = `MODE: compare. The photo shows two options — treat the LEFT item as A and the RIGHT item as B. Set winner A/B/tie + a clear winner_reason; judge fit + flattery + coordination + aesthetic, not color alone. Leave the 0-5 scores at 0.${genderHint}${modestyHint}${targetHint}`;
     }
   } else {
-    instruction = `MODE: rate. Rate the outfit the person is wearing (fill skin_harmony, coordination, style_coherence each 0-5 and total_score 0-100).${genderHint}${modestyHint}${targetHint}`;
+    instruction = `MODE: rate. Rate the worn outfit on skin_harmony, fit, coordination, style_coherence (each 0-5) and total_score 0-100. Read fit, face_shape, proportion + occasion — not skin alone. Add fit_note + a plain-language headline + the single top_fix.${genderHint}${modestyHint}${targetHint}`;
   }
   content.push({ type: "text", text: instruction });
 

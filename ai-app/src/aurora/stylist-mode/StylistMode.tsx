@@ -21,7 +21,7 @@ interface StylistModeProps {
 type Mode = "rate" | "complete" | "compare";
 type CamStatus = "loading" | "running" | "denied" | "error";
 
-interface RecColor { name: string; hex: string; why: string }
+interface RecPiece { piece: string; color: string; hex: string; why: string }
 interface StylistResult {
   headline: string;
   undertone: string;
@@ -29,16 +29,20 @@ interface StylistResult {
   season_guess: string;
   detected_upper: string;
   detected_lower: string;
+  face_shape: string;
   aesthetic: string;
   skin_harmony: number;
+  fit: number;
   coordination: number;
   style_coherence: number;
   total_score: number;
+  fit_note: string;
   reasoning: string;
   top_fix: string;
   recommendations: string[];
-  recommended_colors: RecColor[];
+  recommended_pieces: RecPiece[];
   winner: string;
+  winner_reason: string;
   confidence: string;
   caveat: string;
 }
@@ -253,54 +257,72 @@ export function StylistMode({ onExit, speak, stopSpeaking }: StylistModeProps) {
         </div>
       )}
 
-      {/* result card */}
+      {/* result card — bold summary up top, details on scroll */}
       {result && (
         <div className="sty-result">
           <div className="sty-result-card">
-            <p className="sty-headline">{result.headline}</p>
 
-            {mode === "rate" && result.total_score > 0 && (
-              <>
-                <div className="sty-score-total">
+            {/* ── SUMMARY (the simple answer) ── */}
+            <div className="sty-hero">
+              {mode === "rate" && result.total_score > 0 && (
+                <div className="sty-hero-score">
                   <span className="sty-score-num">{result.total_score}</span>
                   <span className="sty-score-den">/100</span>
                 </div>
-                <div className="sty-bars">
-                  <Bar label="Skin match" value={result.skin_harmony} />
-                  <Bar label="Coordination" value={result.coordination} />
-                  <Bar label="Style" value={result.style_coherence} />
-                </div>
-              </>
-            )}
+              )}
+              {mode === "compare" && result.winner && result.winner !== "none" && (
+                <div className="sty-hero-winner">{result.winner === "tie" ? "It's a tie" : `Option ${result.winner} wins`}</div>
+              )}
+              <p className="sty-headline">{result.headline}</p>
+              {mode === "compare" && result.winner_reason && <p className="sty-hero-sub">{result.winner_reason}</p>}
+              {mode !== "complete" && result.top_fix && (
+                <p className="sty-fix"><span className="sty-fix-tag">Do this</span>{result.top_fix}</p>
+              )}
+            </div>
 
-            {mode === "compare" && result.winner && result.winner !== "none" && (
-              <p className="sty-winner">Winner: <strong>{result.winner === "tie" ? "It's a tie" : `Option ${result.winner}`}</strong></p>
-            )}
-
-            {mode === "complete" && result.recommended_colors?.length > 0 && (
-              <div className="sty-swatches">
-                {result.recommended_colors.map((c, i) => (
-                  <div className="sty-swatch" key={i}>
-                    <span className="sty-chip" style={{ background: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.hex) ? c.hex : "#888" }} />
-                    <div className="sty-swatch-text">
-                      <span className="sty-swatch-name">{c.name}</span>
-                      <span className="sty-swatch-why">{c.why}</span>
+            {/* ── COMPLETE: the picks are the main content (design + colour) ── */}
+            {mode === "complete" && result.recommended_pieces?.length > 0 && (
+              <div className="sty-pieces">
+                {result.recommended_pieces.map((p, i) => (
+                  <div className="sty-piece" key={i}>
+                    <span className="sty-chip" style={{ background: validHex(p.hex) }} />
+                    <div className="sty-piece-text">
+                      <span className="sty-piece-name">{[p.color, p.piece].filter(Boolean).join(" ")}</span>
+                      <span className="sty-piece-why">{p.why}</span>
                     </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {result.reasoning && <p className="sty-reason">{result.reasoning}</p>}
-            {result.top_fix && (
-              <p className="sty-fix"><span className="sty-fix-tag">Tip</span>{result.top_fix}</p>
-            )}
-            {result.recommendations?.length > 0 && (
-              <ul className="sty-recs">
-                {result.recommendations.map((r, i) => <li key={i}>{r}</li>)}
-              </ul>
-            )}
-            {result.caveat && <p className="sty-caveat">{result.caveat}</p>}
+            {/* ── DETAILS (scroll / tap to open) ── */}
+            <details className="sty-details">
+              <summary className="sty-details-summary">More details</summary>
+
+              {mode === "rate" && result.total_score > 0 && (
+                <div className="sty-bars">
+                  <Bar label="Skin match" value={result.skin_harmony} />
+                  <Bar label="Fit" value={result.fit} />
+                  <Bar label="Coordination" value={result.coordination} />
+                  <Bar label="Style" value={result.style_coherence} />
+                </div>
+              )}
+
+              <div className="sty-tags">
+                {result.face_shape && <span className="sty-tag">Face: {result.face_shape}</span>}
+                {result.undertone && result.undertone !== "unsure" && <span className="sty-tag">{result.undertone} undertone</span>}
+                {result.aesthetic && <span className="sty-tag">{result.aesthetic}</span>}
+              </div>
+
+              {result.fit_note && <p className="sty-reason"><strong>Fit — </strong>{result.fit_note}</p>}
+              {result.reasoning && <p className="sty-reason">{result.reasoning}</p>}
+              {result.recommendations?.length > 0 && (
+                <ul className="sty-recs">
+                  {result.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              )}
+              {result.caveat && <p className="sty-caveat">{result.caveat}</p>}
+            </details>
 
             <div className="sty-result-actions">
               <button type="button" className="sty-cta sty-cta-sm" onClick={() => { setResult(null); setError(""); }}>Try another</button>
@@ -311,6 +333,10 @@ export function StylistMode({ onExit, speak, stopSpeaking }: StylistModeProps) {
       )}
     </div>
   );
+}
+
+function validHex(hex: string): string {
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex) ? hex : "#888";
 }
 
 function Bar({ label, value }: { label: string; value: number }) {
