@@ -11,12 +11,14 @@
  *   complete — given one shown piece, recommend the other piece's colors.
  *   compare  — given two options, say which is the better pick.
  *
- * Auth + fail-closed rate limit mirror api/ai/aurora.ts. Stays on the EDGE
- * runtime (client sends base64 directly, so no Buffer is needed). The rate-limit
- * endpoint key reuses "aurora" because check_ai_rate_limit fails closed on an
- * unknown key (same approach as api/ai/bank/extract.ts).
+ * Auth + fail-closed rate limit mirror api/ai/aurora.ts. Runs on the NODE
+ * runtime with a longer maxDuration (like api/ai/bank/extract.ts) — a vision +
+ * structured-output call is slow and would exceed the edge runtime's short
+ * non-streaming timeout, which surfaced to users as "Network hiccup — try
+ * again." The rate-limit endpoint key reuses "aurora" because
+ * check_ai_rate_limit fails closed on an unknown key.
  */
-export const config = { runtime: "edge" };
+export const config = { maxDuration: 60 };
 
 import {
   ALLOWED_ORIGINS,
@@ -33,10 +35,12 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 
-// Primary model — env-overridable. Default to a strong vision+reasoning model
-// for quality; fall back to Haiku (proven on this account for vision +
-// output_config in api/ai/bank/extract.ts) if the primary call fails.
-const STYLIST_MODEL = (process.env.STYLIST_MODEL || "claude-sonnet-4-6").trim();
+// Model — env-overridable. Default to Haiku 4.5: it's fast (good UX) and proven
+// on this account for vision + output_config (api/ai/bank/extract.ts). Set
+// STYLIST_MODEL=claude-sonnet-4-6 (or claude-opus-4-8) in Vercel for
+// higher-quality styling judgment. FALLBACK is only used when an OVERRIDDEN
+// model errors — with the Haiku default it is a no-op (same id).
+const STYLIST_MODEL = (process.env.STYLIST_MODEL || "claude-haiku-4-5").trim();
 const FALLBACK_MODEL = "claude-haiku-4-5";
 
 // Two camera frames of ~150-250 KB base64 each + a little JSON.
@@ -192,7 +196,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const callModel = async (model: string): Promise<Response> => {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 45_000);
+    const t = setTimeout(() => ctl.abort(), 28_000);
     try {
       return await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
