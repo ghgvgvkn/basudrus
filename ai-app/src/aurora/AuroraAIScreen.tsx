@@ -2686,9 +2686,9 @@ export function AuroraAIScreen() {
         <aside className="aurora-chat-rail">
           {/* TOOL BOXES (founder's sketch) — EACH its own standalone box
               with its own edge, in a 2-col grid with gaps. Camera + voice
-              are the live entry modes; AI Judge + Map + Quiz fire a real
-              prompt; Exercise / AI Bank / Hangouts are "soon" placeholders
-              to wire later. */}
+              are the live entry modes; AI Judge opens the real two-party
+              verdict engine (/judgment) when signed in; Map + Quiz fire a
+              chat prompt; AI Bank / Hangouts are "soon" placeholders. */}
           <div className="aurora-rail-headbar">
             <span>Tony</span>
             <button
@@ -2719,7 +2719,19 @@ export function AuroraAIScreen() {
             <button
               type="button"
               className="aurora-rail-tool"
-              onClick={() => { void runSendForText("Be the impartial judge between two people — I'll give you both sides, you call it fair."); }}
+              onClick={() => {
+                if (isAuthed) {
+                  // Open the REAL two-party arbitration engine (invite code +
+                  // both sides + structured verdict), not just a chat prompt.
+                  window.history.pushState(null, "", "/judgment");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                } else {
+                  // The multiplayer engine is JWT-gated, so give anonymous
+                  // users a single-player taste through chat instead.
+                  void runSendForText("Be the impartial judge between two people — I'll give you both sides, you call it fair.");
+                }
+              }}
+              title="Open the two-party AI Judge — real verdict engine"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 3v18M7 21h10M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
