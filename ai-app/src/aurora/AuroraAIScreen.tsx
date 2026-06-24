@@ -37,6 +37,7 @@ import { useStreamingAI, type ChatMsg } from "@/features/ai/useStreamingAI";
 import { useVoice } from "@/features/ai/voice/useVoice";
 import { useAIHistory, fetchSessionById, type SessionListItem } from "@/features/ai/useAIHistory";
 import { useStreak } from "@/features/ai/useStreak";
+import { appendMessages, type TutorMessage } from "@/features/ai/tutorSession";
 import { useSupabaseSession } from "@/features/auth/useSupabaseSession";
 import { supabase } from "@/lib/supabase";
 import { apiUrl } from "@/lib/apiBase";
@@ -301,6 +302,16 @@ export function AuroraAIScreen() {
   /** Currently-loaded session id (when resumed from history). null
    *  means "new conversation, no session yet." */
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // Mirror activeSessionId into a ref so persistTurn (called from the
+  // send closure) reads the CURRENT session id without making
+  // runSendForText depend on it. loadSession/newChat call setState →
+  // this effect keeps the ref in sync; persistTurn also sets it
+  // directly the moment it inserts a new session row.
+  const activeSessionIdRef = useRef<string | null>(null);
+  useEffect(() => { activeSessionIdRef.current = activeSessionId; }, [activeSessionId]);
+  // Serialize session writes so two quick turns can't each insert a new
+  // row before the first's id is adopted (the 2nd must see the 1st's id).
+  const persistChainRef = useRef<Promise<void>>(Promise.resolve());
   /** Local 30s tick for the footer clock + meta strip day label. */
   const [meta, setMeta] = useState<{ day: string; clock: string }>(() => formatMeta(new Date()));
 
@@ -1507,6 +1518,68 @@ export function AuroraAIScreen() {
    * next render). Passing it explicitly avoids the stale-closure
    * race entirely.
    */
+  // Persist each Aurora exchange to tutor_sessions so the History
+  // sidebar can LIST past chats and Tony can RESUME them (Aurora chats
+  // used to vanish — nothing was ever written, so history was empty and
+  // every new chat started blank). The history reader + resume already
+  // key off this table, so writing here lights them up with no other
+  // changes. Best-effort: any failure is swallowed and NEVER blocks the
+  // chat. A new chat inserts a row (and adopts its id so the rest of the
+  // conversation appends to it); a resumed/continuing chat appends just
+  // the new turn.
+  const persistTurn = useCallback(
+    (priorMsgs: AuroraMessage[], userText: string, assistantText: string) => {
+      const run = async (): Promise<void> => {
+      try {
+        if (!supabase) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        const uid = session?.user?.id;
+        if (!uid) return;
+        const now = new Date().toISOString();
+        const userTurn: TutorMessage = { role: "user", content: userText, ts: now };
+        const aiTurn: TutorMessage = { role: "assistant", content: assistantText, ts: now };
+        const sid = activeSessionIdRef.current;
+        if (sid) {
+          await appendMessages(sid, [userTurn, aiTurn]);
+          return;
+        }
+        // First exchange of a new chat → create the session row.
+        const priorTurns: TutorMessage[] = priorMsgs.map((m) => ({
+          role: m.role === "ai" ? "assistant" : "user",
+          content: m.text,
+          ts: m.at ? new Date(m.at).toISOString() : now,
+        }));
+        const title = userText.replace(/\s+/g, " ").trim().slice(0, 80) || "New chat";
+        const { data, error } = await supabase
+          .from("tutor_sessions")
+          .insert({
+            // mode / session_number / topics_covered fall back to their
+            // column defaults; subject is a distinct silo so Aurora chats
+            // never collide with academic tutor subjects.
+            user_id: uid,
+            subject: "Aurora",
+            session_summary: title,
+            messages: [...priorTurns, userTurn, aiTurn].slice(-200),
+          })
+          .select("id")
+          .single();
+        if (!error && data?.id) {
+          activeSessionIdRef.current = data.id as string;
+          setActiveSessionId(data.id as string);
+        }
+      } catch {
+        /* best-effort persistence — never block or surface to the user */
+      }
+      };
+      // Chain writes so two fast turns persist in order — the second
+      // call sees the first's freshly-adopted session id and appends
+      // instead of inserting a duplicate session row.
+      persistChainRef.current = persistChainRef.current.then(run, run);
+      return persistChainRef.current;
+    },
+    [],
+  );
+
   const runSendForText = useCallback(async (text: string, opts?: { voice?: boolean }) => {
     if (!text || loading) return;
 
@@ -1579,6 +1652,12 @@ export function AuroraAIScreen() {
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: result.assistant, at: doneAt, ms: doneAt - sentAt }]);
       auroraRef.current?.pulseFromAll(0.45);
 
+      // Save this exchange so History lists it + Tony can resume it.
+      // `messages` here is the prior thread (this turn's user/assistant
+      // messages are passed explicitly), so a brand-new chat stores the
+      // full conversation and a continuing one appends just the new turn.
+      void persistTurn(messages, text, result.assistant);
+
       // Auto-TTS: speak Tony's reply when the user used voice input.
       // If speak fails (autoplay blocked, missing API key, network),
       // surface a short hint in the chat so the user understands why
@@ -1636,7 +1715,7 @@ export function AuroraAIScreen() {
                 : "Something went wrong. Try again in a moment.";
       setMessages((prev) => [...prev, { id: nextId(), role: "ai", text: errMsg, at: Date.now() }]);
     }
-  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, voice, history]);
+  }, [loading, focusMode, messages, send, profile?.uni, profile?.major, profile?.year, voice, history, persistTurn]);
 
   // ── Send a message (button / enter) ───────────────────────────────
   const handleSend = useCallback(async () => {
