@@ -11,7 +11,7 @@
  * Returns latest 20 posts, newest first.
  */
 import { useEffect, useState } from "react";
-import { supabase } from "@/shared/supabase";
+import { supabase } from "@/lib/supabase";
 
 export interface HelpRequest {
   id: string;

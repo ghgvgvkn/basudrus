@@ -12,7 +12,7 @@
  * all 505 majors up front.
  */
 import { useEffect, useState } from "react";
-import { supabase } from "@/shared/supabase";
+import { supabase } from "@/lib/supabase";
 
 export interface University {
   id: string;

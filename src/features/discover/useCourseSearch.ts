@@ -23,7 +23,7 @@
  *     common matches appear first. Tie-break alphabetically.
  */
 import { useEffect, useState } from "react";
-import { supabase } from "@/shared/supabase";
+import { supabase } from "@/lib/supabase";
 
 export interface Course {
   id: string;
