@@ -76,6 +76,15 @@ const ExerciseMode = lazy(() =>
 const StylistMode = lazy(() =>
   import("./stylist-mode/StylistMode").then((m) => ({ default: m.StylistMode })),
 );
+// AI RADAR — on-device room scanner (object detection + people count + a
+// top-down "radar" map). Lazy so the detector model never loads unopened.
+const RadarMode = lazy(() =>
+  import("./radar-mode/RadarMode").then((m) => ({ default: m.RadarMode })),
+);
+// AI VITALS — experimental camera heart-rate/breathing estimate (rPPG).
+const VitalsMode = lazy(() =>
+  import("./vitals-mode/VitalsMode").then((m) => ({ default: m.VitalsMode })),
+);
 import "./aurora.css";
 
 type AuroraMessage = {
@@ -529,6 +538,8 @@ export function AuroraAIScreen() {
   // NOT tied to voiceModeActive. Mutually exclusive with JARVIS (one camera).
   const [exerciseActive, setExerciseActive] = useState(false);
   const [stylistActive, setStylistActive] = useState(false);
+  const [radarActive, setRadarActive] = useState(false);
+  const [vitalsActive, setVitalsActive] = useState(false);
 
   // ── JARVIS camera-only mode (mic mute) ──
   // Founder: "add a mute if I only want to use the video without AI."
@@ -1492,6 +1503,35 @@ export function AuroraAIScreen() {
     setStylistActive(true);
   }, [isAuthed, voice]);
 
+  // AI RADAR — on-device room scanner. Same gate + mutual exclusion as the
+  // other camera takeovers (only one camera consumer at a time).
+  const enterRadar = useCallback(() => {
+    if (!isAuthed) {
+      setSignUpOpen(true);
+      return;
+    }
+    voice.primeAudio();
+    setJarvisActive(false);
+    setExerciseActive(false);
+    setStylistActive(false);
+    setVitalsActive(false);
+    setRadarActive(true);
+  }, [isAuthed, voice]);
+
+  // AI VITALS — experimental camera heart-rate/breathing estimate.
+  const enterVitals = useCallback(() => {
+    if (!isAuthed) {
+      setSignUpOpen(true);
+      return;
+    }
+    voice.primeAudio();
+    setJarvisActive(false);
+    setExerciseActive(false);
+    setStylistActive(false);
+    setRadarActive(false);
+    setVitalsActive(true);
+  }, [isAuthed, voice]);
+
   // Belt-and-braces cleanup: if Aurora unmounts mid-conversation,
   // tear down voice mode so the mic releases and TTS stops. useVoice
   // also has its own unmount cleanup; this just clears the loop flag
@@ -2059,6 +2099,26 @@ export function AuroraAIScreen() {
         <Suspense fallback={null}>
           <StylistMode
             onExit={() => setStylistActive(false)}
+            speak={(t) => { void voice.speak(t); }}
+            stopSpeaking={voice.stopSpeaking}
+          />
+        </Suspense>
+      )}
+
+      {radarActive && (
+        <Suspense fallback={null}>
+          <RadarMode
+            onExit={() => setRadarActive(false)}
+            speak={(t) => { void voice.speak(t); }}
+            stopSpeaking={voice.stopSpeaking}
+          />
+        </Suspense>
+      )}
+
+      {vitalsActive && (
+        <Suspense fallback={null}>
+          <VitalsMode
+            onExit={() => setVitalsActive(false)}
             speak={(t) => { void voice.speak(t); }}
             stopSpeaking={voice.stopSpeaking}
           />
@@ -2839,6 +2899,22 @@ export function AuroraAIScreen() {
                 <path d="M15.5 3 12 5 8.5 3 4 6 6 10 8 9 8 21 16 21 16 9 18 10 20 6Z" />
               </svg>
               <span>AI Stylist</span>
+            </button>
+            <button type="button" className="aurora-rail-tool" onClick={() => { void enterRadar(); }} title="AI Radar — scan the room: people, objects & a live map">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 12 19 5" /><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" />
+                <circle cx="12" cy="12" r="1" fill="currentColor" />
+              </svg>
+              <span>AI Radar</span>
+              <small>room scan</small>
+            </button>
+            <button type="button" className="aurora-rail-tool" onClick={() => { void enterVitals(); }} title="AI Vitals — experimental camera heart-rate estimate">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20.4 12.6a5.5 5.5 0 0 0-8.4-7 5.5 5.5 0 0 0-8.4 7L12 21Z" />
+                <path d="M3.5 12h4l1.5-3 3 6 1.5-3h7" />
+              </svg>
+              <span>AI Vitals</span>
+              <small>heart rate</small>
             </button>
             <button type="button" className="aurora-rail-tool aurora-rail-tool-wide is-newchat" onClick={newChat}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

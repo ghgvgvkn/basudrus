@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test": "node scripts/tests/choices.test.mjs && node scripts/tests/urls.test.mjs && node scripts/tests/security.test.mjs && node scripts/tests/modeltiering.test.mjs && node scripts/tests/safety.test.mjs && node scripts/tests/safety-adversarial.test.mjs && node scripts/tests/routing-matrix.test.mjs && node scripts/tests/aurora-prompt-cache.test.mjs && node scripts/tests/jarvis-gestures.test.mjs && node scripts/tests/jarvis-explode.test.mjs && node scripts/tests/exercise-form-helpers.test.mjs && node scripts/tests/exercise-rep-counter.test.mjs && node scripts/tests/jarvis-generate3d.test.mjs"
+    "test": "node scripts/tests/choices.test.mjs && node scripts/tests/urls.test.mjs && node scripts/tests/security.test.mjs && node scripts/tests/modeltiering.test.mjs && node scripts/tests/safety.test.mjs && node scripts/tests/safety-adversarial.test.mjs && node scripts/tests/routing-matrix.test.mjs && node scripts/tests/aurora-prompt-cache.test.mjs && node scripts/tests/jarvis-gestures.test.mjs && node scripts/tests/jarvis-explode.test.mjs && node scripts/tests/exercise-form-helpers.test.mjs && node scripts/tests/exercise-rep-counter.test.mjs && node scripts/tests/jarvis-generate3d.test.mjs && node scripts/tests/exercise-fall.test.mjs && node scripts/tests/vitals-rppg.test.mjs"
   },
   "dependencies": {
     "@fontsource/instrument-serif": "^5.1.0",

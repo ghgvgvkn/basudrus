@@ -25,7 +25,9 @@ import { EXERCISES } from "./exercises";
 import { buildRoutine } from "./routine";
 import { facingOf } from "./formHelpers";
 import { createRepCounter, type RepCounter } from "./repCounter";
-import type { ExerciseDef, Landmarks } from "./types";
+import { createFallDetector, isFloorExercise, type FallDetector } from "./fallDetector";
+import { ExerciseLibrary } from "./ExerciseLibrary";
+import type { ExerciseDef, Landmarks, RoutineStep } from "./types";
 import {
   loadProfile,
   caloriesForSeconds,
@@ -72,10 +74,19 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   // Profile (goal / body stats / injuries) — gates the routine on first use.
   const [profile, setProfile] = useState<FitnessProfile | null>(() => loadProfile());
   const [editingProfile, setEditingProfile] = useState(false);
+  // Library: browse ALL catalog moves; picking one swaps in a custom routine
+  // (null = the personalized 6-move plan from buildRoutine).
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [customRoutine, setCustomRoutine] = useState<RoutineStep[] | null>(null);
+  // Fall detection (standing moves + rest only — see fallDetector.ts).
+  const [fallAlert, setFallAlert] = useState(false);
 
   // Personalized routine from the profile (goal / place / injuries). The ref
   // lets the long-lived rAF read the current routine without resubscribing.
-  const routine = useMemo(() => buildRoutine(profile), [profile]);
+  const routine = useMemo(
+    () => customRoutine ?? buildRoutine(profile),
+    [profile, customRoutine],
+  );
   const routineRef = useRef(routine);
   routineRef.current = routine;
 
@@ -107,6 +118,9 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
   // De-dupe React state writes from the per-frame loop (no render storms).
   const displayedCueRef = useRef<string | null>(null);
   const displayedHoldRef = useRef(-1);
+  // Fall detection: long-lived detector + latched-alert flag for the rAF.
+  const fallDetectorRef = useRef<FallDetector>(createFallDetector());
+  const fallAlertRef = useRef(false);
 
   const speakSafe = useCallback(
     (t: string) => {
@@ -181,6 +195,28 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
       const lm = frame.landmarks as Landmarks | null;
 
       if (ctx && canvas) drawSkeleton(ctx, canvas, lm, videoRef.current, flashRef);
+
+      // ── fall detection (safety) ── armed for standing moves + rest; never
+      // for floor exercises (push-ups/planks/bridges ARE on the floor). The
+      // detector latches on a hard-drop-then-still signature and auto-clears
+      // when the person stands back up.
+      {
+        const curEx = EXERCISES[routineRef.current[stepIndexRef.current].id];
+        const armed =
+          stageRef.current !== "done" &&
+          profileRef.current != null &&
+          !(curEx && isFloorExercise(curEx));
+        const phase = armed ? fallDetectorRef.current.update(lm, now) : "idle";
+        if (phase === "fallen" && !fallAlertRef.current) {
+          fallAlertRef.current = true;
+          setFallAlert(true);
+          speakSafe("That looked like a hard fall. Are you okay?");
+        } else if (phase !== "fallen" && fallAlertRef.current) {
+          // stood back up (detector auto-reset) — clear the alert quietly
+          fallAlertRef.current = false;
+          setFallAlert(false);
+        }
+      }
 
       if (stageRef.current === "active" && !stepDoneRef.current) {
         const ex = EXERCISES[routineRef.current[stepIndexRef.current].id];
@@ -435,6 +471,9 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
               ⏭
             </button>
           )}
+          <button className="exr-btn" onClick={() => setLibraryOpen(true)} title="Exercise library — browse every move">
+            📚
+          </button>
           <button className="exr-btn" onClick={() => setEditingProfile(true)} title="Edit goals & profile">
             ⚙
           </button>
@@ -518,8 +557,56 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
             {totalReps + reps} reps across {routine.length} exercises · 🔥 {kcal} kcal burned. Great work — same time tomorrow?
           </div>
           <button className="exr-cta" onClick={restart}>Go again</button>
+          {customRoutine && (
+            <button
+              className="exr-cta exr-cta-ghost"
+              onClick={() => { setCustomRoutine(null); restart(); }}
+            >
+              Back to my full routine
+            </button>
+          )}
           <button className="exr-cta exr-cta-ghost" onClick={handleExit}>Done</button>
         </div>
+      )}
+
+      {/* Fall alert — highest-priority overlay (above HUD, below nothing).
+          Auto-clears if the person stands back up; the button is for when
+          they're fine but stayed down (sitting on the floor, tying a shoe). */}
+      {fallAlert && (
+        <div className="exr-fall" role="alert">
+          <div className="exr-fall-title">Fall detected — are you okay?</div>
+          <div className="exr-fall-sub">Tony saw a hard drop. If you're fine, tap below or just stand up.</div>
+          <button
+            className="exr-cta"
+            onClick={() => {
+              fallDetectorRef.current.reset();
+              fallAlertRef.current = false;
+              setFallAlert(false);
+            }}
+          >
+            I'm OK
+          </button>
+        </div>
+      )}
+
+      {/* Exercise library — browse all catalog moves, tap one to start it */}
+      {libraryOpen && (
+        <ExerciseLibrary
+          profile={profile}
+          onClose={() => setLibraryOpen(false)}
+          onStart={(steps) => {
+            setLibraryOpen(false);
+            setCustomRoutine(steps);
+            // clean slate for the picked move (mirrors restart())
+            setTotalReps(0);
+            setReps(0);
+            caloriesRef.current = 0;
+            displayedKcalRef.current = 0;
+            setKcal(0);
+            setStepIndex(0);
+            setStage("intro");
+          }}
+        />
       )}
 
       {/* One-time profile / goals (or editing it later via the gear) */}

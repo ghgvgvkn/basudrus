@@ -27,8 +27,9 @@ function allowedByPlace(e: ExerciseDef, place: FitnessProfile["place"] | undefin
   return e.category === "home" && e.equipment === "none";
 }
 
-/** True if any flagged injury has a matching contraindication telling us to AVOID. */
-function avoidedByInjury(e: ExerciseDef, injuries: InjuryArea[] | undefined): boolean {
+/** True if any flagged injury has a matching contraindication telling us to AVOID.
+ *  Exported for the Exercise Library, which dims (rather than hides) these. */
+export function avoidedByInjury(e: ExerciseDef, injuries: InjuryArea[] | undefined): boolean {
   if (!injuries || injuries.length === 0) return false;
   return injuries.some((inj) => {
     const kws = INJURY_KEYWORDS[inj];
@@ -77,7 +78,8 @@ function pickBalanced(list: ExerciseDef[], n: number): ExerciseDef[] {
   return out;
 }
 
-function repsForGoal(goal: Goal | undefined): number {
+/** Exported for the Exercise Library's single-exercise quick-starts. */
+export function repsForGoal(goal: Goal | undefined): number {
   switch (goal) {
     case "strength": return 8;
     case "muscle": return 12;
@@ -87,7 +89,8 @@ function repsForGoal(goal: Goal | undefined): number {
   }
 }
 
-function holdSecForGoal(goal: Goal | undefined): number {
+/** Exported for the Exercise Library's single-exercise quick-starts. */
+export function holdSecForGoal(goal: Goal | undefined): number {
   switch (goal) {
     case "weight": return 40;
     case "strength": return 25;

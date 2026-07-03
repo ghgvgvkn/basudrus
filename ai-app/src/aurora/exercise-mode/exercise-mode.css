@@ -403,3 +403,108 @@
   gap: 10px;
   margin-top: 6px;
 }
+
+/* ═══════════ EXERCISE LIBRARY (browse all moves) — exl-* ═══════════ */
+.exl-root {
+  position: absolute;
+  inset: 0;
+  z-index: 40; /* above HUD/topbar, below onboarding (which replaces it) */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  background: rgba(5, 8, 13, 0.94);
+  backdrop-filter: blur(10px);
+}
+.exl-head { display: flex; align-items: center; justify-content: space-between; }
+.exl-title { font-size: 17px; font-weight: 700; }
+.exl-count { font-size: 12px; color: #9fb3c8; font-weight: 600; margin-left: 6px; }
+.exl-close {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: #eaf4ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.exl-search {
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: #eaf4ff;
+  padding: 0 14px;
+  font-size: 14px;
+}
+.exl-search::placeholder { color: #7e93a8; }
+.exl-filters { display: flex; flex-direction: column; gap: 6px; }
+.exl-chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.exl-chip-row::-webkit-scrollbar { display: none; }
+.exl-chip {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #c6d6e6;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.exl-chip.is-on { background: #7ce0b6; color: #062018; border-color: transparent; }
+.exl-list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.exl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  padding: 10px 12px;
+  color: #eaf4ff;
+  cursor: pointer;
+}
+.exl-item:active { transform: scale(0.995); }
+.exl-item.is-blocked { opacity: 0.45; cursor: default; }
+.exl-emoji { font-size: 24px; flex: 0 0 auto; }
+.exl-item-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.exl-item-name { font-size: 15px; font-weight: 700; }
+.exl-item-meta { font-size: 12px; color: #9fb3c8; text-transform: capitalize; }
+.exl-item-warn { font-size: 11.5px; color: #ffc46b; }
+.exl-go { margin-left: auto; color: #7ce0b6; font-size: 14px; }
+.exl-empty { text-align: center; color: #9fb3c8; font-size: 14px; padding: 24px 0; }
+
+/* ═══════════ FALL ALERT — exr-fall ═══════════ */
+.exr-fall {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 24px;
+  background: rgba(64, 8, 12, 0.82);
+  backdrop-filter: blur(6px);
+  animation: exr-fall-pulse 1.2s ease-in-out infinite;
+}
+@keyframes exr-fall-pulse {
+  0%, 100% { background: rgba(64, 8, 12, 0.82); }
+  50% { background: rgba(84, 10, 16, 0.86); }
+}
+.exr-fall-title { font-size: 22px; font-weight: 800; }
+.exr-fall-sub { font-size: 14px; color: #ffd9dd; max-width: 320px; }
