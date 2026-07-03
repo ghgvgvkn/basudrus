@@ -89,7 +89,7 @@ class RppgEngine {
   }
   estimate() {
     const secs = this.seconds;
-    const out = { bpm: null, brpm: null, bpmConfidence: 0, seconds: secs };
+    const out = { bpm: null, brpm: null, bpmConfidence: 0, bpmFrac: 0, seconds: secs };
     if (secs < MIN_HR_S || this.t.length < FS * MIN_HR_S * 0.5) return out;
     const t0 = this.t[0];
     const n = Math.floor(secs * FS);
@@ -111,6 +111,7 @@ class RppgEngine {
     const hrWin = hp.slice(Math.max(0, n - FS * 15));
     const hr = scanBand(hrWin, FS, HR_MIN_BPM / 60, HR_MAX_BPM / 60, 1 / 60);
     out.bpmConfidence = hr.ratio;
+    out.bpmFrac = hr.frac;
     if (hr.ratio >= HR_RATIO_LOCK && hr.frac >= HR_FRAC_LOCK) out.bpm = Math.round(hr.hz * 60);
     if (secs >= MIN_BR_S) {
       const base = movingAverage(lf, Math.round(FS * 8) | 1);
@@ -217,6 +218,40 @@ function check(name, ok) {
   for (let i = 0; i < 12 * 30; i++) eng.addSample(128, (i * 1000) / 30);
   eng.reset();
   check("reset() empties the buffer", eng.seconds === 0 && eng.estimate().bpm === null);
+}
+
+// 7) REALISTIC conditions — the founder's field failure, reproduced + fixed.
+//    A real heart WANDERS (HRV ±4bpm) and a desk monitor flickers light onto
+//    the face. CHROMINANCE sampling (g-(r+b)/2) leaks only ~25% of that
+//    flicker → must LOCK; RAW GREEN leaks 100% + dilutes the pulse → must
+//    correctly REFUSE to lock (that refusal is what the founder saw).
+{
+  function simulate(seed, pulseAmp, flickerLeak, bpm0) {
+    const noise = makeNoise(seed), jit = makeNoise(seed * 31 + 7), flick = makeNoise(seed * 17 + 3);
+    const eng = new RppgEngine();
+    let f = bpm0 / 60, phase = 0, flicker = 0;
+    for (let i = 0; i < 22 * 30; i++) {
+      const t = i / 30;
+      f += jit() * 0.004;
+      f = Math.max((bpm0 - 4) / 60, Math.min((bpm0 + 4) / 60, f));
+      phase += (2 * Math.PI * f) / 30;
+      flicker = flicker * 0.96 + flick() * 1.4;
+      eng.addSample(
+        128 + pulseAmp * Math.sin(phase) + 2.2 * Math.sin(2 * Math.PI * 0.25 * t) + flickerLeak * flicker + 0.55 * noise(),
+        (i * 1000) / 30,
+      );
+    }
+    return eng.estimate();
+  }
+  let chromLocks = 0, chromRight = 0, rawLocks = 0;
+  for (let seed = 1; seed <= 8; seed++) {
+    const c = simulate(seed * 1013 + 9, 0.9, 0.25, 72); // chrominance conditions
+    if (c.bpm !== null) { chromLocks++; if (Math.abs(c.bpm - 72) <= 5) chromRight++; }
+    const r = simulate(seed * 1013 + 9, 0.35, 1.0, 72); // raw-green + diluted patch
+    if (r.bpm !== null) rawLocks++;
+  }
+  check(`realistic HRV+flicker: chrominance locks (${chromLocks}/8, right ${chromRight})`, chromLocks >= 7 && chromRight === chromLocks);
+  check(`realistic flicker: raw-green diluted correctly refuses (${rawLocks}/8 locked)`, rawLocks <= 1);
 }
 
 if (failures > 0) {

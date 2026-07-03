@@ -19,7 +19,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useDetectorOnVideo, type SenseFrame, type SensedItem } from "./useDetectorOnVideo";
-import { RppgEngine } from "../vitals-mode/rppg";
+import { RppgEngine, HR_RATIO_LOCK, HR_FRAC_LOCK } from "../vitals-mode/rppg";
 import "./sense-hud.css";
 
 interface SenseHudProps {
@@ -66,6 +66,10 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
   const { frameRef, status } = useDetectorOnVideo(videoRef, true);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const mapRef = useRef<HTMLCanvasElement | null>(null);
+  // Live signal sparkline (the ruview "RSSI graph" equivalent): the last few
+  // seconds of the raw chrominance trace the heart estimate reads from.
+  const waveRef = useRef<HTMLCanvasElement | null>(null);
+  const traceRef = useRef<number[]>([]);
 
   // Low-frequency UI state (synced ~3×/sec from the rAF)
   const [persons, setPersons] = useState(0);
@@ -74,6 +78,8 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
   const [heart, setHeart] = useState<{ bpm: number | null; brpm: number | null; conf: number; secs: number; hint: string }>({
     bpm: null, brpm: null, conf: 0, secs: 0, hint: "looking for you…",
   });
+  // conf here = HONEST lock progress: min(ratio/RATIO_LOCK, frac/FRAC_LOCK).
+  // A full bar means locked — never "90% forever" (founder hit exactly that).
 
   const engineRef = useRef(new RppgEngine());
   const lastGreenRef = useRef(-1);
@@ -99,6 +105,12 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
         const rect = map.getBoundingClientRect();
         map.width = Math.round(rect.width * dpr);
         map.height = Math.round(rect.height * dpr);
+      }
+      const wave = waveRef.current;
+      if (wave) {
+        const rect = wave.getBoundingClientRect();
+        wave.width = Math.round(rect.width * dpr);
+        wave.height = Math.round(rect.height * dpr);
       }
     };
     resize();
@@ -160,25 +172,41 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
         if (main.h < HEART_PATCH_MIN) {
           if (now - lastUi > 300) setHeart((p) => ({ ...p, hint: "come closer for vitals" }));
         } else {
-          // face ≈ top-center of the person box (raw/unmirrored coords are fine
-          // — we sample the RAW video, mirroring is display-only)
+          // FOREHEAD patch — tighter than the old head-box sweep (which mixed
+          // in hair/glasses/wall and diluted the pulse). Raw/unmirrored coords
+          // are fine: we sample the RAW video; mirroring is display-only.
           const vw = video.videoWidth || 640;
           const vh = video.videoHeight || 480;
-          const side = Math.max(24, main.w * 0.34 * vw);
+          const side = Math.max(20, main.w * 0.26 * vw);
           const cx = (main.x + main.w / 2) * vw;
-          const cy = (main.y + main.h * 0.12) * vh;
+          const cy = (main.y + main.h * 0.09) * vh;
           try {
             octx.drawImage(video, cx - side / 2, cy - side / 2, side, side, 0, 0, 40, 40);
             const px = octx.getImageData(0, 0, 40, 40).data;
+            // Motion detection reads GREEN (luminance-ish); the ENGINE gets
+            // CHROMINANCE g-(r+b)/2, which cancels common-mode light changes
+            // (monitor flicker, room light) that raw green passes straight
+            // through — measured: raw green under flicker = 0/24 locks,
+            // chrominance = 24/24 even on a weak patch.
             let g = 0;
-            for (let i = 0; i < px.length; i += 4) g += px[i + 1];
-            g /= px.length / 4;
+            let chrom = 0;
+            for (let i = 0; i < px.length; i += 4) {
+              g += px[i + 1];
+              chrom += px[i + 1] - (px[i] + px[i + 2]) / 2;
+            }
+            const count = px.length / 4;
+            g /= count;
+            chrom /= count;
             if (lastGreenRef.current >= 0 && Math.abs(g - lastGreenRef.current) > MOTION_JUMP) {
               engineRef.current.reset();
             } else {
-              engineRef.current.addSample(g, now);
+              engineRef.current.addSample(chrom, now);
             }
             lastGreenRef.current = g;
+            // feed the sparkline (~6s window at ~30fps)
+            const tr = traceRef.current;
+            tr.push(chrom);
+            if (tr.length > 180) tr.shift();
           } catch {
             /* teardown race — skip frame */
           }
@@ -229,6 +257,32 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
         mctx.fill();
       }
 
+      // ── signal sparkline (ruview-style trace) ──
+      const wave = waveRef.current;
+      const wctx = wave?.getContext("2d") ?? null;
+      if (wctx && wave && wave.width > 0) {
+        const W = wave.width;
+        const H = wave.height;
+        wctx.clearRect(0, 0, W, H);
+        const tr = traceRef.current;
+        if (tr.length > 8) {
+          let lo = Infinity;
+          let hi = -Infinity;
+          for (const v of tr) { if (v < lo) lo = v; if (v > hi) hi = v; }
+          const span = Math.max(0.6, hi - lo); // floor so a flat line stays flat
+          wctx.strokeStyle = "#7ce0b6";
+          wctx.lineWidth = Math.max(1, H / 26);
+          wctx.beginPath();
+          for (let i = 0; i < tr.length; i++) {
+            const x = (i / (180 - 1)) * W;
+            const y = H - ((tr[i] - lo) / span) * (H * 0.86) - H * 0.07;
+            if (i === 0) wctx.moveTo(x, y);
+            else wctx.lineTo(x, y);
+          }
+          wctx.stroke();
+        }
+      }
+
       // ── low-frequency UI sync (~3×/sec) ──
       if (now - lastUi > 320) {
         lastUi = now;
@@ -260,6 +314,11 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
         );
 
         const est = engineRef.current.estimate();
+        // Honest lock progress: BOTH conditions must fill for a lock.
+        const lockProgress = Math.min(
+          est.bpmConfidence / HR_RATIO_LOCK,
+          est.bpmFrac / HR_FRAC_LOCK,
+        );
         const hint = !main
           ? "looking for you…"
           : main.h < HEART_PATCH_MIN
@@ -268,8 +327,10 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
               ? "locked"
               : est.seconds < 2
                 ? "hold still…"
-                : `measuring ${Math.round(est.seconds)}s`;
-        setHeart({ bpm: est.bpm, brpm: est.brpm, conf: est.bpmConfidence, secs: est.seconds, hint });
+                : est.seconds >= 20
+                  ? "weak signal — face the light, hold still"
+                  : `measuring ${Math.round(est.seconds)}s`;
+        setHeart({ bpm: est.bpm, brpm: est.brpm, conf: lockProgress, secs: est.seconds, hint });
       }
 
       raf = requestAnimationFrame(loop);
@@ -283,55 +344,59 @@ export function SenseHud({ videoRef, mirrored = true }: SenseHudProps) {
 
   if (status === "error") return null; // degrade silently — JARVIS stays intact
 
-  const confPct = Math.max(0, Math.min(100, Math.round((heart.conf / 12) * 100)));
+  const confPct = Math.max(0, Math.min(100, Math.round(heart.conf * 100)));
 
   return (
     <div className="shud-root" aria-hidden>
       <canvas ref={overlayRef} className="shud-overlay" />
 
-      {/* VITAL SIGNS — left panel (ruview reference) */}
-      <div className="shud-panel shud-vitals">
-        <div className="shud-title">VITAL SIGNS</div>
-        <div className="shud-row">
-          <span className="shud-ico shud-heart">♥</span>
-          <span className="shud-label">HEART RATE</span>
-        </div>
-        <div className="shud-big shud-red">
-          {heart.bpm ?? "--"} <span className="shud-unit">BPM</span>
-        </div>
-        <div className="shud-row">
-          <span className="shud-ico">☼</span>
-          <span className="shud-label">RESPIRATION</span>
-        </div>
-        <div className="shud-mid">
-          {heart.brpm ?? "--"} <span className="shud-unit">RPM</span>
-        </div>
-        <div className="shud-label">CONFIDENCE</div>
-        <div className="shud-bar">
-          <span style={{ width: `${confPct}%` }} />
-        </div>
-        <div className="shud-hint">{heart.hint} · estimate, not medical</div>
-      </div>
-
-      {/* SENSE — right panel */}
-      <div className="shud-panel shud-sense">
-        <div className="shud-title">SENSE</div>
-        <div className="shud-kv"><span>PERSONS</span><b>{persons}</b></div>
-        <div className="shud-kv"><span>MOTION</span><b>{motion.toFixed(2)}</b></div>
-        <div className={`shud-presence ${persons > 0 ? "is-on" : ""}`}>
-          {persons > 0 ? "PRESENT" : "NO PRESENCE"}
-        </div>
-        {labels.length > 0 && (
-          <div className="shud-objects">
-            {labels.map((l) => (
-              <div key={l.label} className={`shud-obj ${l.label === "person" ? "is-person" : ""}`}>
-                {l.label.toUpperCase()}{l.n > 1 ? ` ×${l.n}` : ""} <i>~{l.d.toFixed(1)}m</i>
-              </div>
-            ))}
+      {/* One observatory COLUMN on the left (founder: SENSE belongs beside
+          VITAL SIGNS on the left, not across the screen under the buttons). */}
+      <div className="shud-col">
+        <div className="shud-panel">
+          <div className="shud-title">VITAL SIGNS</div>
+          <div className="shud-row">
+            <span className="shud-ico shud-heart">♥</span>
+            <span className="shud-label">HEART RATE</span>
           </div>
-        )}
-        <canvas ref={mapRef} className="shud-map" />
-        <div className="shud-note">approximate · camera view only</div>
+          <div className="shud-big shud-red">
+            {heart.bpm ?? "--"} <span className="shud-unit">BPM</span>
+          </div>
+          <div className="shud-row">
+            <span className="shud-ico">☼</span>
+            <span className="shud-label">RESPIRATION</span>
+          </div>
+          <div className="shud-mid">
+            {heart.brpm ?? "--"} <span className="shud-unit">RPM</span>
+          </div>
+          <div className="shud-label">CONFIDENCE</div>
+          <div className="shud-bar">
+            <span style={{ width: `${confPct}%` }} />
+          </div>
+          <div className="shud-hint">{heart.hint} · estimate, not medical</div>
+        </div>
+
+        <div className="shud-panel">
+          <div className="shud-title">SENSE</div>
+          <div className="shud-kv"><span>PERSONS</span><b>{persons}</b></div>
+          <div className="shud-kv"><span>MOTION</span><b>{motion.toFixed(2)}</b></div>
+          <div className={`shud-presence ${persons > 0 ? "is-on" : ""}`}>
+            {persons > 0 ? "PRESENT" : "NO PRESENCE"}
+          </div>
+          {labels.length > 0 && (
+            <div className="shud-objects">
+              {labels.map((l) => (
+                <div key={l.label} className={`shud-obj ${l.label === "person" ? "is-person" : ""}`}>
+                  {l.label.toUpperCase()}{l.n > 1 ? ` ×${l.n}` : ""} <i>~{l.d.toFixed(1)}m</i>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="shud-label">SIGNAL</div>
+          <canvas ref={waveRef} className="shud-wave" />
+          <canvas ref={mapRef} className="shud-map" />
+          <div className="shud-note">approximate · camera view only</div>
+        </div>
       </div>
     </div>
   );

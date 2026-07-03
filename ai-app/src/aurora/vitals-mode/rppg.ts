@@ -27,8 +27,12 @@ export interface VitalsEstimate {
   bpm: number | null;
   /** Estimated breaths per minute, or null while confidence is too low. */
   brpm: number | null;
-  /** Peak-to-band power ratio for the heart band (≥ ~2.2 reads as a lock). */
+  /** Peak-to-band power ratio for the heart band (lock needs ≥ HR_RATIO_LOCK). */
   bpmConfidence: number;
+  /** Spectral concentration around the peak (lock needs ≥ HR_FRAC_LOCK).
+   *  Exposed so UIs can show an HONEST progress bar: min(ratio/RATIO,
+   *  frac/FRAC) — a full bar means an actual lock, not almost-forever. */
+  bpmFrac: number;
   /** Seconds of signal currently buffered. */
   seconds: number;
 }
@@ -153,7 +157,7 @@ export class RppgEngine {
 
   estimate(): VitalsEstimate {
     const secs = this.seconds;
-    const out: VitalsEstimate = { bpm: null, brpm: null, bpmConfidence: 0, seconds: secs };
+    const out: VitalsEstimate = { bpm: null, brpm: null, bpmConfidence: 0, bpmFrac: 0, seconds: secs };
     if (secs < MIN_HR_S || this.t.length < FS * MIN_HR_S * 0.5) return out;
 
     // 1 ── uniform resample (linear interpolation onto a 30 Hz grid)
@@ -181,6 +185,7 @@ export class RppgEngine {
     const hrWin = hp.slice(Math.max(0, n - FS * 15));
     const hr = scanBand(hrWin, FS, HR_MIN_BPM / 60, HR_MAX_BPM / 60, 1 / 60);
     out.bpmConfidence = hr.ratio;
+    out.bpmFrac = hr.frac;
     if (hr.ratio >= HR_RATIO_LOCK && hr.frac >= HR_FRAC_LOCK) out.bpm = Math.round(hr.hz * 60);
 
     // 3 ── BREATHING: the LF baseline itself, detrended over 8s, scanned low.

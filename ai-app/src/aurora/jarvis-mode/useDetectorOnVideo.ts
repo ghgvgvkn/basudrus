@@ -5,8 +5,12 @@
  * same pattern as useHandTracking/usePoseTracking), detects ~5×/sec, and
  * writes results to a ref — no per-frame React state.
  *
- * Detection is tuned for "see the room": scoreThreshold 0.30 (the earlier
- * standalone radar used 0.45 and missed most objects) and up to 24 results.
+ * Detection is tuned for "see the room": scoreThreshold 0.20 (0.45 then 0.30
+ * still showed people-only in real rooms — founder feedback; a few ghost
+ * boxes are the accepted price of seeing furniture) and up to 24 results.
+ * NOTE the model's vocabulary is COCO's 80 everyday classes — chairs,
+ * laptops, bottles, TVs, phones, beds… it can NEVER see wall AC units or
+ * punching bags; that's vocabulary, not sensitivity.
  * Coordinates are normalized [0..1] in RAW (unmirrored) frame space — the
  * consumer flips x when the video is displayed mirrored.
  *
@@ -89,7 +93,7 @@ export function useDetectorOnVideo(
           return vision.ObjectDetector.createFromOptions(fileset, {
             baseOptions: { modelAssetPath: modelUrl, delegate: "GPU" },
             runningMode: "VIDEO",
-            scoreThreshold: 0.3,
+            scoreThreshold: 0.2,
             maxResults: 24,
           });
         };

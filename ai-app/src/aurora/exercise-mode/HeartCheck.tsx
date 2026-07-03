@@ -72,14 +72,24 @@ export function HeartCheck({ videoRef, landmarksRef }: HeartCheckProps) {
             try {
               octx.drawImage(video, cx - side / 2, cy - side / 2, side, side, 0, 0, 40, 40);
               const px = octx.getImageData(0, 0, 40, 40).data;
+              // Motion check on GREEN; the engine gets CHROMINANCE g-(r+b)/2,
+              // which cancels room/monitor light changes that raw green passes
+              // straight through (measured: flicker turned raw green into
+              // 0/24 locks; chrominance locked 24/24 — see SenseHud).
               let g = 0;
-              for (let i = 0; i < px.length; i += 4) g += px[i + 1];
-              g /= px.length / 4;
+              let chrom = 0;
+              for (let i = 0; i < px.length; i += 4) {
+                g += px[i + 1];
+                chrom += px[i + 1] - (px[i] + px[i + 2]) / 2;
+              }
+              const count = px.length / 4;
+              g /= count;
+              chrom /= count;
               if (lastGreenRef.current >= 0 && Math.abs(g - lastGreenRef.current) > MOTION_JUMP) {
                 engineRef.current.reset();
                 if (now - lastUi > 400) setHint("Hold still…");
               } else {
-                engineRef.current.addSample(g, now);
+                engineRef.current.addSample(chrom, now);
               }
               lastGreenRef.current = g;
             } catch {
