@@ -11,15 +11,17 @@
 // ── mirror of rppg.ts ──
 const FS = 30;
 const BUFFER_S = 30;
-const MIN_HR_S = 10;
+const MIN_HR_S = 8;
 const MIN_BR_S = 18;
 const HR_MIN_BPM = 42;
 const HR_MAX_BPM = 180;
 const BR_MIN_BRPM = 6;
 const BR_MAX_BRPM = 30;
-// See rppg.ts: noise across N bins peaks at ~ln(N)≈4.9 max/mean, so locks
-// must sit well above that or noise shows fake rates.
-const HR_CONF_LOCK = 8;
+// See rppg.ts: the HR lock is TWO conditions. ratio alone can't separate
+// (noise tail reaches ~9); frac — the share of band energy within ±3bpm of
+// the peak — is the discriminator (noise max ≈0.39, real min ≈0.91).
+const HR_RATIO_LOCK = 5.5;
+const HR_FRAC_LOCK = 0.5;
 const BR_CONF_LOCK = 6;
 
 function movingAverage(x, win) {
@@ -48,14 +50,24 @@ function bandPower(x, fs, hz) {
 }
 
 function scanBand(x, fs, loHz, hiHz, stepHz) {
-  let bestHz = loHz, bestP = -1, sum = 0, count = 0;
+  const powers = [], freqs = [];
   for (let f = loHz; f <= hiHz + 1e-9; f += stepHz) {
-    const p = bandPower(x, fs, f);
-    sum += p; count++;
-    if (p > bestP) { bestP = p; bestHz = f; }
+    powers.push(bandPower(x, fs, f));
+    freqs.push(f);
   }
-  const mean = sum / Math.max(1, count);
-  return { hz: bestHz, ratio: mean > 0 ? bestP / mean : 0 };
+  let bi = 0, total = 0;
+  for (let i = 0; i < powers.length; i++) {
+    total += powers[i];
+    if (powers[i] > powers[bi]) bi = i;
+  }
+  const mean = total / Math.max(1, powers.length);
+  let peakRegion = 0;
+  for (let i = Math.max(0, bi - 3); i <= Math.min(powers.length - 1, bi + 3); i++) peakRegion += powers[i];
+  return {
+    hz: freqs[bi] ?? loHz,
+    ratio: mean > 0 ? powers[bi] / mean : 0,
+    frac: total > 0 ? peakRegion / total : 0,
+  };
 }
 
 class RppgEngine {
@@ -99,7 +111,7 @@ class RppgEngine {
     const hrWin = hp.slice(Math.max(0, n - FS * 15));
     const hr = scanBand(hrWin, FS, HR_MIN_BPM / 60, HR_MAX_BPM / 60, 1 / 60);
     out.bpmConfidence = hr.ratio;
-    if (hr.ratio >= HR_CONF_LOCK) out.bpm = Math.round(hr.hz * 60);
+    if (hr.ratio >= HR_RATIO_LOCK && hr.frac >= HR_FRAC_LOCK) out.bpm = Math.round(hr.hz * 60);
     if (secs >= MIN_BR_S) {
       const base = movingAverage(lf, Math.round(FS * 8) | 1);
       const br = new Array(n);
@@ -168,7 +180,7 @@ function check(name, ok) {
 //    thresholds must clear it every time.
 {
   let anyLock = false;
-  for (const seed of [1234, 99, 2718, 31415, 8]) {
+  for (const seed of [1234, 99, 2718, 31415, 8, 7919, 55, 4242, 606, 13, 777, 90210]) {
     const eng = new RppgEngine();
     const noise = makeNoise(seed);
     for (let i = 0; i < 22 * 30; i++) {
@@ -177,7 +189,7 @@ function check(name, ok) {
     const e = eng.estimate();
     if (e.bpm !== null || e.brpm !== null) anyLock = true;
   }
-  check("pure noise never locks heart OR breathing (5 seeds)", !anyLock);
+  check("pure noise never locks heart OR breathing (12 seeds)", !anyLock);
 }
 
 // 4) too little data → null (needs ≥10s)

@@ -27,6 +27,7 @@ import { facingOf } from "./formHelpers";
 import { createRepCounter, type RepCounter } from "./repCounter";
 import { createFallDetector, isFloorExercise, type FallDetector } from "./fallDetector";
 import { ExerciseLibrary } from "./ExerciseLibrary";
+import { HeartCheck } from "./HeartCheck";
 import type { ExerciseDef, Landmarks, RoutineStep } from "./types";
 import {
   loadProfile,
@@ -556,6 +557,9 @@ export function ExerciseMode({ onExit, speak, stopSpeaking }: ExerciseModeProps)
           <div className="exr-overlay-sub">
             {totalReps + reps} reps across {routine.length} exercises · 🔥 {kcal} kcal burned. Great work — same time tomorrow?
           </div>
+          {/* Post-workout heart check — camera rPPG needs stillness, so the
+              done screen (user standing, catching breath) is the honest spot. */}
+          <HeartCheck videoRef={videoRef} landmarksRef={landmarksRef} />
           <button className="exr-cta" onClick={restart}>Go again</button>
           {customRoutine && (
             <button

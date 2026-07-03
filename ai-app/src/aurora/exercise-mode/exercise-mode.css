@@ -508,3 +508,19 @@
 }
 .exr-fall-title { font-size: 22px; font-weight: 800; }
 .exr-fall-sub { font-size: 14px; color: #ffd9dd; max-width: 320px; }
+
+/* ═══════════ POST-WORKOUT HEART CHECK — exr-heart ═══════════ */
+.exr-heart {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 18px;
+  border: 1px solid rgba(255, 143, 163, 0.35);
+  border-radius: 14px;
+  background: rgba(255, 143, 163, 0.08);
+}
+.exr-heart-bpm { font-size: 40px; font-weight: 800; color: #ff8fa3; line-height: 1; }
+.exr-heart-bpm span { font-size: 15px; color: #ffd3db; font-weight: 700; }
+.exr-heart-hint { font-size: 13px; color: #ffd9dd; }
+.exr-heart-note { font-size: 10.5px; color: #c9a3ab; font-style: italic; }

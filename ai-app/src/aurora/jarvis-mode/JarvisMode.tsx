@@ -40,6 +40,7 @@ import { renderMarkdown } from "../auroraMarkdown";
 const MapDive = lazy(() => import("./MapDive"));
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
+import { SenseHud } from "./SenseHud";
 import type { ViewerHandCursor } from "../../jarvis/explode";
 import "./jarvis-mode.css";
 
@@ -253,6 +254,11 @@ export function JarvisMode({
   const [lab, setLab] = useState(false);
   const labRef = useRef(false);
   labRef.current = lab;
+  // SENSE HUD — the ruview-style sensing layer (object detection + vitals
+  // panels over the live feed). ON by default (founder: sensing belongs IN
+  // the camera, not in separate boxes); the SCAN toggle turns it off, which
+  // unmounts the detector entirely (GPU back to hands-only).
+  const [senseOn, setSenseOn] = useState(true);
 
   const [windows, setWindows] = useState<HoloWindow[]>([]);
   /** Gesture cheat-sheet hidden by default (founder: "hide the moves
@@ -1990,6 +1996,11 @@ export function JarvisMode({
       {/* Layer 3 — hand skeleton + cursors + sparks */}
       <canvas ref={canvasRef} className="jarvis-cursor-canvas" aria-hidden />
 
+      {/* Layer 3.5 — SENSE HUD: ruview-style observatory (object brackets +
+          vitals + presence + radar) over the live feed. Pointer-events none,
+          so gestures and holo-tabs work straight through it. */}
+      {status === "running" && senseOn && <SenseHud videoRef={videoRef} mirrored />}
+
       {/* "+" MENU — tap empty space to summon it, tap the plus for the
           add-options. Every button here is hand-tappable (tap-bridge). */}
       {plusMenu && (
@@ -2128,6 +2139,18 @@ export function JarvisMode({
           title="Gesture lab — live pose readouts for tuning"
         >
           LAB
+        </button>
+      )}
+      {/* SCAN — toggles the SENSE HUD (object detection + vitals panels).
+          Off unmounts the detector so the GPU goes back to hands-only. */}
+      {status === "running" && (
+        <button
+          type="button"
+          className={`jarvis-scan-toggle${senseOn ? " is-on" : ""}`}
+          onClick={() => setSenseOn((v) => !v)}
+          title={senseOn ? "Sensing HUD on — tap to hide" : "Sensing HUD off — tap to scan the room"}
+        >
+          SCAN
         </button>
       )}
       {/* Camera-only toggle — "a mute if I only want to use the video

@@ -35,17 +35,22 @@ export interface VitalsEstimate {
 
 const FS = 30; // uniform resample rate (Hz)
 const BUFFER_S = 30; // keep at most 30s of samples
-const MIN_HR_S = 10; // need ≥10s before estimating heart rate
+const MIN_HR_S = 8; // need ≥8s before estimating heart rate
 const MIN_BR_S = 18; // breathing is slower — need ≥18s
 export const HR_MIN_BPM = 42;
 export const HR_MAX_BPM = 180;
 export const BR_MIN_BRPM = 6;
 export const BR_MAX_BRPM = 30;
-// Peak/mean lock thresholds. NOT arbitrary: scanning N bins of pure noise
-// yields an expected max/mean around ln(N) ≈ 4.9 (extreme-value statistics,
-// proven by the mirrored unit test) — so anything below ~5 would show FAKE
-// rates from noise. Real pulse signals score 15–30.
-export const HR_CONF_LOCK = 8;
+// Heart-rate lock = TWO conditions, both measured empirically (120 noise
+// seeds vs 84 synthetic pulses in the mirrored unit test):
+//   ratio — peak power / band mean. Noise medians ~4.9 (ln N extreme-value)
+//           but its tail reaches ~9, so ratio ALONE cannot separate.
+//   frac  — fraction of band energy within ±3bpm of the peak. This is the
+//           real discriminator: a pulse CONCENTRATES energy (real min ≈ 0.91)
+//           while noise SPREADS it (noise max ≈ 0.39). Lock at 0.5 sits in
+//           the gulf between them: 0/120 noise locks, 84/84 real locks.
+export const HR_RATIO_LOCK = 5.5;
+export const HR_FRAC_LOCK = 0.5;
 export const BR_CONF_LOCK = 6;
 
 /** Centered moving average; window in SAMPLES (odd works best). */
@@ -79,29 +84,38 @@ function bandPower(x: number[], fs: number, hz: number): number {
   return re * re + im * im;
 }
 
-/** Scan a frequency band, return the winning frequency + peak/mean ratio. */
+/** Scan a frequency band. Returns the winning frequency, the peak/mean
+ *  ratio, and `frac` — the share of band energy inside ±3 bins of the peak
+ *  (the concentration discriminator; see the lock-threshold comment). */
 function scanBand(
   x: number[],
   fs: number,
   loHz: number,
   hiHz: number,
   stepHz: number,
-): { hz: number; ratio: number } {
-  let bestHz = loHz;
-  let bestP = -1;
-  let sum = 0;
-  let count = 0;
+): { hz: number; ratio: number; frac: number } {
+  const powers: number[] = [];
+  const freqs: number[] = [];
   for (let f = loHz; f <= hiHz + 1e-9; f += stepHz) {
-    const p = bandPower(x, fs, f);
-    sum += p;
-    count++;
-    if (p > bestP) {
-      bestP = p;
-      bestHz = f;
-    }
+    powers.push(bandPower(x, fs, f));
+    freqs.push(f);
   }
-  const mean = sum / Math.max(1, count);
-  return { hz: bestHz, ratio: mean > 0 ? bestP / mean : 0 };
+  let bi = 0;
+  let total = 0;
+  for (let i = 0; i < powers.length; i++) {
+    total += powers[i];
+    if (powers[i] > powers[bi]) bi = i;
+  }
+  const mean = total / Math.max(1, powers.length);
+  let peakRegion = 0;
+  for (let i = Math.max(0, bi - 3); i <= Math.min(powers.length - 1, bi + 3); i++) {
+    peakRegion += powers[i];
+  }
+  return {
+    hz: freqs[bi] ?? loHz,
+    ratio: mean > 0 ? powers[bi] / mean : 0,
+    frac: total > 0 ? peakRegion / total : 0,
+  };
 }
 
 export class RppgEngine {
@@ -167,7 +181,7 @@ export class RppgEngine {
     const hrWin = hp.slice(Math.max(0, n - FS * 15));
     const hr = scanBand(hrWin, FS, HR_MIN_BPM / 60, HR_MAX_BPM / 60, 1 / 60);
     out.bpmConfidence = hr.ratio;
-    if (hr.ratio >= HR_CONF_LOCK) out.bpm = Math.round(hr.hz * 60);
+    if (hr.ratio >= HR_RATIO_LOCK && hr.frac >= HR_FRAC_LOCK) out.bpm = Math.round(hr.hz * 60);
 
     // 3 ── BREATHING: the LF baseline itself, detrended over 8s, scanned low.
     if (secs >= MIN_BR_S) {
