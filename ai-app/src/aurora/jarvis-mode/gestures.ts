@@ -186,6 +186,19 @@ export const PINCH_BLOCK_FIST = 0.5;
  *  under ~70ms. Filters the founder-reported bug where a page opened
  *  by itself the moment the camera started. */
 export const TAP_MIN_MS = 70;
+/** A pinch RELEASE must persist this long before pinch-end fires. A
+ *  1-frame tracker glitch (thumb/index landmarks jump apart for ~33ms
+ *  mid-grab) used to fire pinch-end — often classified as a TAP — then
+ *  instantly re-pinch: the founder's "it clicks by itself for no
+ *  reason". Real releases hold far past this; the ~70-100ms added to
+ *  release is imperceptible, and a grabbed tab no longer stutters
+ *  drop-and-regrab when tracking blips. */
+export const PINCH_RELEASE_MS = 70;
+/** Cursor micro-jitter deadband (normalized units): raw samples within
+ *  this radius of the smoothed cursor don't move it at all, so a
+ *  hovering hand's cursor sits rock-still instead of shimmering. Real
+ *  motion (≥ ~4px on 1080p) exits the band on the first frame. */
+export const CURSOR_DEADBAND = 0.002;
 /** Two pinch-STARTS closer together than this are tracking jitter, not
  *  an intentional double-pinch (humans can't re-pinch in 130ms). */
 export const DOUBLE_PINCH_MIN_GAP_MS = 130;
@@ -262,6 +275,12 @@ interface PerHand {
   lastPinchStartT: number;
   lastPinchStartX: number;
   lastPinchStartY: number;
+  /** When the current release (pinchDist > PINCH_OFF) began; -1 = not
+   *  releasing. The pinch only ends after PINCH_RELEASE_MS of this. */
+  releaseSince: number;
+  /** Whether the PREVIOUS pinch ended as a clean tap — double-pinch only
+   *  arms after a real tap, never after a grab-move-drop. */
+  lastPinchWasTap: boolean;
   /** Palm-velocity EMA (units/sec). */
   vx: number;
   vy: number;
@@ -317,6 +336,8 @@ function freshHand(): PerHand {
     lastPinchStartT: -1e9,
     lastPinchStartX: 0,
     lastPinchStartY: 0,
+    releaseSince: -1,
+    lastPinchWasTap: false,
     vx: 0,
     vy: 0,
     px: -1,
@@ -479,7 +500,9 @@ export class GestureEngine {
       if (s.cx < 0) {
         s.cx = rawX;
         s.cy = rawY;
-      } else {
+      } else if (Math.hypot(rawX - s.cx, rawY - s.cy) > CURSOR_DEADBAND) {
+        // Deadband: sub-jitter samples don't move the cursor at all — a
+        // hovering hand reads rock-steady instead of shimmering.
         s.cx += alpha * (rawX - s.cx);
         s.cy += alpha * (rawY - s.cy);
       }
@@ -517,6 +540,7 @@ export class GestureEngine {
         // Still warming up — hold the state machine released so the first
         // post-warm-up frame starts clean. No events of any kind.
         s.pinching = false;
+        s.releaseSince = -1;
       } else if (
         !s.pinching &&
         pinchDist < PINCH_ON &&
@@ -554,7 +578,15 @@ export class GestureEngine {
         const moveSinceLast = Math.hypot(s.cx - s.lastPinchStartX, s.cy - s.lastPinchStartY);
         if (sinceLast < DOUBLE_PINCH_MIN_GAP_MS) {
           /* flicker — keep the existing anchor */
-        } else if (sinceLast < DOUBLE_PINCH_MS && moveSinceLast < DOUBLE_PINCH_MAX_MOVE) {
+        } else if (
+          sinceLast < DOUBLE_PINCH_MS &&
+          moveSinceLast < DOUBLE_PINCH_MAX_MOVE &&
+          // TAP-GATED: the previous pinch must have ended as a clean TAP.
+          // A short grab-move-drop followed by a quick re-grab used to
+          // read as "double-pinch" and spawn a chooser out of nowhere
+          // (founder: "double click for no reason").
+          s.lastPinchWasTap
+        ) {
           events.push({ type: "double-pinch", hand: hand.id, x: s.cx, y: s.cy });
           // Consume so a triple-tap doesn't fire two double-pinches.
           s.lastPinchStartT = -1e9;
@@ -563,28 +595,46 @@ export class GestureEngine {
           s.lastPinchStartX = s.cx;
           s.lastPinchStartY = s.cy;
         }
+        s.releaseSince = -1;
         events.push({ type: "pinch-start", hand: hand.id, x: s.cx, y: s.cy });
-      } else if (s.pinching && pinchDist > PINCH_OFF) {
-        s.pinching = false;
-        events.push({
-          type: "pinch-end",
-          hand: hand.id,
-          x: s.cx,
-          y: s.cy,
-          durationMs: t - s.pinchStartT,
-          moved: s.travel,
-        });
       } else if (s.pinching) {
-        const dx = s.cx - s.startX;
-        const dy = s.cy - s.startY;
-        s.travel = Math.max(s.travel, Math.hypot(dx, dy));
-        // Z-depth: EMA of size-ratio vs pinch-start. Depth stays 1 until
-        // the pinch has settled (DEPTH_MIN_PINCH_MS) — early frames are
-        // noisy while the fingers close.
-        if (s.grabSize > 0 && handSize >= 0.02 && t - s.pinchStartT >= DEPTH_MIN_PINCH_MS) {
-          s.sizeEma += 0.25 * (handSize / s.grabSize - s.sizeEma);
+        // SUSTAINED RELEASE: a single past-OFF frame is a tracker glitch,
+        // not an open hand — the release must HOLD for PINCH_RELEASE_MS
+        // before the pinch ends. Dipping back under OFF cancels it and
+        // the drag continues seamlessly (no phantom tap, no drop-regrab).
+        if (pinchDist > PINCH_OFF) {
+          if (s.releaseSince < 0) s.releaseSince = t;
+        } else {
+          s.releaseSince = -1;
         }
-        events.push({ type: "pinch-move", hand: hand.id, x: s.cx, y: s.cy, dx, dy, depth: s.sizeEma });
+        if (s.releaseSince >= 0 && t - s.releaseSince >= PINCH_RELEASE_MS) {
+          s.pinching = false;
+          // Duration runs to the moment the fingers actually opened — the
+          // confirmation window is bookkeeping, not contact time.
+          const durationMs = Math.max(0, s.releaseSince - s.pinchStartT);
+          s.lastPinchWasTap =
+            durationMs >= TAP_MIN_MS && durationMs < TAP_MAX_MS && s.travel < TAP_MAX_MOVE;
+          s.releaseSince = -1;
+          events.push({
+            type: "pinch-end",
+            hand: hand.id,
+            x: s.cx,
+            y: s.cy,
+            durationMs,
+            moved: s.travel,
+          });
+        } else {
+          const dx = s.cx - s.startX;
+          const dy = s.cy - s.startY;
+          s.travel = Math.max(s.travel, Math.hypot(dx, dy));
+          // Z-depth: EMA of size-ratio vs pinch-start. Depth stays 1 until
+          // the pinch has settled (DEPTH_MIN_PINCH_MS) — early frames are
+          // noisy while the fingers close.
+          if (s.grabSize > 0 && handSize >= 0.02 && t - s.pinchStartT >= DEPTH_MIN_PINCH_MS) {
+            s.sizeEma += 0.25 * (handSize / s.grabSize - s.sizeEma);
+          }
+          events.push({ type: "pinch-move", hand: hand.id, x: s.cx, y: s.cy, dx, dy, depth: s.sizeEma });
+        }
       }
 
       // ── Swipes: open palm only (pinching = dragging, never a swipe;
@@ -703,6 +753,9 @@ export class GestureEngine {
       const s = this.hands[id];
       if (!s.seen && s.pinching) {
         s.pinching = false;
+        s.releaseSince = -1;
+        // A vanished hand is never a deliberate tap — don't arm double-pinch.
+        s.lastPinchWasTap = false;
         events.push({
           type: "pinch-end",
           hand: id,

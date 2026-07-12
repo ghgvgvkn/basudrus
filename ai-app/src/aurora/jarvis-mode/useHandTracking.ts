@@ -250,6 +250,15 @@ export function useHandTracking(active: boolean): HandTracking {
       //      stop pretending: flip to the error overlay, whose Try-again
       //      rebuilds the whole pipeline.
       let consecutiveFailures = 0;
+      // ── Identity continuity ── MediaPipe's per-frame handedness label
+      // flips easily (palm turns, crossed hands, motion blur); trusting it
+      // every frame SWAPPED the Left/Right state machines mid-gesture —
+      // cursors teleported and grabs jumped hands (founder: "switching
+      // from left to right"). An id now FOLLOWS the physical hand: each
+      // detection is matched to last frame's palm positions first; the
+      // MediaPipe label only seeds hands we haven't seen recently.
+      const prevPos: Partial<Record<"Left" | "Right", { x: number; y: number; t: number }>> = {};
+      const PREV_TTL_MS = 600;
       const loop = () => {
         if (cancelled) return;
         const now = performance.now();
@@ -266,28 +275,82 @@ export function useHandTracking(active: boolean): HandTracking {
               landmarks?: Array<Array<{ x: number; y: number }>>;
               handedness?: Array<Array<{ categoryName?: string }>>;
             };
-            const hands: HandFrame["hands"] = [];
+            // Collect detections first (mirrored landmarks + palm anchor +
+            // MediaPipe's screen-space label kept only as the seed).
+            const dets: Array<{
+              mp: "Left" | "Right";
+              x: number;
+              y: number;
+              landmarks: Array<{ x: number; y: number }>;
+            }> = [];
             const lms = res.landmarks ?? [];
-            for (let i = 0; i < lms.length && hands.length < 2; i++) {
+            for (let i = 0; i < lms.length && dets.length < 2; i++) {
               const raw = lms[i];
               if (!raw || raw.length < 21) continue;
               // Image-perspective label; swapped + mirrored for screen space.
               const imageLabel = res.handedness?.[i]?.[0]?.categoryName === "Left" ? "Left" : "Right";
-              let screenId: "Left" | "Right" = imageLabel === "Left" ? "Right" : "Left";
-              // One hand per id. MediaPipe sometimes labels BOTH hands
-              // the same — and a phantom detection can steal the label
-              // first, which used to DROP the user's real hand here
-              // (telemetry said HANDS 1 while the visible hand had no
-              // skeleton and no gestures). The second hand is still a
-              // hand: give it the free slot instead.
-              if (hands.some((h) => h.id === screenId)) {
-                screenId = screenId === "Left" ? "Right" : "Left";
-                if (hands.some((h) => h.id === screenId)) continue; // both taken
-              }
-              hands.push({
-                id: screenId,
-                landmarks: raw.map((p) => ({ x: 1 - p.x, y: p.y })),
+              const mp: "Left" | "Right" = imageLabel === "Left" ? "Right" : "Left";
+              const landmarks = raw.map((p) => ({ x: 1 - p.x, y: p.y }));
+              // Palm anchor ≈ wrist↔middle-MCP midpoint — stable under
+              // finger motion, moves with the whole hand.
+              dets.push({
+                mp,
+                x: (landmarks[0].x + landmarks[9].x) / 2,
+                y: (landmarks[0].y + landmarks[9].y) / 2,
+                landmarks,
               });
+            }
+
+            // Expire anchors of hands not seen recently — after a real
+            // absence the MediaPipe label re-seeds identity.
+            for (const id of ["Left", "Right"] as const) {
+              const p = prevPos[id];
+              if (p && now - p.t > PREV_TTL_MS) delete prevPos[id];
+            }
+
+            // Assign ids: continuity with last frame's anchors wins; a
+            // missing anchor costs a neutral 0.5 so real proximity always
+            // dominates. Only fully-fresh hands trust MediaPipe labels
+            // (with the old both-labeled-the-same dedupe — a phantom
+            // detection stealing the label used to DROP the real hand).
+            const cost = (d: { x: number; y: number }, id: "Left" | "Right") => {
+              const p = prevPos[id];
+              return p ? Math.hypot(d.x - p.x, d.y - p.y) : 0.5;
+            };
+            const hands: HandFrame["hands"] = [];
+            if (dets.length === 1) {
+              const det = dets[0];
+              const id: "Left" | "Right" =
+                !prevPos.Left && !prevPos.Right
+                  ? det.mp
+                  : cost(det, "Left") <= cost(det, "Right")
+                    ? "Left"
+                    : "Right";
+              hands.push({ id, landmarks: det.landmarks });
+            } else if (dets.length === 2) {
+              const [a, b] = dets;
+              if (!prevPos.Left && !prevPos.Right) {
+                const aId = a.mp;
+                const bId: "Left" | "Right" =
+                  b.mp === aId ? (aId === "Left" ? "Right" : "Left") : b.mp;
+                hands.push({ id: aId, landmarks: a.landmarks });
+                hands.push({ id: bId, landmarks: b.landmarks });
+              } else {
+                // Pick the pairing with the smaller total anchor distance.
+                const costLR = cost(a, "Left") + cost(b, "Right");
+                const costRL = cost(a, "Right") + cost(b, "Left");
+                const aId: "Left" | "Right" = costLR <= costRL ? "Left" : "Right";
+                hands.push({ id: aId, landmarks: a.landmarks });
+                hands.push({ id: aId === "Left" ? "Right" : "Left", landmarks: b.landmarks });
+              }
+            }
+            // Refresh anchors for the ids just assigned.
+            for (const h of hands) {
+              prevPos[h.id] = {
+                x: (h.landmarks[0].x + h.landmarks[9].x) / 2,
+                y: (h.landmarks[0].y + h.landmarks[9].y) / 2,
+                t: now,
+              };
             }
             landmarksRef.current = { hands, t: now };
             detectCostMs += 0.2 * (performance.now() - now - detectCostMs);

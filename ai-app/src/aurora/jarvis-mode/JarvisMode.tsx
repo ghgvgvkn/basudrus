@@ -40,7 +40,6 @@ import { renderMarkdown } from "../auroraMarkdown";
 const MapDive = lazy(() => import("./MapDive"));
 import { GestureEngine, HAND_WARMUP_MS, isTap, type CursorState, type GestureEvent } from "./gestures";
 import { useHandTracking } from "./useHandTracking";
-import { SenseHud } from "./SenseHud";
 import type { ViewerHandCursor } from "../../jarvis/explode";
 import "./jarvis-mode.css";
 
@@ -254,17 +253,25 @@ export function JarvisMode({
   const [lab, setLab] = useState(false);
   const labRef = useRef(false);
   labRef.current = lab;
-  // SENSE HUD — the ruview-style sensing layer (object detection + vitals
-  // panels over the live feed). ON by default (founder: sensing belongs IN
-  // the camera, not in separate boxes); the SCAN toggle turns it off, which
-  // unmounts the detector entirely (GPU back to hands-only).
-  const [senseOn, setSenseOn] = useState(true);
-
   const [windows, setWindows] = useState<HoloWindow[]>([]);
-  /** Gesture cheat-sheet hidden by default (founder: "hide the moves
-   *  of the hand — the user should automatically know it"); the INFO
-   *  pill toggles it for whoever needs the reminder. */
-  const [showGuide, setShowGuide] = useState(false);
+  /** Gesture cheat-sheet: auto-open exactly ONCE for a brand-new user,
+   *  then never again on refresh/re-entry (founder: "if I am a new user
+   *  only show me once"). The ⓘ SHORTCUTS pill still toggles it manually
+   *  for whoever needs the reminder. */
+  const [showGuide, setShowGuide] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("jarvis-guide-seen") !== "1";
+    } catch {
+      return false; // private mode — never auto-show rather than always
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("jarvis-guide-seen", "1");
+    } catch {
+      /* private mode — the guide will auto-show again next time, harmless */
+    }
+  }, []);
   /** SAVE DOCK (founder's Tab 1/Tab 2 mockup): drag a tab off the
    *  RIGHT edge and it tucks into this stack instead of dying; tap a
    *  card to bring it back. LEFT edge stays the delete. PERSISTED —
@@ -1996,11 +2003,6 @@ export function JarvisMode({
       {/* Layer 3 — hand skeleton + cursors + sparks */}
       <canvas ref={canvasRef} className="jarvis-cursor-canvas" aria-hidden />
 
-      {/* Layer 3.5 — SENSE HUD: ruview-style observatory (object brackets +
-          vitals + presence + radar) over the live feed. Pointer-events none,
-          so gestures and holo-tabs work straight through it. */}
-      {status === "running" && senseOn && <SenseHud videoRef={videoRef} mirrored />}
-
       {/* "+" MENU — tap empty space to summon it, tap the plus for the
           add-options. Every button here is hand-tappable (tap-bridge). */}
       {plusMenu && (
@@ -2139,18 +2141,6 @@ export function JarvisMode({
           title="Gesture lab — live pose readouts for tuning"
         >
           LAB
-        </button>
-      )}
-      {/* SCAN — toggles the SENSE HUD (object detection + vitals panels).
-          Off unmounts the detector so the GPU goes back to hands-only. */}
-      {status === "running" && (
-        <button
-          type="button"
-          className={`jarvis-scan-toggle${senseOn ? " is-on" : ""}`}
-          onClick={() => setSenseOn((v) => !v)}
-          title={senseOn ? "Sensing HUD on — tap to hide" : "Sensing HUD off — tap to scan the room"}
-        >
-          SCAN
         </button>
       )}
       {/* Camera-only toggle — "a mute if I only want to use the video
