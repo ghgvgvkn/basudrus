@@ -253,25 +253,12 @@ export function JarvisMode({
   const [lab, setLab] = useState(false);
   const labRef = useRef(false);
   labRef.current = lab;
+
   const [windows, setWindows] = useState<HoloWindow[]>([]);
-  /** Gesture cheat-sheet: auto-open exactly ONCE for a brand-new user,
-   *  then never again on refresh/re-entry (founder: "if I am a new user
-   *  only show me once"). The ⓘ SHORTCUTS pill still toggles it manually
-   *  for whoever needs the reminder. */
-  const [showGuide, setShowGuide] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("jarvis-guide-seen") !== "1";
-    } catch {
-      return false; // private mode — never auto-show rather than always
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem("jarvis-guide-seen", "1");
-    } catch {
-      /* private mode — the guide will auto-show again next time, harmless */
-    }
-  }, []);
+  /** Gesture cheat-sheet hidden by default (founder: "hide the moves
+   *  of the hand — the user should automatically know it"); the INFO
+   *  pill toggles it for whoever needs the reminder. */
+  const [showGuide, setShowGuide] = useState(false);
   /** SAVE DOCK (founder's Tab 1/Tab 2 mockup): drag a tab off the
    *  RIGHT edge and it tucks into this stack instead of dying; tap a
    *  card to bring it back. LEFT edge stays the delete. PERSISTED —

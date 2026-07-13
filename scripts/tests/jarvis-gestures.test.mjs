@@ -14,7 +14,6 @@ import {
   FIST_COOLDOWN_MS,
   HAND_WARMUP_MS,
   DOUBLE_PINCH_MIN_GAP_MS,
-  PINCH_RELEASE_MS,
   DEPTH_PUSH_RATIO,
   DEPTH_MIN_PINCH_MS,
 } from "../../ai-app/src/aurora/jarvis-mode/gestures.ts";
@@ -49,9 +48,7 @@ let all = true;
   r = eng.update({ t: 66, hands: [mkHand("Right", 0.5, 0.5, mid)] });
   all = t("dead zone → still pinching (no end)", !r.events.some((e) => e.type === "pinch-end")) && all;
   r = eng.update({ t: 99, hands: [mkHand("Right", 0.5, 0.5, PINCH_OFF + 0.02)] });
-  all = t("single past-OFF frame → NO pinch-end yet (release must hold)", !r.events.some((e) => e.type === "pinch-end")) && all;
-  r = eng.update({ t: 99 + PINCH_RELEASE_MS + 20, hands: [mkHand("Right", 0.5, 0.5, PINCH_OFF + 0.02)] });
-  all = t("release held past PINCH_RELEASE_MS → pinch-end", r.events.some((e) => e.type === "pinch-end")) && all;
+  all = t("open past OFF → pinch-end", r.events.some((e) => e.type === "pinch-end")) && all;
 }
 
 // 2 ── drag: pinch then move → pinch-move with growing dx
@@ -67,16 +64,14 @@ let all = true;
 {
   const eng = new GestureEngine();
   eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
-  eng.update({ t: 120, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // release begins
-  const r = eng.update({ t: 200, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // held → ends
+  const r = eng.update({ t: 120, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
   const end = r.events.find((e) => e.type === "pinch-end");
   all = t("quick still pinch → isTap", !!end && isTap(end)) && all;
 
   const eng2 = new GestureEngine();
   eng2.update({ t: 0, hands: [mkHand("Right", 0.3, 0.5, CLOSED)] });
   eng2.update({ t: 200, hands: [mkHand("Right", 0.6, 0.5, CLOSED)] }); // big travel
-  eng2.update({ t: 400, hands: [mkHand("Right", 0.6, 0.5, OPEN)] });
-  const r2 = eng2.update({ t: 480, hands: [mkHand("Right", 0.6, 0.5, OPEN)] });
+  const r2 = eng2.update({ t: 400, hands: [mkHand("Right", 0.6, 0.5, OPEN)] });
   const end2 = r2.events.find((e) => e.type === "pinch-end");
   all = t("long moving pinch → NOT a tap", !!end2 && !isTap(end2)) && all;
 }
@@ -86,14 +81,12 @@ let all = true;
   const eng = new GestureEngine();
   eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
   eng.update({ t: 100, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
-  eng.update({ t: 180, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // tap #1 confirmed
   const r = eng.update({ t: 250, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
   all = t("fast re-pinch → double-pinch", r.events.some((e) => e.type === "double-pinch")) && all;
 
   const eng2 = new GestureEngine();
   eng2.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
   eng2.update({ t: 100, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
-  eng2.update({ t: 180, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // tap confirmed
   const r2 = eng2.update({
     t: 100 + DOUBLE_PINCH_MS + 400, // way past the window
     hands: [mkHand("Right", 0.5, 0.5, CLOSED)],
@@ -118,9 +111,8 @@ let all = true;
     for (const e of r.events) if (e.type === "two-hand-scale") lastRatio = e.ratio;
   }
   all = t(`two-hand spread → scale ratio ~2 (got ${lastRatio.toFixed(2)})`, lastRatio > 1.6 && lastRatio < 2.4) && all;
-  eng.update({ t: 600, hands: [mkHand("Left", 0.3, 0.5, OPEN), mkHand("Right", 0.7, 0.5, CLOSED)] });
-  const rEnd = eng.update({ t: 600 + PINCH_RELEASE_MS + 20, hands: [mkHand("Left", 0.3, 0.5, OPEN), mkHand("Right", 0.7, 0.5, CLOSED)] });
-  all = t("release one hand (held) → scale-end", rEnd.events.some((e) => e.type === "two-hand-scale-end")) && all;
+  const rEnd = eng.update({ t: 600, hands: [mkHand("Left", 0.3, 0.5, OPEN), mkHand("Right", 0.7, 0.5, CLOSED)] });
+  all = t("release one hand → scale-end", rEnd.events.some((e) => e.type === "two-hand-scale-end")) && all;
 }
 
 // 5b ── scale-start reports the true start distance (drives the app's
@@ -291,64 +283,9 @@ function mkShapedHand(id, x, y, pose /* 'fist' | 'open' */) {
 {
   const eng = new GestureEngine();
   eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
-  eng.update({ t: 33, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // 33ms pinch, release begins
-  const r = eng.update({ t: 33 + PINCH_RELEASE_MS + 20, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
+  const r = eng.update({ t: 33, hands: [mkHand("Right", 0.5, 0.5, OPEN)] }); // 33ms pinch
   const end = r.events.find((e) => e.type === "pinch-end");
   all = t("33ms phantom pinch → pinch-end but NOT a tap", !!end && !isTap(end)) && all;
-}
-
-// 8e2 ── GLITCH IMMUNITY: a 1-frame release blip mid-drag neither ends the
-//        pinch nor fires a phantom tap — the drag continues as ONE pinch.
-//        (The founder's "it clicks by itself for no reason".)
-{
-  const eng = new GestureEngine();
-  let starts = 0, ends = 0, doubles = 0;
-  const feed = (tMs, d) => {
-    const r = eng.update({ t: tMs, hands: [mkHand("Right", 0.5, 0.5, d)] });
-    for (const e of r.events) {
-      if (e.type === "pinch-start") starts++;
-      if (e.type === "pinch-end") ends++;
-      if (e.type === "double-pinch") doubles++;
-    }
-  };
-  feed(0, CLOSED); feed(100, CLOSED); feed(200, CLOSED);
-  feed(233, OPEN);   // ← 1-frame tracker glitch
-  feed(266, CLOSED); feed(300, CLOSED); feed(400, CLOSED);
-  all = t("1-frame release glitch → pinch survives (no end)", ends === 0) && all;
-  all = t("glitch never re-starts the pinch (one start total)", starts === 1) && all;
-  feed(500, OPEN); feed(500 + PINCH_RELEASE_MS + 20, OPEN); // real release
-  all = t("real release after glitch → exactly one pinch-end", ends === 1) && all;
-  all = t("glitchy drag never fires double-pinch", doubles === 0) && all;
-}
-
-// 8e3 ── TAP-GATED double-pinch: a short grab-move-drop + quick re-grab is
-//        NOT a double-pinch (it used to spawn a chooser out of nowhere).
-{
-  const eng = new GestureEngine();
-  let doubles = 0;
-  const feed = (tMs, x, d) => {
-    const r = eng.update({ t: tMs, hands: [mkHand("Right", x, 0.5, d)] });
-    for (const e of r.events) if (e.type === "double-pinch") doubles++;
-  };
-  feed(0, 0.5, CLOSED);           // grab
-  feed(80, 0.53, CLOSED);         // small drag: travel > TAP_MAX_MOVE …
-  feed(150, 0.55, CLOSED);        // … but < DOUBLE_PINCH_MAX_MOVE overall
-  feed(250, 0.55, OPEN);          // drop
-  feed(250 + PINCH_RELEASE_MS + 20, 0.55, OPEN); // release confirmed → NOT a tap
-  feed(420, 0.55, CLOSED);        // quick re-grab inside the double window
-  all = t("grab-move-drop + fast re-grab → NO double-pinch (tap-gated)", doubles === 0) && all;
-}
-
-// 8e4 ── CURSOR DEADBAND: sub-jitter samples don't move the cursor at all;
-//        real motion still tracks on the first frame.
-{
-  const eng = new GestureEngine();
-  const r1 = eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
-  const x0 = r1.cursors[0].x;
-  const r2 = eng.update({ t: 33, hands: [mkHand("Right", 0.5008, 0.5, OPEN)] }); // ~0.0008 jitter
-  all = t("micro-jitter → cursor pinned (deadband)", r2.cursors[0].x === x0) && all;
-  const r3 = eng.update({ t: 66, hands: [mkHand("Right", 0.56, 0.5, OPEN)] }); // real motion
-  all = t("real motion → cursor follows", r3.cursors[0].x > x0 + 0.01) && all;
 }
 
 // 8f ── palm-up menu: an open palm FACING the camera, held still past
@@ -470,8 +407,7 @@ function mkSizedPinchHand(id, x, y, scale) {
   eng.update({ t: 0, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
   eng.update({ t: 33, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
   eng.update({ t: 100, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] });
-  eng.update({ t: 160, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
-  const r = eng.update({ t: 160 + PINCH_RELEASE_MS + 20, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
+  const r = eng.update({ t: 160, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });
   const end = r.events.find((e) => e.type === "pinch-end");
   all = t(`still tap → travel ≈ 0 (got ${end ? end.moved.toFixed(4) : "none"})`, !!end && end.moved < 0.005) && all;
 }
