@@ -92,6 +92,26 @@ let all = true;
     hands: [mkHand("Right", 0.5, 0.5, CLOSED)],
   });
   all = t("slow re-pinch → no double-pinch", !r2.events.some((e) => e.type === "double-pinch")) && all;
+
+  // Anti-accidental-spawn (founder: "a tab appears for no reason"): a pinch
+  // that WANDERED and came back is a drag, NOT a clean tap, so it must not
+  // arm a double-pinch — the next nearby pinch used to spawn a tab. Old
+  // logic keyed on pinch-START proximity + fired here; the tap-gated logic
+  // requires a clean low-travel tap first, so this is now silent.
+  const eng3 = new GestureEngine();
+  eng3.update({ t: 0,   hands: [mkHand("Right", 0.5, 0.5, CLOSED)] }); // grab
+  eng3.update({ t: 50,  hands: [mkHand("Right", 0.66, 0.5, CLOSED)] }); // drag out (travel)
+  eng3.update({ t: 100, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] }); // drag back to start
+  eng3.update({ t: 150, hands: [mkHand("Right", 0.5, 0.5, OPEN)] });   // release — not a tap
+  const r3 = eng3.update({ t: 300, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] }); // re-pinch nearby
+  all = t("wander-then-release does NOT arm a spawn", !r3.events.some((e) => e.type === "double-pinch")) && all;
+
+  // ...but a genuine DOUBLE-TAP (two clean taps, same spot) still fires it.
+  const eng4 = new GestureEngine();
+  eng4.update({ t: 0,   hands: [mkHand("Right", 0.5, 0.5, CLOSED)] }); // tap 1 down
+  eng4.update({ t: 90,  hands: [mkHand("Right", 0.5, 0.5, OPEN)] });   // tap 1 up (90ms tap)
+  const r4 = eng4.update({ t: 260, hands: [mkHand("Right", 0.5, 0.5, CLOSED)] }); // tap 2 down
+  all = t("clean double-tap still fires double-pinch", r4.events.some((e) => e.type === "double-pinch")) && all;
 }
 
 // 5 ── two-hand scale: both pinch, spread apart → ratio grows ≈ 2x

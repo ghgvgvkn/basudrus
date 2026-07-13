@@ -258,10 +258,12 @@ interface PerHand {
   pinchStartT: number;
   /** Total travel during the current pinch. */
   travel: number;
-  /** Last pinch-START time, for double-pinch detection. */
-  lastPinchStartT: number;
-  lastPinchStartX: number;
-  lastPinchStartY: number;
+  /** Last completed TAP (down→up). Double-pinch fires when a second pinch
+   *  starts quickly + near a FRESH tap — a real double-tap. Keying on a
+   *  completed tap (not two pinch-STARTS) stops jitter faking a spawn. */
+  lastTapEndT: number;
+  lastTapEndX: number;
+  lastTapEndY: number;
   /** Palm-velocity EMA (units/sec). */
   vx: number;
   vy: number;
@@ -314,9 +316,9 @@ function freshHand(): PerHand {
     startY: 0,
     pinchStartT: 0,
     travel: 0,
-    lastPinchStartT: -1e9,
-    lastPinchStartX: 0,
-    lastPinchStartY: 0,
+    lastTapEndT: -1e9,
+    lastTapEndX: 0,
+    lastTapEndY: 0,
     vx: 0,
     vy: 0,
     px: -1,
@@ -546,32 +548,44 @@ export class GestureEngine {
         s.grabSize = handSize >= 0.02 ? handSize : -1;
         s.sizeEma = 1;
 
-        // Double-pinch: a second start close (time AND space) to the last.
-        // A re-pinch under DOUBLE_PINCH_MIN_GAP_MS is tracking flicker —
-        // humans can't physically re-pinch that fast — so it neither fires
-        // nor moves the anchor (the flicker is "the same pinch").
-        const sinceLast = t - s.lastPinchStartT;
-        const moveSinceLast = Math.hypot(s.cx - s.lastPinchStartX, s.cy - s.lastPinchStartY);
-        if (sinceLast < DOUBLE_PINCH_MIN_GAP_MS) {
-          /* flicker — keep the existing anchor */
-        } else if (sinceLast < DOUBLE_PINCH_MS && moveSinceLast < DOUBLE_PINCH_MAX_MOVE) {
+        // Double-pinch = a real DOUBLE-TAP: a quick tap (down→up, recorded
+        // in the pinch-END branch below) immediately followed by THIS second
+        // pinch near the same spot. Gating on a COMPLETED tap — not two
+        // closely-spaced pinch-STARTS — is what kills "a tab appears for no
+        // reason": a trembling hand oscillates the thumb↔index gap across
+        // the threshold, but that jitter never produces a clean sub-380ms
+        // tap release, so it can never arm a double-tap. The min-gap still
+        // rejects a re-pinch too fast to be a deliberate second tap.
+        const sinceTap = t - s.lastTapEndT;
+        const moveSinceTap = Math.hypot(s.cx - s.lastTapEndX, s.cy - s.lastTapEndY);
+        if (
+          s.lastTapEndT > 0 &&
+          sinceTap >= DOUBLE_PINCH_MIN_GAP_MS &&
+          sinceTap < DOUBLE_PINCH_MS &&
+          moveSinceTap < DOUBLE_PINCH_MAX_MOVE
+        ) {
           events.push({ type: "double-pinch", hand: hand.id, x: s.cx, y: s.cy });
-          // Consume so a triple-tap doesn't fire two double-pinches.
-          s.lastPinchStartT = -1e9;
-        } else {
-          s.lastPinchStartT = t;
-          s.lastPinchStartX = s.cx;
-          s.lastPinchStartY = s.cy;
+          s.lastTapEndT = -1e9; // consume so a triple-tap fires only once
         }
         events.push({ type: "pinch-start", hand: hand.id, x: s.cx, y: s.cy });
       } else if (s.pinching && pinchDist > PINCH_OFF) {
         s.pinching = false;
+        const durationMs = t - s.pinchStartT;
+        // A clean quick TAP arms a potential double-tap: the next pinch that
+        // starts soon + near here becomes the double-pinch (see pinch-start).
+        // Jitter releases are either too short (< TAP_MIN_MS) or travelled
+        // too far — neither arms it, so accidental spawns can't happen.
+        if (durationMs >= TAP_MIN_MS && durationMs < TAP_MAX_MS && s.travel < TAP_MAX_MOVE) {
+          s.lastTapEndT = t;
+          s.lastTapEndX = s.cx;
+          s.lastTapEndY = s.cy;
+        }
         events.push({
           type: "pinch-end",
           hand: hand.id,
           x: s.cx,
           y: s.cy,
-          durationMs: t - s.pinchStartT,
+          durationMs,
           moved: s.travel,
         });
       } else if (s.pinching) {
